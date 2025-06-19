@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'halom_oracle'
+    static_configs:
+      - targets: ['oracle:9090']
+    
+  - job_name: 'substrate_node'
+    static_configs:
+      - targets: ['node:9615']
+    metrics_path: /metrics 

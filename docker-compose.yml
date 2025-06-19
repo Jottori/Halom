@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  node:
+    build:
+      context: ./node
+      dockerfile: Dockerfile
+    ports:
+      - "9944:9944"
+      - "9933:9933"
+      - "30333:30333"
+      - "9615:9615"  # Prometheus metrics
+    volumes:
+      - node-data:/data
+    command: >
+      --dev
+      --ws-external
+      --rpc-external
+      --rpc-cors all
+      --prometheus-external
+      
+  oracle:
+    build:
+      context: ./oracle
+      dockerfile: Dockerfile
+    depends_on:
+      - node
+    environment:
+      - SUBSTRATE_WS_URL=ws://node:9944
+      - PORT=8000
+      - METRICS_PORT=9090
+    ports:
+      - "8000:8000"
+      - "9090:9090"  # Prometheus metrics
+    volumes:
+      - oracle-data:/app/data
+      
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    depends_on:
+      - prometheus
+      
+  ipfs:
+    image: ipfs/kubo:latest
+    ports:
+      - "4001:4001"
+      - "5001:5001"
+      - "8080:8080"
+    volumes:
+      - ipfs-data:/data/ipfs
+      
+volumes:
+  node-data:
+  oracle-data:
+  prometheus-data:
+  grafana-data:
+  ipfs-data: 

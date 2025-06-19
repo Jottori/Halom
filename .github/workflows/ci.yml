@@ -1,0 +1,126 @@
+name: Halom CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  rust-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Rust setup
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          
+      - name: Cargo cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          
+      - name: Rust tests
+        run: |
+          cd node
+          cargo test --all
+          
+      - name: Rust linting
+        run: |
+          cd node
+          cargo fmt -- --check
+          cargo clippy -- -D warnings
+          
+      - name: Security audit
+        run: |
+          cd node
+          cargo audit
+          
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Python setup
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+          
+      - name: Python cache
+        uses: actions/cache@v2
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          
+      - name: Install dependencies
+        run: |
+          cd oracle
+          pip install -r requirements.txt
+          pip install pytest pytest-cov mypy black isort safety
+          
+      - name: Python tests
+        run: |
+          cd oracle
+          pytest --cov=. --cov-report=xml
+          
+      - name: Python linting
+        run: |
+          cd oracle
+          black . --check
+          isort . --check
+          mypy .
+          
+      - name: Security check
+        run: |
+          cd oracle
+          safety check
+          
+  integration-tests:
+    needs: [rust-tests, python-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Docker setup
+        run: |
+          docker-compose build
+          
+      - name: Integration tests
+        run: |
+          docker-compose up -d
+          ./scripts/wait-for-services.sh
+          ./scripts/run-integration-tests.sh
+          docker-compose down
+          
+      - name: Performance tests
+        run: |
+          docker-compose up -d
+          ./scripts/run-performance-tests.sh
+          docker-compose down
+          
+  deploy-staging:
+    needs: integration-tests
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to staging
+        run: |
+          echo "Deploying to staging environment..."
+          # Itt jönne a staging környezet deploy logika
+          
+  deploy-production:
+    needs: integration-tests
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to production
+        run: |
+          echo "Deploying to production environment..."
+          # Itt jönne a production környezet deploy logika 
