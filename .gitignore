@@ -2,3 +2,10 @@ node_modules
 +artifacts/
 +cache/
 +nodejs-installer.msi
+
+# Build-artifacts
+artifacts/
+cache/
+
+# Windows installer
+nodejs-installer.msi
