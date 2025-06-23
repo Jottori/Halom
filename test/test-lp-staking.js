@@ -1,46 +1,48 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
-const { loadFixture } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("HalomLPStaking", function () {
     let HalomToken, halomToken, MockERC20, lpToken, HalomLPStaking, lpStaking;
     let owner, governor, rewarder, user1;
-
-    const REWARDER_ROLE = ethers.utils.id("REWARDER_ROLE");
+    let REWARDER_ROLE, MINTER_ROLE;
 
     async function deployLPStakingFixture() {
         [owner, governor, rewarder, user1] = await ethers.getSigners();
 
         // Deploy HalomToken (as reward token)
         HalomToken = await ethers.getContractFactory("HalomToken");
-        halomToken = await HalomToken.deploy(governor.address, owner.address);
-        await halomToken.deployed();
+        halomToken = await HalomToken.deploy(owner.address, governor.address); // (oracle, governor)
 
         // Deploy a mock LP token
         MockERC20 = await ethers.getContractFactory("MockERC20");
-        lpToken = await MockERC20.deploy("LP Token", "LP", ethers.utils.parseUnits("1000000", 18));
-        await lpToken.deployed();
+        lpToken = await MockERC20.deploy("LP Token", "LP", ethers.parseUnits("1000000", 18));
         
         // Deploy LP Staking contract
         HalomLPStaking = await ethers.getContractFactory("HalomLPStaking");
-        lpStaking = await HalomLPStaking.deploy(lpToken.address, halomToken.address, governor.address, rewarder.address);
-        await lpStaking.deployed();
+        lpStaking = await HalomLPStaking.deploy(lpToken.target, halomToken.target, governor.address, rewarder.address);
+
+        // Get role constants - not getters
+        REWARDER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("REWARDER_ROLE"));
+        MINTER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("DEFAULT_ADMIN_ROLE"));
+
+        // Grant MINTER_ROLE to LP staking contract for rewards
+        await halomToken.connect(governor).grantRole(MINTER_ROLE, lpStaking.target);
 
         // Prepare tokens for user
-        const lpAmount = ethers.utils.parseUnits("1000", 18);
+        const lpAmount = ethers.parseUnits("1000", 18);
         await lpToken.transfer(user1.address, lpAmount);
-        await lpToken.connect(user1).approve(lpStaking.address, lpAmount);
+        await lpToken.connect(user1).approve(lpStaking.target, lpAmount);
 
         // Prepare reward tokens
-        const rewardAmount = ethers.utils.parseUnits("5000", 18);
+        const rewardAmount = ethers.parseUnits("5000", 18);
         await halomToken.connect(governor).mint(rewarder.address, rewardAmount);
-        await halomToken.connect(rewarder).approve(lpStaking.address, rewardAmount);
+        await halomToken.connect(rewarder).approve(lpStaking.target, rewardAmount);
 
         return { halomToken, lpToken, lpStaking, rewarder, user1, lpAmount, rewardAmount };
     }
 
     it("Should allow a user to stake and receive rewards", async function () {
-        const { halomToken, lpStaking, rewarder, user1, lpAmount, rewardAmount } = await loadFixture(deployLPStakingFixture);
+        const { halomToken, lpStaking, rewarder, user1, lpAmount, rewardAmount } = await deployLPStakingFixture();
 
         // 1. User stakes LP tokens
         await expect(lpStaking.connect(user1).stake(lpAmount))
@@ -66,7 +68,7 @@ describe("HalomLPStaking", function () {
     });
 
     it("Should revert if a non-rewarder tries to add rewards", async function () {
-        const { lpStaking, user1, rewardAmount } = await loadFixture(deployLPStakingFixture);
+        const { lpStaking, user1, rewardAmount } = await deployLPStakingFixture();
         await expect(lpStaking.connect(user1).addRewards(rewardAmount))
             .to.be.reverted;
     });

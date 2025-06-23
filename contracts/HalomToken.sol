@@ -94,18 +94,22 @@ contract HalomToken is IHalomToken, ERC20, AccessControl {
         _burn(account, amount);
     }
 
+    function mint(address to, uint256 amount) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _mint(to, amount);
+    }
+
     // --- Overrides for rebase token ---
 
-    function totalSupply() public view override returns (uint256) {
+    function totalSupply() public view override(ERC20, IERC20) returns (uint256) {
         return _totalSupply;
     }
 
-    function balanceOf(address account) public view override returns (uint256) {
+    function balanceOf(address account) public view override(ERC20, IERC20) returns (uint256) {
         if (_gonsPerFragment == 0) return 0;
         return _gonBalances[account] / _gonsPerFragment;
     }
 
-    function _transfer(address from, address to, uint256 amount) internal override {
+    function _transfer(address from, address to, uint256 amount) internal override(ERC20) {
         require(from != address(0), "ERC20: transfer from the zero address");
         require(to != address(0), "ERC20: transfer to the zero address");
 
@@ -116,7 +120,7 @@ contract HalomToken is IHalomToken, ERC20, AccessControl {
         emit Transfer(from, to, amount);
     }
 
-    function _mint(address account, uint256 amount) internal override {
+    function _mint(address account, uint256 amount) internal override(ERC20) {
         require(account != address(0), "ERC20: mint to the zero address");
         
         _totalSupply += amount;
@@ -130,7 +134,7 @@ contract HalomToken is IHalomToken, ERC20, AccessControl {
         emit Transfer(address(0), account, amount);
     }
 
-    function _burn(address account, uint256 amount) internal override {
+    function _burn(address account, uint256 amount) internal override(ERC20) {
         require(account != address(0), "ERC20: burn from the zero address");
 
         _totalSupply -= amount;

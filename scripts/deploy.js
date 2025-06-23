@@ -19,44 +19,39 @@ async function main() {
 
     // 1. Deploy HalomToken
     const HalomToken = await ethers.getContractFactory("HalomToken");
-    const halomToken = await HalomToken.deploy(governor.address, ethers.constants.AddressZero); // rebaseCaller set later
-    await halomToken.deployed();
+    const halomToken = await HalomToken.deploy(deployer.address, governor.address); // Oracle address, governor
     console.log("HalomToken deployed to:", halomToken.address);
 
     // 2. Deploy HalomOracle
     const HalomOracle = await ethers.getContractFactory("HalomOracle");
     // The chainId here is for replay protection, not used in the old signature scheme
     const halomOracle = await HalomOracle.deploy(governor.address, chainId);
-    await halomOracle.deployed();
     console.log("HalomOracle deployed to:", halomOracle.address);
     
-    // 3. Deploy HalomStaking
+    // 3. Deploy HalomStaking - only 2 parameters: token and governor
     const HalomStaking = await ethers.getContractFactory("HalomStaking");
-    const halomStaking = await HalomStaking.deploy(halomToken.address, governor.address, slasher.address, rewarder.address);
-    await halomStaking.deployed();
+    const halomStaking = await HalomStaking.deploy(halomToken.address, governor.address);
     console.log("HalomStaking deployed to:", halomStaking.address);
     
     // 4. Deploy Mock LP Token (for local/testing) and HalomLPStaking
     const MockERC20 = await ethers.getContractFactory("MockERC20");
-    const mockLpToken = await MockERC20.deploy("Mock LP", "MLP", ethers.utils.parseUnits("1000000", 18));
-    await mockLpToken.deployed();
+    const mockLpToken = await MockERC20.deploy("Mock LP", "MLP", ethers.parseUnits("1000000", 18));
     console.log("Mock LP Token deployed to:", mockLpToken.address);
 
     const HalomLPStaking = await ethers.getContractFactory("HalomLPStaking");
     const lpStaking = await HalomLPStaking.deploy(mockLpToken.address, halomToken.address, governor.address, rewarder.address);
-    await lpStaking.deployed();
     console.log("HalomLPStaking deployed to:", lpStaking.address);
     
     // --- Post-deployment setup ---
     console.log("\n--- Configuring contract roles and settings ---");
 
     // Grant REBASE_CALLER role to the oracle
-    const REBASE_CALLER_ROLE = await halomToken.REBASE_CALLER_ROLE();
+    const REBASE_CALLER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("REBASE_CALLER"));
     await halomToken.connect(governor).grantRole(REBASE_CALLER_ROLE, halomOracle.address);
     console.log("Granted REBASE_CALLER_ROLE to HalomOracle");
 
     // Grant ORACLE_UPDATER_ROLE to the updater address
-    const ORACLE_UPDATER_ROLE = await halomOracle.ORACLE_UPDATER_ROLE();
+    const ORACLE_UPDATER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("ORACLE_UPDATER_ROLE"));
     await halomOracle.connect(governor).grantRole(ORACLE_UPDATER_ROLE, updater.address);
     console.log("Granted ORACLE_UPDATER_ROLE to updater address");
 
@@ -65,7 +60,7 @@ async function main() {
     console.log("Set HalomToken address in HalomOracle");
 
     // Grant MINTER_ROLE to staking contracts for rewards
-    const MINTER_ROLE = await halomToken.MINTER_ROLE();
+    const MINTER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("DEFAULT_ADMIN_ROLE"));
     await halomToken.connect(governor).grantRole(MINTER_ROLE, halomStaking.address);
     await halomToken.connect(governor).grantRole(MINTER_ROLE, lpStaking.address);
     console.log("Granted MINTER_ROLE to both staking contracts");

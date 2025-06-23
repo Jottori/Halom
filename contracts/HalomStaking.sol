@@ -3,7 +3,7 @@ pragma solidity ^0.8.2;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 interface IHalomToken is IERC20 {
     function burnFrom(address account, uint256 amount) external;
@@ -12,17 +12,26 @@ interface IHalomToken is IERC20 {
 contract HalomStaking is AccessControl, ReentrancyGuard {
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
 
+    // Lock period options
+    enum LockPeriod {
+        THREE_MONTHS,    // 3 months
+        SIX_MONTHS,      // 6 months  
+        TWELVE_MONTHS,   // 12 months
+        TWENTY_FOUR_MONTHS // 24 months
+    }
+
     IHalomToken public immutable halomToken;
     uint256 public totalStaked;
     uint256 public rewardsPerShare;
 
     // --- User-specific data ---
-    struct Stake {
+    struct UserStake {
         uint256 amount;
         uint256 rewardDebt;
         uint256 lockUntil;
+        LockPeriod lockPeriod;
     }
-    mapping(address => Stake) public stakes;
+    mapping(address => UserStake) public stakes;
 
     // --- Delegation ---
     mapping(address => address) public delegators; // delegator -> validator
@@ -33,7 +42,7 @@ contract HalomStaking is AccessControl, ReentrancyGuard {
     uint256 public lockBoostB0; // e.g., 2000 = 20% boost in basis points
     uint256 public lockBoostTMax; // e.g., 365 days
 
-    event Staked(address indexed user, uint256 amount, uint256 lockUntil);
+    event Staked(address indexed user, uint256 amount, uint256 lockUntil, LockPeriod lockPeriod);
     event Unstaked(address indexed user, uint256 amount);
     event RewardsClaimed(address indexed user, uint256 amount);
     event Delegated(address indexed delegator, address indexed validator);
@@ -49,20 +58,34 @@ contract HalomStaking is AccessControl, ReentrancyGuard {
     
     // --- Staking and Rewards ---
 
+    function stakeWithLockPeriod(uint256 amount, LockPeriod lockPeriod) external nonReentrant {
+        uint256 lockDuration = getLockDuration(lockPeriod);
+        _updateRewards(msg.sender);
+        
+        UserStake storage userStake = stakes[msg.sender];
+        userStake.amount += amount;
+        userStake.lockUntil = block.timestamp + lockDuration;
+        userStake.lockPeriod = lockPeriod;
+        totalStaked += amount;
+
+        halomToken.transferFrom(msg.sender, address(this), amount);
+        emit Staked(msg.sender, amount, userStake.lockUntil, lockPeriod);
+    }
+
     function stake(uint256 amount, uint256 lockDuration) external nonReentrant {
         _updateRewards(msg.sender);
         
-        Stake storage userStake = stakes[msg.sender];
+        UserStake storage userStake = stakes[msg.sender];
         userStake.amount += amount;
         userStake.lockUntil = block.timestamp + lockDuration;
         totalStaked += amount;
 
         halomToken.transferFrom(msg.sender, address(this), amount);
-        emit Staked(msg.sender, amount, userStake.lockUntil);
+        emit Staked(msg.sender, amount, userStake.lockUntil, LockPeriod.THREE_MONTHS); // Default
     }
 
     function unstake(uint256 amount) external nonReentrant {
-        Stake storage userStake = stakes[msg.sender];
+        UserStake storage userStake = stakes[msg.sender];
         require(block.timestamp >= userStake.lockUntil, "HalomStaking: Tokens are locked");
         require(userStake.amount >= amount, "HalomStaking: Insufficient stake");
 
@@ -96,7 +119,7 @@ contract HalomStaking is AccessControl, ReentrancyGuard {
         validatorCommission[msg.sender] = _newRate;
     }
 
-    function addRewards(uint256 amount) external {
+    function addRewards(uint256 amount) public {
         // This can only be called by the HalomToken contract, which has the STAKING_CONTRACT role.
         // Since AccessControl in this contract does not know about roles in another one,
         // a simple check on msg.sender is sufficient and gas-efficient.
@@ -107,7 +130,7 @@ contract HalomStaking is AccessControl, ReentrancyGuard {
     }
 
     function slash(address validator, uint256 amountToSlash) external onlyRole(GOVERNOR_ROLE) nonReentrant {
-        Stake storage validatorStake = stakes[validator];
+        UserStake storage validatorStake = stakes[validator];
         require(validatorStake.amount >= amountToSlash, "HalomStaking: Slash amount exceeds stake");
 
         validatorStake.amount -= amountToSlash;
@@ -134,18 +157,26 @@ contract HalomStaking is AccessControl, ReentrancyGuard {
     }
 
     function pendingRewards(address user) public view returns (uint256) {
-        Stake memory stake = stakes[user];
+        UserStake memory userStake = stakes[user];
         uint256 effectiveStake = getEffectiveStake(user);
-        return ((effectiveStake * rewardsPerShare) / 1e18) - stake.rewardDebt;
+        return ((effectiveStake * rewardsPerShare) / 1e18) - userStake.rewardDebt;
     }
 
     function getEffectiveStake(address user) public view returns (uint256) {
-        Stake memory userStake = stakes[user];
+        UserStake memory userStake = stakes[user];
         if (userStake.amount == 0) return 0;
 
         uint256 lockDuration = userStake.lockUntil > block.timestamp ? userStake.lockUntil - block.timestamp : 0;
         uint256 boostMultiplier = (lockDuration * lockBoostB0) / lockBoostTMax;
         
         return userStake.amount + (userStake.amount * boostMultiplier) / 10000;
+    }
+
+    function getLockDuration(LockPeriod lockPeriod) public pure returns (uint256) {
+        if (lockPeriod == LockPeriod.THREE_MONTHS) return 90 days;
+        if (lockPeriod == LockPeriod.SIX_MONTHS) return 180 days;
+        if (lockPeriod == LockPeriod.TWELVE_MONTHS) return 365 days;
+        if (lockPeriod == LockPeriod.TWENTY_FOUR_MONTHS) return 730 days;
+        revert("Invalid lock period");
     }
 } 
