@@ -125,3 +125,13 @@ The current implementation relies on a multisig for key governance and operation
 *   **Federated Oracle Network:** Evolve from a single updater role to a network of 3-of-5 or 5-of-7 independent oracle nodes that must reach consensus off-chain before submitting an update. This reduces reliance on a single entity.
 *   **Full DAO Governance:** Transition the `GOVERNOR_ROLE` from a Gnosis Safe multisig to a fully on-chain DAO contract (e.g., Governor Bravo) where HLM or a separate governance token holder can vote on proposals.
 *   **Automated Treasury:** Develop a treasury contract to manage the distribution of rewards to the staking contracts, governed by the DAO.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
+
+## Documentation
+
+- [Deployment Guide](docs/deploy.md)
+- [Off-chain Components Configuration](docs/offchain.md)
+- [Workflow Examples](docs/workflows.md)

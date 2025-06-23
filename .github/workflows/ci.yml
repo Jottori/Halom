@@ -28,4 +28,36 @@ jobs:
       run: npx hardhat check
 
     - name: Run tests
-      run: npx hardhat test 
+      run: npx hardhat test
+
+    - name: Run solhint (Solidity linter)
+      run: npx solhint 'contracts/**/*.sol'
+
+    - name: Run ESLint (JS/TS linter)
+      run: npx eslint '**/*.{js,ts}' --max-warnings=0 || true
+
+    - name: Run Solidity Coverage
+      run: npx hardhat coverage --temp ./coverage
+
+    - name: Upload Solidity Coverage Report
+      uses: actions/upload-artifact@v3
+      with:
+        name: solidity-coverage-report
+        path: coverage/lcov.info
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install Python dependencies
+      run: pip install -r requirements.txt
+
+    - name: Run Python Coverage
+      run: pytest --cov=offchain --cov-report=xml
+
+    - name: Upload Python Coverage Report
+      uses: actions/upload-artifact@v3
+      with:
+        name: python-coverage-report
+        path: coverage.xml 

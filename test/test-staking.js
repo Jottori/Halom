@@ -34,43 +34,78 @@ describe("HalomStaking", function () {
   });
 
   describe("Staking with Lock Periods", function () {
-    it("Should allow staking with 3 months lock period", async function () {
-      await staking.connect(user1).stakeWithLockPeriod(ethers.parseEther("100"), 0); // THREE_MONTHS
+    it("Should allow staking with 1 month lock period", async function () {
+      await staking.connect(user1).stakeWithLockPeriod(ethers.parseEther("100"), 0); // ONE_MONTH
       const userStake = await staking.stakes(user1.address);
-      expect(userStake.amount).to.equal(ethers.parseEther("100"));
-      
-      expect(userStake.lockPeriod).to.equal(0); // THREE_MONTHS
+      expect(userStake.lockPeriod).to.equal(0); // ONE_MONTH
+      // Boost should be 0.11%
+      const effective = await staking.getEffectiveStake(user1.address);
+      const expected = ethers.parseEther("100") + (ethers.parseEther("100") * 11n / 10000n);
+      expect(effective).to.equal(expected);
+    });
+
+    it("Should allow staking with 3 months lock period", async function () {
+      await staking.connect(user1).stakeWithLockPeriod(ethers.parseEther("100"), 1); // THREE_MONTHS
+      const userStake = await staking.stakes(user1.address);
+      expect(userStake.lockPeriod).to.equal(1); // THREE_MONTHS
+      // Boost should be 0.56%
+      const effective = await staking.getEffectiveStake(user1.address);
+      const expected = ethers.parseEther("100") + (ethers.parseEther("100") * 56n / 10000n);
+      expect(effective).to.equal(expected);
     });
 
     it("Should allow staking with 6 months lock period", async function () {
-      await staking.connect(user1).stakeWithLockPeriod(ethers.parseEther("100"), 1); // SIX_MONTHS
+      await staking.connect(user1).stakeWithLockPeriod(ethers.parseEther("100"), 2); // SIX_MONTHS
       const userStake = await staking.stakes(user1.address);
-      expect(userStake.lockPeriod).to.equal(1); // SIX_MONTHS
+      expect(userStake.lockPeriod).to.equal(2); // SIX_MONTHS
+      // Boost should be 1.58%
+      const effective = await staking.getEffectiveStake(user1.address);
+      const expected = ethers.parseEther("100") + (ethers.parseEther("100") * 158n / 10000n);
+      expect(effective).to.equal(expected);
     });
 
     it("Should allow staking with 12 months lock period", async function () {
-      await staking.connect(user1).stakeWithLockPeriod(ethers.parseEther("100"), 2); // TWELVE_MONTHS
+      await staking.connect(user1).stakeWithLockPeriod(ethers.parseEther("100"), 3); // TWELVE_MONTHS
       const userStake = await staking.stakes(user1.address);
-      expect(userStake.lockPeriod).to.equal(2); // TWELVE_MONTHS
+      expect(userStake.lockPeriod).to.equal(3); // TWELVE_MONTHS
+      // Boost should be 4.47%
+      const effective = await staking.getEffectiveStake(user1.address);
+      const expected = ethers.parseEther("100") + (ethers.parseEther("100") * 447n / 10000n);
+      expect(effective).to.equal(expected);
     });
 
     it("Should allow staking with 24 months lock period", async function () {
-      await staking.connect(user1).stakeWithLockPeriod(ethers.parseEther("100"), 3); // TWENTY_FOUR_MONTHS
+      await staking.connect(user1).stakeWithLockPeriod(ethers.parseEther("100"), 4); // TWENTY_FOUR_MONTHS
       const userStake = await staking.stakes(user1.address);
-      expect(userStake.lockPeriod).to.equal(3); // TWENTY_FOUR_MONTHS
+      expect(userStake.lockPeriod).to.equal(4); // TWENTY_FOUR_MONTHS
+      // Boost should be 12.65%
+      const effective = await staking.getEffectiveStake(user1.address);
+      const expected = ethers.parseEther("100") + (ethers.parseEther("100") * 1265n / 10000n);
+      expect(effective).to.equal(expected);
+    });
+
+    it("Should allow staking with 60 months lock period", async function () {
+      await staking.connect(user1).stakeWithLockPeriod(ethers.parseEther("100"), 5); // SIXTY_MONTHS
+      const userStake = await staking.stakes(user1.address);
+      expect(userStake.lockPeriod).to.equal(5); // SIXTY_MONTHS
+      // Boost should be 50%
+      const effective = await staking.getEffectiveStake(user1.address);
+      const expected = ethers.parseEther("100") + (ethers.parseEther("100") * 5000n / 10000n);
+      expect(effective).to.equal(expected);
     });
 
     it("Should revert with invalid lock period", async function () {
       await expect(
-        staking.connect(user1).stakeWithLockPeriod(ethers.parseEther("100"), 4)
+        staking.connect(user1).stakeWithLockPeriod(ethers.parseEther("100"), 6)
       ).to.be.reverted;
     });
 
     it("Should return correct lock duration for each period", async function () {
-      expect(await staking.getLockDuration(0)).to.equal(90 * 24 * 60 * 60); // 3 months
-      expect(await staking.getLockDuration(1)).to.equal(180 * 24 * 60 * 60); // 6 months
-      expect(await staking.getLockDuration(2)).to.equal(365 * 24 * 60 * 60); // 12 months
-      expect(await staking.getLockDuration(3)).to.equal(730 * 24 * 60 * 60); // 24 months
+      expect(await staking.getLockDuration(0)).to.equal(30 * 24 * 60 * 60); // 1 month
+      expect(await staking.getLockDuration(1)).to.equal(90 * 24 * 60 * 60); // 3 months
+      expect(await staking.getLockDuration(2)).to.equal(180 * 24 * 60 * 60); // 6 months
+      expect(await staking.getLockDuration(3)).to.equal(365 * 24 * 60 * 60); // 12 months
+      expect(await staking.getLockDuration(4)).to.equal(730 * 24 * 60 * 60); // 24 months
     });
   });
 

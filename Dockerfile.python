@@ -1,21 +1,34 @@
-# Use an official Node.js image to get build tools and npm
-FROM node:18-alpine as builder
+# syntax=docker/dockerfile:1
+
+# Builder stage for Python dependencies
+FROM python:3.9-slim as builder
 
 WORKDIR /usr/src/app
-COPY package*.json ./
-RUN npm install
-COPY . .
 
-# Use an official Python runtime as a parent image
+# Install pip-tools
+RUN pip install --no-cache-dir pip-tools
+
+# Copy dependency files
+COPY requirements.in ./
+
+# Compile requirements.txt
+RUN pip-compile requirements.in
+
+# Final stage
 FROM python:3.9-slim
 
 WORKDIR /usr/src/app
 
-# Install Python dependencies
-COPY requirements.txt ./
+# Install runtime dependencies
+COPY --from=builder /usr/src/app/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the entire app from the builder stage
-COPY --from=builder /usr/src/app .
+# Copy app code
+COPY . .
 
-# The CMD is specified in the docker-compose.yml 
+# Add entrypoint script for env validation
+COPY offchain/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["python", "-m", "offchain.updater"] 
