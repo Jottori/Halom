@@ -8,6 +8,9 @@
     "test": "hardhat test"
   },
   "devDependencies": {
+    "@matterlabs/hardhat-zksync-deploy": "^1.7.0",
+    "@matterlabs/hardhat-zksync-solc": "^1.4.0",
+    "@matterlabs/hardhat-zksync-verify": "^1.8.1",
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "hardhat": "^2.22.5"
   },
