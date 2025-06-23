@@ -721,8 +721,8 @@
       ]
     },
     "C:\\Users\\heruf\\Documents\\GitHub\\Halom\\contracts\\HalomStaking.sol": {
-      "lastModificationDate": 1750675896967,
-      "contentHash": "868702efa330ccb55733f0ec07026f0a",
+      "lastModificationDate": 1750680366972,
+      "contentHash": "625e41b2e08acd62c8989583b1e1e7bd",
       "sourceName": "contracts/HalomStaking.sol",
       "solcConfig": {
         "version": "0.8.20",
