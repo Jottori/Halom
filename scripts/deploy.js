@@ -104,12 +104,16 @@ async function main() {
     // Setup token roles
     console.log("\n10. Setting up token roles...");
     
-    const STAKING_CONTRACT_ROLE = await halomToken.STAKING_CONTRACT_ROLE();
-    const GOVERNOR_ROLE = await halomToken.GOVERNOR_ROLE();
+    // Set staking contract address in token
+    await halomToken.setStakingContract(staking.address);
     
-    await halomToken.grantRole(STAKING_CONTRACT_ROLE, staking.address);
-    await halomToken.grantRole(STAKING_CONTRACT_ROLE, lpStaking.address);
-    await halomToken.grantRole(GOVERNOR_ROLE, governor.address);
+    // Grant REWARDER_ROLE to token contract so it can call addRewards
+    const REWARDER_ROLE = await staking.REWARDER_ROLE();
+    await staking.grantRole(REWARDER_ROLE, halomToken.address);
+    
+    // Grant REWARDER_ROLE to LP staking as well
+    const lpStakingRewarderRole = await lpStaking.REWARDER_ROLE();
+    await lpStaking.grantRole(lpStakingRewarderRole, deployer.address);
     
     console.log("Token roles configured");
 

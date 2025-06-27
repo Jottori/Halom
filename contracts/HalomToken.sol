@@ -3,13 +3,18 @@ pragma solidity ^0.8.2;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/governance/utils/IVotes.sol";
+
+interface IHalomStaking {
+    function addRewards(uint256 amount) external;
+}
 
 interface IHalomToken is IERC20 {
     function rebase(int256 supplyDelta) external;
     function burnFrom(address account, uint256 amount) external;
 }
 
-contract HalomToken is IHalomToken, ERC20, AccessControl {
+contract HalomToken is IHalomToken, ERC20, AccessControl, IVotes {
     bytes32 public constant REBASE_CALLER = keccak256("REBASE_CALLER");
     bytes32 public constant STAKING_CONTRACT = keccak256("STAKING_CONTRACT");
 
@@ -23,8 +28,24 @@ contract HalomToken is IHalomToken, ERC20, AccessControl {
 
     uint256 private _totalSupply;
     uint256 public maxRebaseDelta; // In basis points, e.g., 500 = 5%
+    
+    // Anti-whale protection
+    uint256 public maxTransferAmount; // Maximum transfer amount
+    uint256 public maxWalletAmount; // Maximum wallet balance
+    mapping(address => bool) public isExcludedFromLimits; // Excluded addresses (contracts, etc.)
+
+    // IVotes implementation
+    mapping(address => uint256) private _delegates;
+    mapping(address => mapping(uint256 => uint256)) private _delegateCheckpoints;
+    mapping(address => uint256) private _delegateCheckpointCounts;
+    mapping(uint256 => uint256) private _totalSupplyCheckpoints;
+    uint256 private _totalSupplyCheckpointCount;
 
     event Rebase(uint256 newTotalSupply, int256 supplyDelta);
+    event AntiWhaleLimitsUpdated(uint256 maxTransfer, uint256 maxWallet);
+    event ExcludedFromLimits(address indexed account, bool excluded);
+    event DelegateChanged(address indexed delegator, address indexed fromDelegate, address indexed toDelegate);
+    event DelegateVotesChanged(address indexed delegate, uint256 previousBalance, uint256 newBalance);
     
     constructor(address _oracleAddress, address _governance) ERC20("Halom", "HOM") {
         uint256 initialSupply = 1_000_000 * 10**decimals();
@@ -39,6 +60,19 @@ contract HalomToken is IHalomToken, ERC20, AccessControl {
 
         rewardRate = 2000; // Default 20%
         maxRebaseDelta = 500; // Default 5%
+        
+        // Anti-whale limits (1% of total supply)
+        maxTransferAmount = initialSupply / 100;
+        maxWalletAmount = initialSupply / 50; // 2% of total supply
+        
+        // Exclude governance and oracle from limits
+        isExcludedFromLimits[_governance] = true;
+        isExcludedFromLimits[_oracleAddress] = true;
+        
+        // Initialize IVotes
+        _delegates[_governance] = _governance;
+        _writeCheckpoint(_governance, 0, 0, initialSupply);
+        _writeTotalSupplyCheckpoint(0, 0, initialSupply);
     }
 
     function setStakingContract(address _stakingAddress) public onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -48,6 +82,7 @@ contract HalomToken is IHalomToken, ERC20, AccessControl {
         }
         halomStakingAddress = _stakingAddress;
         _grantRole(STAKING_CONTRACT, _stakingAddress);
+        isExcludedFromLimits[_stakingAddress] = true; // Exclude staking contract from limits
     }
 
     function setRewardRate(uint256 _newRate) public onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -58,6 +93,22 @@ contract HalomToken is IHalomToken, ERC20, AccessControl {
     function setMaxRebaseDelta(uint256 _newDelta) public onlyRole(DEFAULT_ADMIN_ROLE) {
         require(_newDelta > 0 && _newDelta <= 1000, "HalomToken: Delta must be between 0.01% and 10%");
         maxRebaseDelta = _newDelta;
+    }
+    
+    function setAntiWhaleLimits(uint256 _maxTransfer, uint256 _maxWallet) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(_maxTransfer > 0, "HalomToken: Max transfer must be > 0");
+        require(_maxWallet > 0, "HalomToken: Max wallet must be > 0");
+        require(_maxTransfer <= _maxWallet, "HalomToken: Max transfer cannot exceed max wallet");
+        
+        maxTransferAmount = _maxTransfer;
+        maxWalletAmount = _maxWallet;
+        
+        emit AntiWhaleLimitsUpdated(_maxTransfer, _maxWallet);
+    }
+    
+    function setExcludedFromLimits(address _account, bool _excluded) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        isExcludedFromLimits[_account] = _excluded;
+        emit ExcludedFromLimits(_account, _excluded);
     }
 
     function rebase(int256 supplyDelta) external onlyRole(REBASE_CALLER) {
@@ -73,6 +124,8 @@ contract HalomToken is IHalomToken, ERC20, AccessControl {
             uint256 rewards = (uint256(supplyDelta) * rewardRate) / 10000;
             if (rewards > 0 && halomStakingAddress != address(0)) {
                 _mint(halomStakingAddress, rewards);
+                // Call addRewards on staking contract to distribute rewards
+                IHalomStaking(halomStakingAddress).addRewards(rewards);
             }
         } else {
             newS = S - uint256(-supplyDelta);
@@ -114,6 +167,12 @@ contract HalomToken is IHalomToken, ERC20, AccessControl {
         require(to != address(0), "ERC20: transfer to the zero address");
         require(balanceOf(from) >= amount, "ERC20: transfer amount exceeds balance");
 
+        // Anti-whale checks
+        if (!isExcludedFromLimits[from] && !isExcludedFromLimits[to]) {
+            require(amount <= maxTransferAmount, "HalomToken: Transfer amount exceeds limit");
+            require(balanceOf(to) + amount <= maxWalletAmount, "HalomToken: Wallet balance would exceed limit");
+        }
+
         uint256 gons = amount * _gonsPerFragment;
         _gonBalances[from] -= gons;
         _gonBalances[to] += gons;
@@ -147,5 +206,94 @@ contract HalomToken is IHalomToken, ERC20, AccessControl {
         _gonBalances[account] -= amount * _gonsPerFragment;
 
         emit Transfer(account, address(0), amount);
+    }
+
+    // IVotes implementation
+    function delegates(address account) external view returns (address) {
+        return _delegates[account];
+    }
+
+    function getVotes(address account) external view returns (uint256) {
+        uint256 pos = _delegateCheckpointCounts[account];
+        return pos == 0 ? 0 : _delegateCheckpoints[account][pos - 1];
+    }
+
+    function getPastVotes(address account, uint256 blockNumber) external view returns (uint256) {
+        require(blockNumber < block.number, "HalomToken: Too recent");
+        uint256 pos = _delegateCheckpointCounts[account];
+        if (pos == 0) {
+            return 0;
+        }
+
+        uint256[] memory checkpoints = _delegateCheckpoints[account];
+        if (checkpoints.length == 0) {
+            return 0;
+        }
+
+        if (checkpoints[pos - 1] <= blockNumber) {
+            return checkpoints[pos - 1];
+        }
+
+        uint256 lower = 0;
+        uint256 upper = pos - 1;
+        while (upper > lower) {
+            uint256 center = upper - (upper - lower) / 2;
+            if (checkpoints[center] <= blockNumber) {
+                lower = center;
+            } else {
+                upper = center - 1;
+            }
+        }
+        return checkpoints[lower];
+    }
+
+    function getPastTotalSupply(uint256 blockNumber) external view returns (uint256) {
+        require(blockNumber < block.number, "HalomToken: Too recent");
+        uint256 pos = _totalSupplyCheckpointCount;
+        if (pos == 0) {
+            return 0;
+        }
+
+        uint256[] memory checkpoints = _totalSupplyCheckpoints;
+        if (checkpoints.length == 0) {
+            return 0;
+        }
+
+        if (checkpoints[pos - 1] <= blockNumber) {
+            return checkpoints[pos - 1];
+        }
+
+        uint256 lower = 0;
+        uint256 upper = pos - 1;
+        while (upper > lower) {
+            uint256 center = upper - (upper - lower) / 2;
+            if (checkpoints[center] <= blockNumber) {
+                lower = center;
+            } else {
+                upper = center - 1;
+            }
+        }
+        return checkpoints[lower];
+    }
+
+    function _writeCheckpoint(address delegatee, uint256 pos, uint256 oldVotes, uint256 newVotes) internal {
+        uint256 blockNumber = block.number;
+        if (pos == 0) {
+            _delegateCheckpoints[delegatee].push(0);
+            pos = _delegateCheckpoints[delegatee].length;
+        }
+        _delegateCheckpoints[delegatee][pos - 1] = newVotes;
+        _delegateCheckpointCounts[delegatee] = pos;
+        emit DelegateVotesChanged(delegatee, oldVotes, newVotes);
+    }
+
+    function _writeTotalSupplyCheckpoint(uint256 pos, uint256 oldTotalSupply, uint256 newTotalSupply) internal {
+        uint256 blockNumber = block.number;
+        if (pos == 0) {
+            _totalSupplyCheckpoints.push(0);
+            pos = _totalSupplyCheckpoints.length;
+        }
+        _totalSupplyCheckpoints[pos - 1] = newTotalSupply;
+        _totalSupplyCheckpointCount = pos;
     }
 } 

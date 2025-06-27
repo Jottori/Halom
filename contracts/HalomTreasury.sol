@@ -37,12 +37,24 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
     uint256 public constant MAX_FEE_RATE = 100; // 1% maximum
     uint256 public constant MIN_FEE_RATE = 1; // 0.01% minimum
 
+    // Fee distribution addresses
+    address public stakingAddress;
+    address public lpStakingAddress;
+    address public daoReserveAddress;
+    
+    // Fee distribution percentages (in basis points)
+    uint256 public stakingFeePercentage = 6000; // 60%
+    uint256 public lpStakingFeePercentage = 2000; // 20%
+    uint256 public daoReserveFeePercentage = 2000; // 20%
+
     event FeeCollected(address indexed user, uint256 amount, uint256 fourthRoot);
     event FeeDistributed(address indexed user, uint256 amount);
     event FeeRateUpdated(uint256 oldRate, uint256 newRate);
     event EmergencyRecovery(address indexed token, address indexed to, uint256 amount);
     event TreasuryPaused(address indexed pauser);
     event TreasuryUnpaused(address indexed unpauser);
+    event FeeDistributionUpdated(address staking, address lpStaking, address daoReserve);
+    event FeePercentagesUpdated(uint256 staking, uint256 lpStaking, uint256 daoReserve);
 
     constructor(
         address _halomToken,
@@ -53,6 +65,9 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
     ) {
         require(_halomToken != address(0), "Halom token is zero address");
         require(_eurcToken != address(0), "EURC token is zero address");
+        require(_governor != address(0), "Governor is zero address");
+        require(_operator != address(0), "Operator is zero address");
+        require(_pauser != address(0), "Pauser is zero address");
 
         halomToken = IERC20(_halomToken);
         eurcToken = IERC20(_eurcToken);
@@ -220,5 +235,93 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
         fourthRootValue = fourthRootFees[_user];
         governancePower = getGovernancePower(_user);
         pendingFees = (fourthRootFees[_user] * rewardsPerFourthRoot) / 1e18 - rewardDebt[_user];
+    }
+
+    /**
+     * @dev Update fee distribution addresses (only governor)
+     */
+    function updateFeeDistributionAddresses(
+        address _stakingAddress,
+        address _lpStakingAddress,
+        address _daoReserveAddress
+    ) external onlyRole(GOVERNOR_ROLE) {
+        require(_stakingAddress != address(0), "Staking address cannot be zero");
+        require(_lpStakingAddress != address(0), "LP staking address cannot be zero");
+        require(_daoReserveAddress != address(0), "DAO reserve address cannot be zero");
+        
+        stakingAddress = _stakingAddress;
+        lpStakingAddress = _lpStakingAddress;
+        daoReserveAddress = _daoReserveAddress;
+        
+        emit FeeDistributionUpdated(_stakingAddress, _lpStakingAddress, _daoReserveAddress);
+    }
+
+    /**
+     * @dev Update fee distribution percentages (only governor)
+     */
+    function updateFeePercentages(
+        uint256 _stakingPercentage,
+        uint256 _lpStakingPercentage,
+        uint256 _daoReservePercentage
+    ) external onlyRole(GOVERNOR_ROLE) {
+        require(_stakingPercentage + _lpStakingPercentage + _daoReservePercentage == 10000, "Percentages must sum to 100%");
+        require(_stakingPercentage > 0, "Staking percentage must be greater than 0");
+        require(_lpStakingPercentage > 0, "LP staking percentage must be greater than 0");
+        require(_daoReservePercentage > 0, "DAO reserve percentage must be greater than 0");
+        
+        stakingFeePercentage = _stakingPercentage;
+        lpStakingFeePercentage = _lpStakingPercentage;
+        daoReserveFeePercentage = _daoReservePercentage;
+        
+        emit FeePercentagesUpdated(_stakingPercentage, _lpStakingPercentage, _daoReservePercentage);
+    }
+
+    /**
+     * @dev Distribute collected fees to staking contracts and DAO reserve
+     */
+    function distributeCollectedFees() external onlyRole(OPERATOR_ROLE) {
+        uint256 halomBalance = halomToken.balanceOf(address(this));
+        uint256 eurcBalance = eurcToken.balanceOf(address(this));
+        
+        require(halomBalance > 0 || eurcBalance > 0, "No fees to distribute");
+        
+        // Validate addresses before distribution
+        require(stakingAddress != address(0), "Staking address not set");
+        require(lpStakingAddress != address(0), "LP staking address not set");
+        require(daoReserveAddress != address(0), "DAO reserve address not set");
+        
+        // Distribute HLM tokens
+        if (halomBalance > 0) {
+            uint256 stakingAmount = (halomBalance * stakingFeePercentage) / 10000;
+            uint256 lpStakingAmount = (halomBalance * lpStakingFeePercentage) / 10000;
+            uint256 daoReserveAmount = halomBalance - stakingAmount - lpStakingAmount; // Remainder to avoid rounding errors
+            
+            if (stakingAmount > 0) {
+                halomToken.safeTransfer(stakingAddress, stakingAmount);
+            }
+            if (lpStakingAmount > 0) {
+                halomToken.safeTransfer(lpStakingAddress, lpStakingAmount);
+            }
+            if (daoReserveAmount > 0) {
+                halomToken.safeTransfer(daoReserveAddress, daoReserveAmount);
+            }
+        }
+        
+        // Distribute EURC tokens
+        if (eurcBalance > 0) {
+            uint256 stakingAmount = (eurcBalance * stakingFeePercentage) / 10000;
+            uint256 lpStakingAmount = (eurcBalance * lpStakingFeePercentage) / 10000;
+            uint256 daoReserveAmount = eurcBalance - stakingAmount - lpStakingAmount; // Remainder to avoid rounding errors
+            
+            if (stakingAmount > 0) {
+                eurcToken.safeTransfer(stakingAddress, stakingAmount);
+            }
+            if (lpStakingAmount > 0) {
+                eurcToken.safeTransfer(lpStakingAddress, lpStakingAmount);
+            }
+            if (daoReserveAmount > 0) {
+                eurcToken.safeTransfer(daoReserveAddress, daoReserveAmount);
+            }
+        }
     }
 } 

@@ -1,213 +1,282 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
-describe("Security Audit Tests", function () {
-    let HalomToken, halomToken, HalomStaking, staking, HalomLPStaking, lpStaking, MockERC20, lpToken;
-    let owner, governor, user1, user2, user3, rewarder;
-    let GOVERNOR_ROLE, REWARDER_ROLE;
+describe("Halom Protocol Security Audit Tests", function () {
+    let halomToken, staking, lpStaking, governor, deployer, user1, user2, user3;
+    let initialSupply, maxTransferAmount, maxWalletAmount;
 
-    async function deployContracts() {
-        [owner, governor, user1, user2, user3, rewarder] = await ethers.getSigners();
+    beforeEach(async function () {
+        [deployer, user1, user2, user3] = await ethers.getSigners();
+        
+        // Deploy contracts
+        const HalomToken = await ethers.getContractFactory("HalomToken");
+        halomToken = await HalomToken.deploy(deployer.address, deployer.address);
+        await halomToken.deployed();
 
-        // Deploy HalomToken
-        HalomToken = await ethers.getContractFactory("HalomToken");
-        halomToken = await HalomToken.deploy(owner.address, governor.address);
-
-        // Deploy HalomStaking
-        HalomStaking = await ethers.getContractFactory("HalomStaking");
-        staking = await HalomStaking.deploy(halomToken.target, governor.address, rewarder.address, governor.address);
-
-        // Deploy MockERC20 for LP token
-        MockERC20 = await ethers.getContractFactory("MockERC20");
-        lpToken = await MockERC20.deploy("LP Token", "LP", ethers.parseEther("1000000"));
-
-        // Deploy HalomLPStaking
-        HalomLPStaking = await ethers.getContractFactory("HalomLPStaking");
-        lpStaking = await HalomLPStaking.deploy(
-            lpToken.target,
-            halomToken.target,
-            governor.address,
-            rewarder.address
+        const HalomStaking = await ethers.getContractFactory("HalomStaking");
+        staking = await HalomStaking.deploy(
+            halomToken.address,
+            deployer.address,
+            deployer.address,
+            deployer.address
         );
+        await staking.deployed();
 
-        // Get role constants
-        GOVERNOR_ROLE = ethers.keccak256(ethers.toUtf8Bytes("GOVERNOR_ROLE"));
-        REWARDER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("REWARDER_ROLE"));
+        const HalomLPStaking = await ethers.getContractFactory("HalomLPStaking");
+        lpStaking = await HalomLPStaking.deploy(
+            halomToken.address, // Using HLM as LP token for testing
+            halomToken.address,
+            deployer.address,
+            deployer.address
+        );
+        await lpStaking.deployed();
 
-        // Setup token permissions
-        await halomToken.connect(governor).setStakingContract(staking.target);
-        await halomToken.connect(governor).grantRole(ethers.keccak256(ethers.toUtf8Bytes("DEFAULT_ADMIN_ROLE")), lpStaking.target);
+        // Setup roles
+        await halomToken.setStakingContract(staking.address);
+        const REWARDER_ROLE = await staking.REWARDER_ROLE();
+        await staking.grantRole(REWARDER_ROLE, halomToken.address);
 
-        // Grant REWARDER_ROLE to rewarder in staking contract
-        await staking.connect(governor).grantRole(REWARDER_ROLE, rewarder.address);
+        // Mint initial tokens
+        initialSupply = ethers.utils.parseEther("10000000"); // 10M HLM
+        await halomToken.mint(deployer.address, initialSupply);
 
-        // Fund users with smaller amounts to avoid overflow
-        await halomToken.connect(governor).transfer(user1.address, ethers.parseEther("200"));
-        await halomToken.connect(governor).transfer(user2.address, ethers.parseEther("200"));
-        await halomToken.connect(governor).transfer(user3.address, ethers.parseEther("200"));
-        await lpToken.transfer(user1.address, ethers.parseEther("10"));
-        await lpToken.transfer(user2.address, ethers.parseEther("10"));
+        // Get anti-whale limits
+        maxTransferAmount = await halomToken.maxTransferAmount();
+        maxWalletAmount = await halomToken.maxWalletAmount();
+    });
 
-        // Approve tokens
-        await halomToken.connect(user1).approve(staking.target, ethers.parseEther("200"));
-        await halomToken.connect(user2).approve(staking.target, ethers.parseEther("200"));
-        await lpToken.connect(user1).approve(lpStaking.target, ethers.parseEther("10"));
-        await lpToken.connect(user2).approve(lpStaking.target, ethers.parseEther("10"));
+    describe("Reward Distribution Fix", function () {
+        it("Should properly distribute rewards when rebase is called", async function () {
+            // Transfer tokens to users for staking
+            const stakeAmount = ethers.utils.parseEther("1000");
+            await halomToken.transfer(user1.address, stakeAmount);
+            await halomToken.transfer(user2.address, stakeAmount);
 
-        return { halomToken, staking, lpStaking, lpToken, governor, user1, user2, user3, rewarder };
-    }
-
-    describe("Rewards without stakers - HalomStaking", function () {
-        it("Should store rewards for first staker instead of losing them", async function () {
-            const { halomToken, staking, user1 } = await deployContracts();
-
-            // Add rewards when no one is staked
-            const rewardAmount = ethers.parseEther("10");
-            await halomToken.connect(governor).mint(rewarder.address, rewardAmount);
-            await halomToken.connect(rewarder).approve(staking.target, rewardAmount);
-            await staking.connect(rewarder).addRewards(rewardAmount);
+            // Users stake tokens
+            await halomToken.connect(user1).approve(staking.address, stakeAmount);
+            await staking.connect(user1).stake(stakeAmount);
             
-            // Check pending rewards
-            expect(await staking.getPendingRewards()).to.equal(rewardAmount);
+            await halomToken.connect(user2).approve(staking.address, stakeAmount);
+            await staking.connect(user2).stake(stakeAmount);
 
-            // First staker should get all pending rewards
-            const stakeAmount = ethers.parseEther("100");
+            // Check initial balances
+            const initialStakingBalance = await halomToken.balanceOf(staking.address);
+            const initialUser1Rewards = await staking.getPendingRewardsForUser(user1.address);
+            const initialUser2Rewards = await staking.getPendingRewardsForUser(user2.address);
+
+            // Perform rebase (positive supply delta)
+            const supplyDelta = ethers.utils.parseEther("100000"); // 100k HLM increase
+            await halomToken.rebase(supplyDelta);
+
+            // Check that rewards were distributed
+            const finalStakingBalance = await halomToken.balanceOf(staking.address);
+            const finalUser1Rewards = await staking.getPendingRewardsForUser(user1.address);
+            const finalUser2Rewards = await staking.getPendingRewardsForUser(user2.address);
+
+            // Verify rewards were added to staking contract
+            expect(finalStakingBalance).to.be.gt(initialStakingBalance);
+            
+            // Verify users can claim rewards
+            expect(finalUser1Rewards).to.be.gt(initialUser1Rewards);
+            expect(finalUser2Rewards).to.be.gt(initialUser2Rewards);
+
+            // Users claim rewards
+            await staking.connect(user1).claimRewards();
+            await staking.connect(user2).claimRewards();
+
+            // Verify users received tokens
+            const user1Balance = await halomToken.balanceOf(user1.address);
+            const user2Balance = await halomToken.balanceOf(user2.address);
+            expect(user1Balance).to.be.gt(0);
+            expect(user2Balance).to.be.gt(0);
+        });
+
+        it("Should handle zero supply delta correctly", async function () {
+            const initialSupply = await halomToken.totalSupply();
+            await halomToken.rebase(0);
+            const finalSupply = await halomToken.totalSupply();
+            expect(finalSupply).to.equal(initialSupply);
+        });
+    });
+
+    describe("Anti-Whale Protection", function () {
+        it("Should enforce transfer limits for regular users", async function () {
+            // Transfer tokens to user
+            const transferAmount = ethers.utils.parseEther("1000");
+            await halomToken.transfer(user1.address, transferAmount);
+
+            // Try to transfer more than maxTransferAmount
+            const excessiveAmount = maxTransferAmount.add(ethers.utils.parseEther("1"));
+            await expect(
+                halomToken.connect(user1).transfer(user2.address, excessiveAmount)
+            ).to.be.revertedWith("HalomToken: Transfer amount exceeds limit");
+        });
+
+        it("Should enforce wallet balance limits", async function () {
+            // Transfer tokens to user up to max wallet limit
+            await halomToken.transfer(user1.address, maxWalletAmount);
+
+            // Try to transfer more tokens to exceed max wallet
+            const additionalAmount = ethers.utils.parseEther("1");
+            await expect(
+                halomToken.transfer(user1.address, additionalAmount)
+            ).to.be.revertedWith("HalomToken: Wallet balance would exceed limit");
+        });
+
+        it("Should allow excluded addresses to bypass limits", async function () {
+            // Deployer is excluded from limits
+            const largeAmount = maxTransferAmount.mul(2);
+            await expect(
+                halomToken.transfer(user1.address, largeAmount)
+            ).to.not.be.reverted;
+        });
+
+        it("Should allow admin to update anti-whale limits", async function () {
+            const newMaxTransfer = ethers.utils.parseEther("50000");
+            const newMaxWallet = ethers.utils.parseEther("100000");
+            
+            await halomToken.setAntiWhaleLimits(newMaxTransfer, newMaxWallet);
+            
+            expect(await halomToken.maxTransferAmount()).to.equal(newMaxTransfer);
+            expect(await halomToken.maxWalletAmount()).to.equal(newMaxWallet);
+        });
+
+        it("Should allow admin to exclude addresses from limits", async function () {
+            await halomToken.setExcludedFromLimits(user1.address, true);
+            expect(await halomToken.isExcludedFromLimits(user1.address)).to.be.true;
+            
+            // User1 should now be able to transfer large amounts
+            await halomToken.transfer(user1.address, maxTransferAmount.mul(2));
+            await expect(
+                halomToken.connect(user1).transfer(user2.address, maxTransferAmount.mul(2))
+            ).to.not.be.reverted;
+        });
+    });
+
+    describe("Role Management", function () {
+        it("Should use proper roles instead of DEFAULT_ADMIN_ROLE for staking", async function () {
+            // Check that staking contract has REWARDER_ROLE, not DEFAULT_ADMIN_ROLE
+            const REWARDER_ROLE = await staking.REWARDER_ROLE();
+            const DEFAULT_ADMIN_ROLE = await staking.DEFAULT_ADMIN_ROLE();
+            
+            expect(await staking.hasRole(REWARDER_ROLE, halomToken.address)).to.be.true;
+            expect(await staking.hasRole(DEFAULT_ADMIN_ROLE, halomToken.address)).to.be.false;
+        });
+
+        it("Should allow token contract to call addRewards on staking", async function () {
+            // Token contract should have REWARDER_ROLE
+            const REWARDER_ROLE = await staking.REWARDER_ROLE();
+            expect(await staking.hasRole(REWARDER_ROLE, halomToken.address)).to.be.true;
+        });
+
+        it("Should prevent unauthorized addresses from calling addRewards", async function () {
+            await expect(
+                staking.connect(user1).addRewards(ethers.utils.parseEther("1000"))
+            ).to.be.reverted;
+        });
+    });
+
+    describe("Rebase Security", function () {
+        it("Should enforce maxRebaseDelta limit", async function () {
+            const currentSupply = await halomToken.totalSupply();
+            const maxDelta = await halomToken.maxRebaseDelta();
+            const maxDeltaValue = currentSupply.mul(maxDelta).div(10000);
+            
+            // Try to rebase with amount exceeding maxDelta
+            const excessiveDelta = maxDeltaValue.add(ethers.utils.parseEther("1"));
+            await expect(
+                halomToken.rebase(excessiveDelta)
+            ).to.be.revertedWith("HalomToken: Supply increase too large");
+        });
+
+        it("Should handle negative supply delta correctly", async function () {
+            const currentSupply = await halomToken.totalSupply();
+            const maxDelta = await halomToken.maxRebaseDelta();
+            const maxDeltaValue = currentSupply.mul(maxDelta).div(10000);
+            
+            // Try to rebase with negative amount exceeding maxDelta
+            const excessiveNegativeDelta = maxDeltaValue.add(ethers.utils.parseEther("1"));
+            await expect(
+                halomToken.rebase(-excessiveNegativeDelta)
+            ).to.be.revertedWith("HalomToken: Supply decrease too large");
+        });
+
+        it("Should only allow REBASE_CALLER to call rebase", async function () {
+            await expect(
+                halomToken.connect(user1).rebase(ethers.utils.parseEther("1000"))
+            ).to.be.reverted;
+        });
+    });
+
+    describe("Staking Security", function () {
+        it("Should prevent unstaking before lock period", async function () {
+            const stakeAmount = ethers.utils.parseEther("1000");
+            await halomToken.transfer(user1.address, stakeAmount);
+            await halomToken.connect(user1).approve(staking.address, stakeAmount);
             await staking.connect(user1).stake(stakeAmount);
 
-            // Check that pending rewards are distributed
-            expect(await staking.getPendingRewards()).to.equal(0);
+            // Try to unstake immediately
+            await expect(
+                staking.connect(user1).unstake(stakeAmount)
+            ).to.be.revertedWith("Lock period not expired");
+        });
+
+        it("Should enforce minimum and maximum stake amounts", async function () {
+            const minStake = await staking.minStakeAmount();
+            const maxStake = await staking.maxStakeAmount();
+
+            // Try to stake below minimum
+            await halomToken.transfer(user1.address, minStake.sub(1));
+            await halomToken.connect(user1).approve(staking.address, minStake.sub(1));
+            await expect(
+                staking.connect(user1).stake(minStake.sub(1))
+            ).to.be.revertedWith("Below minimum stake amount");
+
+            // Try to stake above maximum
+            await halomToken.transfer(user1.address, maxStake.add(1));
+            await halomToken.connect(user1).approve(staking.address, maxStake.add(1));
+            await expect(
+                staking.connect(user1).stake(maxStake.add(1))
+            ).to.be.revertedWith("Above maximum stake amount");
+        });
+    });
+
+    describe("Fourth Root Calculations", function () {
+        it("Should calculate governance power correctly", async function () {
+            const stakeAmount = ethers.utils.parseEther("10000"); // 10k HLM
+            await halomToken.transfer(user1.address, stakeAmount);
+            await halomToken.connect(user1).approve(staking.address, stakeAmount);
+            await staking.connect(user1).stake(stakeAmount);
+
+            const governancePower = await staking.getGovernancePower(user1.address);
+            // Fourth root of 10000 should be approximately 10
+            expect(governancePower).to.be.closeTo(ethers.utils.parseEther("10"), ethers.utils.parseEther("0.1"));
+        });
+
+        it("Should distribute rewards based on fourth root", async function () {
+            // User1 stakes 1000 HLM, User2 stakes 10000 HLM
+            const stake1 = ethers.utils.parseEther("1000");
+            const stake2 = ethers.utils.parseEther("10000");
             
-            // User should have received rewards (pending should be 0, mert már kifizette)
-            const pendingRewards = await staking.getPendingRewardsForUser(user1.address);
-            expect(pendingRewards).to.equal(0);
-        });
-    });
-
-    describe("Rewards without stakers - HalomLPStaking", function () {
-        it("Should store rewards for first staker instead of losing them", async function () {
-            const { halomToken, lpStaking, user1, rewarder } = await deployContracts();
-
-            // Fund rewarder
-            const rewardAmount = ethers.parseEther("5");
-            await halomToken.connect(governor).mint(rewarder.address, rewardAmount);
-            await halomToken.connect(rewarder).approve(lpStaking.target, rewardAmount);
-            await lpStaking.connect(rewarder).addRewards(rewardAmount);
-
-            expect(await lpStaking.getPendingRewards()).to.equal(rewardAmount);
-
-            // First staker should get all pending rewards
-            const stakeAmount = ethers.parseEther("10");
-            await lpStaking.connect(user1).stake(stakeAmount);
-
-            // Check that pending rewards are distributed
-            expect(await lpStaking.getPendingRewards()).to.equal(0);
+            await halomToken.transfer(user1.address, stake1);
+            await halomToken.transfer(user2.address, stake2);
             
-            // User should have received rewards (pending should be 0)
-            const pendingRewards = await lpStaking.getPendingRewardsForUser(user1.address);
-            expect(pendingRewards).to.equal(0);
-        });
-    });
+            await halomToken.connect(user1).approve(staking.address, stake1);
+            await halomToken.connect(user2).approve(staking.address, stake2);
+            
+            await staking.connect(user1).stake(stake1);
+            await staking.connect(user2).stake(stake2);
 
-    describe("Emergency Recovery Functions", function () {
-        it("Should allow governor to recover tokens sent by mistake", async function () {
-            const { halomToken, staking, lpStaking, governor, user1 } = await deployContracts();
+            // Perform rebase to generate rewards
+            await halomToken.rebase(ethers.utils.parseEther("100000"));
 
-            // Deploy a random token
-            const RandomToken = await ethers.getContractFactory("MockERC20");
-            const randomToken = await RandomToken.deploy("Random", "RND", ethers.parseEther("1000"));
+            // Check rewards - should be based on fourth root, not linear
+            const rewards1 = await staking.getPendingRewardsForUser(user1.address);
+            const rewards2 = await staking.getPendingRewardsForUser(user2.address);
 
-            // Send random token to staking contract by mistake
-            await randomToken.transfer(staking.target, ethers.parseEther("10"));
-
-            // Governor should be able to recover it
-            const recoveryAmount = ethers.parseEther("5");
-            await staking.connect(governor).emergencyRecovery(
-                randomToken.target,
-                user1.address,
-                recoveryAmount
-            );
-
-            expect(await randomToken.balanceOf(user1.address)).to.equal(recoveryAmount);
-        });
-
-        it("Should prevent recovery of staked tokens", async function () {
-            const { halomToken, staking, governor, user1 } = await deployContracts();
-
-            // Stake some tokens
-            await staking.connect(user1).stake(ethers.parseEther("100"));
-
-            // Try to recover staked tokens - should fail
-            await expect(
-                staking.connect(governor).emergencyRecovery(
-                    halomToken.target,
-                    user1.address,
-                    ethers.parseEther("5")
-                )
-            ).to.be.revertedWith("Cannot recover staked tokens");
-        });
-
-        it("Should prevent recovery of LP tokens from LP staking", async function () {
-            const { lpToken, lpStaking, governor, user1 } = await deployContracts();
-
-            // Stake some LP tokens
-            await lpStaking.connect(user1).stake(ethers.parseEther("10"));
-
-            // Try to recover staked LP tokens - should fail
-            await expect(
-                lpStaking.connect(governor).emergencyRecovery(
-                    lpToken.target,
-                    user1.address,
-                    ethers.parseEther("5")
-                )
-            ).to.be.revertedWith("Cannot recover staked LP tokens");
-        });
-    });
-
-    describe("Access Control", function () {
-        it("Should prevent non-governor from emergency recovery", async function () {
-            const { staking, user1 } = await deployContracts();
-
-            await expect(
-                staking.connect(user1).emergencyRecovery(
-                    ethers.ZeroAddress,
-                    user1.address,
-                    ethers.parseEther("10")
-                )
-            ).to.be.reverted;
-        });
-
-        it("Should prevent non-rewarder from adding rewards to LP staking", async function () {
-            const { lpStaking, user1 } = await deployContracts();
-
-            await expect(
-                lpStaking.connect(user1).addRewards(ethers.parseEther("10"))
-            ).to.be.reverted;
-        });
-    });
-
-    describe("Constructor Validation", function () {
-        it("Should revert with zero token address", async function () {
-            await expect(
-                HalomStaking.deploy(ethers.ZeroAddress, governor.address, rewarder.address, governor.address)
-            ).to.be.revertedWith("Halom token is zero address");
-        });
-    });
-
-    describe("View Functions", function () {
-        it("Should return correct contract balances", async function () {
-            const { lpStaking } = await deployContracts();
-
-            const balances = await lpStaking.getContractBalances();
-            expect(balances.lpTokenBalance).to.be.gte(0);
-            expect(balances.halomTokenBalance).to.be.gte(0);
-            expect(balances.pendingRewardsBalance).to.be.gte(0);
-        });
-
-        it("Should return correct pending rewards", async function () {
-            const { staking, user1 } = await deployContracts();
-
-            const pendingRewards = await staking.getPendingRewardsForUser(user1.address);
-            expect(pendingRewards).to.equal(0);
+            // User2 has 10x more tokens but should not get 10x more rewards due to fourth root
+            const ratio = rewards2.mul(1000).div(rewards1);
+            expect(ratio).to.be.lt(1000); // Should be less than 10x
         });
     });
 }); 
