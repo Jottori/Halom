@@ -39,7 +39,7 @@ class HalomCalculator:
     
     def nth_root(self, x: float, n: int) -> float:
         """
-        Calculate nth root using Babylonian method
+        Calculate nth root using power operator
         
         Args:
             x: Number to find root of
@@ -55,18 +55,8 @@ class HalomCalculator:
         if n == 2:
             return math.sqrt(x)
         
-        z = x
-        y = (z + n - 1) / n
-        
-        while y < z:
-            z = y
-            # Calculate y = ((n-1) * z + x / z^(n-1)) / n
-            z_power = z
-            for i in range(1, n - 1):
-                z_power = z_power * z / 1e18  # Scale to avoid overflow
-            y = ((n - 1) * z + x * 1e18 / z_power) / n
-        
-        return z
+        # Use power operator for nth root: x^(1/n)
+        return x ** (1.0 / n)
     
     def fourth_root(self, x: float) -> float:
         """
@@ -188,6 +178,8 @@ class HalomCalculator:
         """
         if num_users <= 0:
             return []
+        if num_users == 1:
+            return [total_value]
         
         # Equal distribution maximizes decentralization
         equal_stake = total_value / num_users
