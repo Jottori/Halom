@@ -5,9 +5,20 @@
   "main": "index.js",
   "scripts": {
     "deploy:local": "hardhat run scripts/deploy.js --network localhost",
-    "test": "hardhat test"
+    "deploy:governance": "hardhat run scripts/deploy_governance.js --network localhost",
+    "setup:mainnet": "hardhat run scripts/setup_mainnet_staking.js --network mainnet",
+    "test": "hardhat test",
+    "test:security": "hardhat test test/security-audit-tests.js",
+    "test:coverage": "hardhat coverage",
+    "compile": "hardhat compile",
+    "clean": "hardhat clean",
+    "node": "hardhat node",
+    "verify": "hardhat verify",
+    "oracle:setup": "bash offchain/cron_setup.sh",
+    "oracle:run": "python3 offchain/enhanced_updater.py"
   },
   "devDependencies": {
+    "@matterlabs/hardhat-zksync-deploy": "^1.7.0",
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.9",
     "@nomicfoundation/hardhat-ethers": "^3.0.9",
     "@nomicfoundation/hardhat-ignition": "^0.15.11",
@@ -25,11 +36,16 @@
     "solidity-coverage": "^0.8.16",
     "ts-node": "^10.9.2",
     "typechain": "^8.3.2",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "zksync-web3": "^0.17.1"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^4.9.0",
+    "@openzeppelin/contracts": "^5.0.0",
     "dotenv": "^16.4.5",
-    "ethers": "^6.14.4"
+    "ethers": "^6.14.4",
+    "schedule": "^1.0.0",
+    "requests": "^2.31.0",
+    "pandas": "^2.0.0",
+    "numpy": "^1.24.0"
   }
 }
