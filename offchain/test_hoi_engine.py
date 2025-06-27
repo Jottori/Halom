@@ -8,7 +8,7 @@ import pytest
 import pandas as pd
 from datetime import datetime
 from unittest.mock import patch, MagicMock
-from hoi_engine import get_values_for_year, assemble_data_for_hoi, calculate_hoi
+from offchain.hoi_engine import get_values_for_year, assemble_data_for_hoi, calculate_hoi
 
 
 class TestGetValuesForYear:
@@ -57,12 +57,12 @@ class TestGetValuesForYear:
 class TestAssembleDataForHoi:
     """Test class for assemble_data_for_hoi function"""
     
-    @patch('hoi_engine.fetch_aic_per_capita')
-    @patch('hoi_engine.fetch_housing_cost_overburden')
-    @patch('hoi_engine.fetch_real_minimum_wage')
-    @patch('hoi_engine.fetch_household_saving_rate')
-    @patch('hoi_engine.fetch_gini_index')
-    @patch('hoi_engine.fetch_employment_ratio')
+    @patch('offchain.hoi_engine.fetch_aic_per_capita')
+    @patch('offchain.hoi_engine.fetch_housing_cost_overburden')
+    @patch('offchain.hoi_engine.fetch_real_minimum_wage')
+    @patch('offchain.hoi_engine.fetch_household_saving_rate')
+    @patch('offchain.hoi_engine.fetch_gini_index')
+    @patch('offchain.hoi_engine.fetch_employment_ratio')
     def test_assemble_data_for_hoi_success(self, mock_emp, mock_gini, mock_save, 
                                           mock_wage, mock_housing, mock_aic):
         """Test successful data assembly"""
@@ -100,7 +100,7 @@ class TestAssembleDataForHoi:
         assert result['MinWage_2020'] == 1000
         assert result['MinWage_t'] == 1200
     
-    @patch('hoi_engine.fetch_aic_per_capita')
+    @patch('offchain.hoi_engine.fetch_aic_per_capita')
     def test_assemble_data_for_hoi_empty_aic(self, mock_aic):
         """Test behavior when AIC data is empty"""
         mock_aic.return_value = pd.Series(dtype=float)
@@ -108,12 +108,12 @@ class TestAssembleDataForHoi:
         with pytest.raises(ValueError, match="AIC data is empty"):
             assemble_data_for_hoi()
     
-    @patch('hoi_engine.fetch_aic_per_capita')
-    @patch('hoi_engine.fetch_housing_cost_overburden')
-    @patch('hoi_engine.fetch_real_minimum_wage')
-    @patch('hoi_engine.fetch_household_saving_rate')
-    @patch('hoi_engine.fetch_gini_index')
-    @patch('hoi_engine.fetch_employment_ratio')
+    @patch('offchain.hoi_engine.fetch_aic_per_capita')
+    @patch('offchain.hoi_engine.fetch_housing_cost_overburden')
+    @patch('offchain.hoi_engine.fetch_real_minimum_wage')
+    @patch('offchain.hoi_engine.fetch_household_saving_rate')
+    @patch('offchain.hoi_engine.fetch_gini_index')
+    @patch('offchain.hoi_engine.fetch_employment_ratio')
     def test_assemble_data_for_hoi_missing_data(self, mock_emp, mock_gini, mock_save,
                                                mock_wage, mock_housing, mock_aic):
         """Test behavior when some data is missing"""

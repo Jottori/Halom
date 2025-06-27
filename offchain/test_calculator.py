@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
-Tests for Halom Protocol Calculator
-Tests fourth root based reward and governance power calculations
+Tests for Halom Calculator
+Tests staking calculations and reward distributions
 """
 
 import pytest
+import pandas as pd
 import math
+from datetime import datetime, timedelta
 from typing import List, Union
-from calculator import HalomCalculator, UserStake, RewardPool
+from unittest.mock import patch, MagicMock
+from offchain.calculator import HalomCalculator, UserStake, RewardPool
 
 
 class TestHalomCalculator:
