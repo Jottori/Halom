@@ -4,4 +4,6 @@ web3
 requests
 python-dotenv
 pytest
-pytest-cov 
+pytest-cov
+pandas
+schedule 

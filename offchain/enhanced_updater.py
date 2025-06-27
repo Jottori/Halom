@@ -12,12 +12,20 @@ import schedule
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 from web3 import Web3
 from web3.middleware.geth_poa import geth_poa_middleware
 import requests
 
-from offchain.hoi_engine import calculate_hoi, assemble_data_for_hoi
+# Import local modules with proper error handling
+try:
+    from offchain.hoi_engine import calculate_hoi, assemble_data_for_hoi
+except ImportError:
+    # Fallback for when running from different directory
+    import sys
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+    from offchain.hoi_engine import calculate_hoi, assemble_data_for_hoi
 
 # Load environment variables
 load_dotenv()
@@ -54,16 +62,16 @@ class OracleUpdater:
         self.oecd_api = os.getenv("OECD_API_URL", "https://stats.oecd.org/restsdmx/sdmx.ashx/GetData/")
         
         # Oracle configuration
-        self.oracle_address = None
-        self.updater_address = None
-        self.oracle_contract = None
-        self.w3 = None
-        self.updater_account = None
+        self.oracle_address: Optional[str] = None
+        self.updater_address: Optional[str] = None
+        self.oracle_contract: Optional[Any] = None
+        self.w3: Optional[Web3] = None
+        self.updater_account: Optional[Any] = None
         
         # Statistics
         self.successful_updates = 0
         self.failed_updates = 0
-        self.last_update_time = None
+        self.last_update_time: Optional[datetime] = None
         self.consecutive_failures = 0
         
         self._initialize_web3()
@@ -99,6 +107,12 @@ class OracleUpdater:
             with open(oracle_abi_path, 'r') as f:
                 oracle_data = json.load(f)
             
+            if self.w3 is None:
+                raise Exception("Web3 not initialized")
+            
+            if self.oracle_address is None:
+                raise Exception("Oracle address not found in deployment info")
+                
             checksum_oracle_address = self.w3.to_checksum_address(self.oracle_address)
             self.oracle_contract = self.w3.eth.contract(
                 address=checksum_oracle_address, 
@@ -111,17 +125,19 @@ class OracleUpdater:
             
             self.updater_account = self.w3.eth.account.from_key(self.private_key)
             
-            if self.updater_account.address.lower() != self.updater_address.lower():
-                logger.warning(f"Private key address ({self.updater_account.address}) doesn't match updater address ({self.updater_address})")
+            if self.updater_account is not None and self.updater_address is not None:
+                if self.updater_account.address.lower() != self.updater_address.lower():
+                    logger.warning(f"Private key address ({self.updater_account.address}) doesn't match updater address ({self.updater_address})")
             
             logger.info(f"Oracle contract loaded at {self.oracle_address}")
-            logger.info(f"Using updater account: {self.updater_account.address}")
+            if self.updater_account is not None:
+                logger.info(f"Using updater account: {self.updater_account.address}")
             
         except Exception as e:
             logger.error(f"Failed to load deployment info: {e}")
             raise
 
-    def fetch_real_time_data(self):
+    def fetch_real_time_data(self) -> Dict[str, Any]:
         """Fetch real-time data from APIs instead of static CSV files"""
         try:
             logger.info("Fetching real-time economic data...")
@@ -159,7 +175,7 @@ class OracleUpdater:
             logger.info("Falling back to static CSV data")
             return assemble_data_for_hoi()
 
-    def _extract_employment_ratio(self, data):
+    def _extract_employment_ratio(self, data: Dict[str, Any]) -> float:
         """Extract employment ratio from Eurostat response"""
         # Simplified extraction - in production, parse the actual Eurostat format
         try:
@@ -168,7 +184,7 @@ class OracleUpdater:
         except:
             return 75.5
 
-    def _extract_gini_index(self, data):
+    def _extract_gini_index(self, data: Dict[str, Any]) -> float:
         """Extract Gini index from OECD response"""
         # Simplified extraction - in production, parse the actual OECD format
         try:
@@ -190,6 +206,9 @@ class OracleUpdater:
             hoi_value = int(hoi_float * 1e9)
             
             logger.info(f"Calculated HOI: {hoi_float:.4f} ({hoi_value})")
+            
+            if self.oracle_contract is None or self.w3 is None or self.updater_account is None:
+                raise Exception("Oracle contract or Web3 not initialized")
             
             # Get current nonce
             current_nonce = self.oracle_contract.functions.nonce().call()
@@ -262,6 +281,10 @@ class OracleUpdater:
 
     def _send_email_alert(self, message):
         """Send email alert"""
+        if self.smtp_username is None or self.notification_email is None:
+            logger.error("SMTP username or notification email not configured")
+            return
+            
         msg = MIMEMultipart()
         msg['From'] = self.smtp_username
         msg['To'] = self.notification_email
@@ -283,12 +306,17 @@ class OracleUpdater:
         
         server = smtplib.SMTP(self.smtp_server, self.smtp_port)
         server.starttls()
-        server.login(self.smtp_username, self.smtp_password)
+        if self.smtp_username is not None and self.smtp_password is not None:
+            server.login(self.smtp_username, self.smtp_password)
         server.send_message(msg)
         server.quit()
 
     def _send_slack_alert(self, message):
         """Send Slack alert"""
+        if self.slack_webhook is None:
+            logger.error("Slack webhook not configured")
+            return
+            
         payload = {
             "text": f"🚨 Halom Oracle Alert: {message}",
             "attachments": [
@@ -315,6 +343,9 @@ class OracleUpdater:
     def health_check(self):
         """Perform health check on oracle contract"""
         try:
+            if self.oracle_contract is None or self.updater_account is None:
+                raise Exception("Oracle contract or updater account not initialized")
+                
             # Check if oracle is paused
             is_paused = self.oracle_contract.functions.paused().call()
             if is_paused:
