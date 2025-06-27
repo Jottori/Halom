@@ -45,7 +45,7 @@ describe("HalomOracle", function () {
     describe("setHOI Functionality", function () {
         it("Should allow updater to set HOI with correct nonce", async function () {
             const currentNonce = await oracle.nonce();
-            const hoiValue = ethers.parseUnits("1.001", 9); // Kisebb érték
+            const hoiValue = ethers.parseUnits("1.001", 9); // Smaller value
 
             await expect(oracle.connect(updater).setHOI(hoiValue, currentNonce))
                 .to.emit(oracle, "HOISet");
@@ -94,7 +94,7 @@ describe("HalomOracle", function () {
             await oracle.connect(governor).unpause();
 
             const currentNonce = await oracle.nonce();
-            const hoiValue = ethers.parseUnits("1.01", 9); // Kisebb érték
+            const hoiValue = ethers.parseUnits("1.01", 9); // Smaller value
 
             await expect(oracle.connect(updater).setHOI(hoiValue, currentNonce)).to.not.be.reverted;
         });

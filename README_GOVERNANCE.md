@@ -1,64 +1,64 @@
 # Halom Governance System
 
-A Halom protokoll teljes decentralizált governance rendszere, amely tartalmazza a Timelock, DAO, Treasury és fejlesztett orákulum modulokat.
+Complete decentralized governance system for the Halom protocol, including Timelock, DAO, Treasury, and enhanced oracle modules.
 
-## 🏗️ Architektúra
+## 🏗️ Architecture
 
 ### 1. Timelock Controller (`HalomTimelock.sol`)
-- **Cél**: Időzített végrehajtás minden adminisztratív műveletre
-- **Min delay**: 24 óra
-- **Biztonság**: Minden kritikus művelet előre bejelentett és várakozási idővel
+- **Purpose**: Time-delayed execution for all administrative operations
+- **Min delay**: 24 hours
+- **Security**: All critical operations are pre-announced with waiting period
 
 ### 2. Governance (`HalomGovernor.sol`)
-- **Szavazati erő**: Negyedik gyök alapú (fourth root)
-- **Token lock**: 5 év fix lock period
-- **Quorum**: 4% minimum részvétel
-- **Voting period**: ~1 hét
+- **Voting power**: Fourth root based (fourth root)
+- **Token lock**: 5 year fixed lock period
+- **Quorum**: 4% minimum participation
+- **Voting period**: ~1 week
 
 ### 3. Treasury (`HalomTreasury.sol`)
-- **Jutalék elosztás**: 60% staking, 20% LP staking, 20% DAO reserve
-- **Automatikus elosztás**: Operator által triggerelt
-- **Emergency functions**: Vészhelyzeti pénzügyi műveletek
+- **Fee distribution**: 60% staking, 20% LP staking, 20% DAO reserve
+- **Automatic distribution**: Triggered by operator
+- **Emergency functions**: Emergency financial operations
 
 ### 4. Enhanced Oracle (`HalomOracleV2.sol`)
-- **Több node**: Konszenzus alapú HOI számítás
-- **API integráció**: Valós idejű adatok Eurostat/OECD-ból
-- **Validáció**: Median és deviation ellenőrzés
+- **Multiple nodes**: Consensus-based HOI calculation
+- **API integration**: Real-time data from Eurostat/OECD
+- **Validation**: Median and deviation checking
 
-## 🚀 Telepítés
+## 🚀 Installation
 
-### 1. Függőségek telepítése
+### 1. Install dependencies
 ```bash
 npm install
 ```
 
-### 2. Environment beállítás
+### 2. Environment setup
 ```bash
-cp .env.example .env
-# Töltsd ki a szükséges értékeket
+cp env.example .env
+# Fill in the required values
 ```
 
-### 3. Governance rendszer telepítése
+### 3. Deploy governance system
 ```bash
 npm run deploy:governance
 ```
 
-### 4. Oracle ütemezés beállítása
+### 4. Setup oracle scheduling
 ```bash
 npm run oracle:setup
 ```
 
-## 📋 Használat
+## 📋 Usage
 
-### Governance műveletek
+### Governance operations
 
-#### 1. Token lock a szavazáshoz
+#### 1. Lock tokens for voting
 ```javascript
 // Lock tokens for 5 years to get voting power
 await halomGovernor.lockTokens(ethers.parseEther("1000"));
 ```
 
-#### 2. Proposal létrehozása
+#### 2. Create proposal
 ```javascript
 const targets = [treasuryAddress];
 const values = [0];
@@ -70,176 +70,176 @@ const description = "Update fee distribution";
 await halomGovernor.propose(targets, values, calldatas, description);
 ```
 
-#### 3. Szavazás
+#### 3. Vote
 ```javascript
 // Vote with locked tokens (fourth root voting power)
 await halomGovernor.vote(proposalId, 1); // 1 = For, 0 = Against, 2 = Abstain
 ```
 
-#### 4. Végrehajtás (timelock után)
+#### 4. Execute (after timelock)
 ```javascript
 await halomGovernor.execute(targets, values, calldatas, descriptionHash);
 ```
 
-### Oracle műveletek
+### Oracle operations
 
-#### 1. Oracle node engedélyezése
+#### 1. Authorize oracle node
 ```javascript
 await halomOracleV2.setOracleAuthorization(oracleAddress, true);
 ```
 
-#### 2. HOI submission
+#### 2. Submit HOI
 ```javascript
 await halomOracleV2.submitHOI(hoiValue);
 ```
 
-#### 3. Konszenzus ellenőrzése
+#### 3. Check consensus
 ```javascript
 const roundInfo = await halomOracleV2.getCurrentRound();
 console.log("Submissions:", roundInfo.submissionCount);
 ```
 
-### Treasury műveletek
+### Treasury operations
 
-#### 1. Jutalék elosztás
+#### 1. Distribute fees
 ```javascript
 await halomTreasury.distributeFees();
 ```
 
-#### 2. Fee percentages módosítása
+#### 2. Update fee percentages
 ```javascript
 await halomTreasury.updateFeePercentages(7000, 2000, 1000);
 ```
 
-## 🔧 Konfiguráció
+## 🔧 Configuration
 
-### Timelock paraméterek
-- **Min delay**: 24 óra (konfigurálható)
+### Timelock parameters
+- **Min delay**: 24 hours (configurable)
 - **Proposer**: Governor contract
 - **Executor**: Governor contract
-- **Admin**: Multisig wallet (ajánlott)
+- **Admin**: Multisig wallet (recommended)
 
-### Governance paraméterek
-- **Voting delay**: 1 blokk
-- **Voting period**: ~1 hét (45818 blokk)
+### Governance parameters
+- **Voting delay**: 1 block
+- **Voting period**: ~1 week (45818 blocks)
 - **Proposal threshold**: 1000 HLM
 - **Quorum fraction**: 4%
 
-### Oracle paraméterek
+### Oracle parameters
 - **Min oracle nodes**: 3
 - **Consensus threshold**: 2
 - **Max deviation**: 5%
-- **Submission window**: 5 perc
+- **Submission window**: 5 minutes
 
-## 🧪 Tesztelés
+## 🧪 Testing
 
-### Biztonsági tesztek futtatása
+### Run security tests
 ```bash
 npm run test:security
 ```
 
-### Teljes teszt coverage
+### Full test coverage
 ```bash
 npm run test:coverage
 ```
 
-### Oracle tesztelés
+### Test oracle
 ```bash
 npm run oracle:run
 ```
 
 ## 📊 Monitoring
 
-### Log fájlok
-- `logs/oracle_updater.log` - Oracle frissítések
-- `logs/cron.log` - Ütemezett feladatok
+### Log files
+- `logs/oracle_updater.log` - Oracle updates
+- `logs/cron.log` - Scheduled tasks
 
 ### Health check
 ```bash
 ./scripts/monitor_oracle.sh
 ```
 
-### Alert beállítások
-- Email értesítések SMTP-n keresztül
-- Slack webhook integráció
-- 3 egymást követő hiba után automatikus alert
+### Alert settings
+- Email notifications via SMTP
+- Slack webhook integration
+- Automatic alert after 3 consecutive failures
 
-## 🔐 Biztonság
+## 🔐 Security
 
 ### Access Control
-- **Timelock**: Minden admin művelet időzített
-- **Governor**: Csak locked tokenekkel szavazhat
-- **Oracle**: Több node konszenzus
-- **Treasury**: Emergency pause funkció
+- **Timelock**: All admin operations are time-delayed
+- **Governor**: Only locked tokens can vote
+- **Oracle**: Multiple node consensus
+- **Treasury**: Emergency pause function
 
-### Audit javaslatok
-1. **Halborn audit** megrendelése
-2. **Bug bounty program** indítása
-3. **Formal verification** kritikus funkciókra
-4. **Penetration testing** off-chain komponensekre
+### Audit recommendations
+1. **Halborn audit** commissioning
+2. **Bug bounty program** launch
+3. **Formal verification** for critical functions
+4. **Penetration testing** for off-chain components
 
 ## 🌐 Mainnet Deployment
 
-### 1. LP Pool létrehozás
+### 1. Create LP pools
 ```bash
 npm run setup:mainnet
 ```
 
-### 2. Oracle node beállítás
+### 2. Setup oracle nodes
 ```bash
-# Több független oracle node beállítása
-# API kulcsok konfigurálása
-# Monitoring beállítása
+# Setup multiple independent oracle nodes
+# Configure API keys
+# Setup monitoring
 ```
 
-### 3. Governance átadás
+### 3. Transfer governance
 ```bash
-# Timelock admin átadása multisig-re
-# Oracle node-ok engedélyezése
-# Treasury paraméterek beállítása
+# Transfer timelock admin to multisig
+# Authorize oracle nodes
+# Configure treasury parameters
 ```
 
 ## 📈 Roadmap
 
-### Phase 1: Alapvető Governance ✅
+### Phase 1: Basic Governance ✅
 - [x] Timelock Controller
 - [x] Governor contract
-- [x] Treasury modul
+- [x] Treasury module
 - [x] Enhanced Oracle
 
 ### Phase 2: Mainnet Launch
-- [ ] LP pool létrehozás
-- [ ] Oracle node hálózat
+- [ ] LP pool creation
+- [ ] Oracle node network
 - [ ] Security audit
 - [ ] Bug bounty program
 
-### Phase 3: Decentralizáció
+### Phase 3: Decentralization
 - [ ] DAO token distribution
 - [ ] Community governance
 - [ ] Cross-chain bridges
 - [ ] Advanced analytics
 
-## 🤝 Közreműködés
+## 🤝 Contributing
 
-### Fejlesztői útmutató
+### Developer guide
 1. Fork the repository
 2. Create feature branch
 3. Implement changes
 4. Add tests
 5. Submit pull request
 
-### Biztonsági jelentések
+### Security reports
 - Email: security@halom.finance
 - Bug bounty: Immunefi platform
 - Responsible disclosure policy
 
-## 📞 Kapcsolat
+## 📞 Contact
 
 - **Website**: https://halom.finance
 - **Discord**: https://discord.gg/halom
 - **Twitter**: @HalomFinance
 - **GitHub**: https://github.com/halom-finance
 
-## 📄 Licenc
+## 📄 License
 
-MIT License - lásd a [LICENSE](LICENSE) fájlt. 
+MIT License - see [LICENSE](LICENSE) file. 
