@@ -135,13 +135,17 @@ async function main() {
     
     const staking = await HalomStaking.deploy(
         await halomToken.getAddress(),
-        await timelock.getAddress() // Governance
+        await timelock.getAddress(), // Governance
+        deployer.address, // rewarder
+        deployer.address  // pauser
     );
     await staking.waitForDeployment();
     
     const lpStaking = await HalomLPStaking.deploy(
-        await halomToken.getAddress(),
-        await timelock.getAddress() // Governance
+        await halomToken.getAddress(), // LP token (using halomToken as example)
+        await halomToken.getAddress(), // halomToken
+        await timelock.getAddress(), // Governance
+        deployer.address // rewarder
     );
     await lpStaking.waitForDeployment();
     

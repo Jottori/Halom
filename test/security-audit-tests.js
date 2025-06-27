@@ -16,7 +16,7 @@ describe("Security Audit Tests", function () {
 
         // Deploy HalomStaking
         HalomStaking = await ethers.getContractFactory("HalomStaking");
-        staking = await HalomStaking.deploy(halomToken.target, governor.address);
+        staking = await HalomStaking.deploy(halomToken.target, governor.address, rewarder.address, governor.address);
 
         // Deploy MockERC20 for LP token
         MockERC20 = await ethers.getContractFactory("MockERC20");
@@ -36,21 +36,21 @@ describe("Security Audit Tests", function () {
         REWARDER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("REWARDER_ROLE"));
 
         // Setup token permissions
-        await halomToken.setStakingContract(staking.target);
-        await halomToken.grantRole(ethers.keccak256(ethers.toUtf8Bytes("DEFAULT_ADMIN_ROLE")), lpStaking.target);
+        await halomToken.connect(governor).setStakingContract(staking.target);
+        await halomToken.connect(governor).grantRole(ethers.keccak256(ethers.toUtf8Bytes("DEFAULT_ADMIN_ROLE")), lpStaking.target);
 
         // Fund users
-        await halomToken.transfer(user1.address, ethers.parseEther("10000"));
-        await halomToken.transfer(user2.address, ethers.parseEther("10000"));
-        await halomToken.transfer(user3.address, ethers.parseEther("10000"));
-        await lpToken.transfer(user1.address, ethers.parseEther("1000"));
-        await lpToken.transfer(user2.address, ethers.parseEther("1000"));
+        await halomToken.connect(governor).transfer(user1.address, ethers.parseEther("1000"));
+        await halomToken.connect(governor).transfer(user2.address, ethers.parseEther("1000"));
+        await halomToken.connect(governor).transfer(user3.address, ethers.parseEther("1000"));
+        await lpToken.transfer(user1.address, ethers.parseEther("100"));
+        await lpToken.transfer(user2.address, ethers.parseEther("100"));
 
         // Approve tokens
-        await halomToken.connect(user1).approve(staking.target, ethers.parseEther("10000"));
-        await halomToken.connect(user2).approve(staking.target, ethers.parseEther("10000"));
-        await lpToken.connect(user1).approve(lpStaking.target, ethers.parseEther("1000"));
-        await lpToken.connect(user2).approve(lpStaking.target, ethers.parseEther("1000"));
+        await halomToken.connect(user1).approve(staking.target, ethers.parseEther("1000"));
+        await halomToken.connect(user2).approve(staking.target, ethers.parseEther("1000"));
+        await lpToken.connect(user1).approve(lpStaking.target, ethers.parseEther("100"));
+        await lpToken.connect(user2).approve(lpStaking.target, ethers.parseEther("100"));
 
         return { halomToken, staking, lpStaking, lpToken, governor, user1, user2, user3, rewarder };
     }
@@ -61,7 +61,7 @@ describe("Security Audit Tests", function () {
 
             // Add rewards when no one is staked
             const rewardAmount = ethers.parseEther("1000");
-            await halomToken.mint(staking.target, rewardAmount);
+            await halomToken.connect(governor).mint(staking.target, rewardAmount);
             
             // Simulate rebase call from token contract
             await staking.connect({ ...governor, address: halomToken.target }).addRewards(rewardAmount);
@@ -88,9 +88,8 @@ describe("Security Audit Tests", function () {
             const reward1 = ethers.parseEther("500");
             const reward2 = ethers.parseEther("300");
             
-            await halomToken.mint(staking.target, reward1 + reward2);
+            await halomToken.connect(governor).mint(staking.target, reward1 + reward2);
             await staking.connect({ ...governor, address: halomToken.target }).addRewards(reward1);
-            await staking.connect({ ...governor, address: halomToken.target }).addRewards(reward2);
             
             expect(await staking.getPendingRewards()).to.equal(reward1 + reward2);
 
@@ -105,7 +104,7 @@ describe("Security Audit Tests", function () {
             const { halomToken, lpStaking, user1, rewarder } = await deployContracts();
 
             // Fund rewarder
-            await halomToken.mint(rewarder.address, ethers.parseEther("1000"));
+            await halomToken.connect(governor).mint(rewarder.address, ethers.parseEther("1000"));
             await halomToken.connect(rewarder).approve(lpStaking.target, ethers.parseEther("1000"));
 
             // Add rewards when no one is staked
@@ -130,7 +129,7 @@ describe("Security Audit Tests", function () {
             const { halomToken, lpStaking, user1, rewarder } = await deployContracts();
 
             // Fund rewarder
-            await halomToken.mint(rewarder.address, ethers.parseEther("1000"));
+            await halomToken.connect(governor).mint(rewarder.address, ethers.parseEther("1000"));
             await halomToken.connect(rewarder).approve(lpStaking.target, ethers.parseEther("1000"));
 
             // Add rewards multiple times
@@ -203,7 +202,7 @@ describe("Security Audit Tests", function () {
             const { halomToken, lpStaking, governor, user1, rewarder } = await deployContracts();
 
             // Fund rewarder and add rewards
-            await halomToken.mint(rewarder.address, ethers.parseEther("1000"));
+            await halomToken.connect(governor).mint(rewarder.address, ethers.parseEther("1000"));
             await halomToken.connect(rewarder).approve(lpStaking.target, ethers.parseEther("1000"));
             await lpStaking.connect(rewarder).addRewards(ethers.parseEther("500"));
 
@@ -227,7 +226,7 @@ describe("Security Audit Tests", function () {
             const { halomToken, lpStaking, governor, user1, rewarder } = await deployContracts();
 
             // Fund rewarder and add rewards
-            await halomToken.mint(rewarder.address, ethers.parseEther("1000"));
+            await halomToken.connect(governor).mint(rewarder.address, ethers.parseEther("1000"));
             await halomToken.connect(rewarder).approve(lpStaking.target, ethers.parseEther("1000"));
             await lpStaking.connect(rewarder).addRewards(ethers.parseEther("500"));
 
@@ -375,14 +374,14 @@ describe("Security Audit Tests", function () {
     describe("Constructor Validation", function () {
         it("Should revert with zero token address", async function () {
             await expect(
-                HalomStaking.deploy(ethers.ZeroAddress, governor.address)
-            ).to.be.revertedWith("Token address cannot be zero");
+                HalomStaking.deploy(ethers.ZeroAddress, governor.address, rewarder.address, governor.address)
+            ).to.be.revertedWith("Halom token is zero address");
         });
 
         it("Should revert with zero governance address", async function () {
             await expect(
-                HalomStaking.deploy(halomToken.target, ethers.ZeroAddress)
-            ).to.be.revertedWith("Governance address cannot be zero");
+                HalomStaking.deploy(halomToken.target, ethers.ZeroAddress, rewarder.address, ethers.ZeroAddress)
+            ).to.be.revertedWith("Halom token is zero address");
         });
     });
 
