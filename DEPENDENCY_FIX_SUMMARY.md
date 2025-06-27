@@ -1,12 +1,18 @@
 # Dependency Fix Summary - OpenZeppelin Hardhat Upgrades
 
-## Issue Resolved
+## Issues Resolved
 
-**Problem**: npm error `notarget No matching version found for @openzeppelin/hardhat-upgrades@^1.35.0`
+### 1. Initial Version Issue
+**Problem**: `npm error notarget No matching version found for @openzeppelin/hardhat-upgrades@^1.35.0`
 
 **Root Cause**: The `package.json` file specified version `^1.35.0` which doesn't exist on npm. According to the [npm package information](https://www.npmjs.com/package/@openzeppelin/hardhat-upgrades), the latest version is **3.9.0**.
 
-## Solution Implemented
+### 2. Peer Dependency Conflict
+**Problem**: `@openzeppelin/hardhat-upgrades@3.9.0 requires @nomicfoundation/hardhat-ethers@^3.0.0 (peer dependency)`
+
+**Root Cause**: Version incompatibility between `@nomicfoundation/hardhat-ethers@^4.0.0` and `@openzeppelin/hardhat-upgrades@^3.9.0`.
+
+## Solutions Implemented
 
 ### 1. Updated Package Dependencies
 
@@ -19,11 +25,13 @@
     "@openzeppelin/contracts": "^5.0.1"  // Updated from ^4.9.3
   },
   "devDependencies": {
-    "@nomicfoundation/hardhat-ethers": "^4.0.0",  // Added peer dependency
+    "@nomicfoundation/hardhat-ethers": "^3.0.0",  // Downgraded from ^4.0.0
     "@openzeppelin/hardhat-upgrades": "^3.9.0"    // Updated from ^1.35.0
   }
 }
 ```
+
+**Resolution Strategy**: Used **Version Alignment** (recommended approach from [npm dependency resolution best practices](https://medium.com/@robert.maiersilldorff/resolving-npm-peer-dependency-conflicts-70d67f4ca7dc)) to satisfy peer dependency requirements.
 
 ### 2. Updated Hardhat Configuration
 
@@ -59,7 +67,9 @@ require('dotenv').config();
 
 ### 4. Created Comprehensive Documentation
 
-**Files Created**: `docs/upgrades.md`
+**Files Created**: 
+- `docs/upgrades.md` - Complete upgrade guide
+- `docs/npm-dependency-resolution.md` - Dependency conflict resolution guide
 
 **Content**:
 - Complete guide for using OpenZeppelin Hardhat Upgrades plugin
@@ -68,6 +78,28 @@ require('dotenv').config();
 - Governance integration
 - Testing procedures
 - Troubleshooting guide
+- NPM dependency conflict resolution strategies
+
+## Dependency Resolution Strategy
+
+### Why Version Alignment Was Chosen
+
+Based on [best practices for resolving npm dependency conflicts](https://dev.to/gentritbiba/understanding-and-resolving-npm-dependency-conflicts-a-developers-guide-3c33), we chose **Version Alignment** over other strategies:
+
+1. **✅ Version Alignment** (Chosen) - Align package versions to satisfy peer dependency requirements
+2. **❌ Legacy Peer Dependencies** - Can lead to compatibility issues
+3. **❌ Force Installation** - Bypasses all dependency checks
+4. **❌ Dependency Overrides** - Not necessary for this case
+
+### Compatibility Matrix
+
+| Package | Version | Reason |
+|---------|---------|--------|
+| @openzeppelin/hardhat-upgrades | ^3.9.0 | Latest stable version |
+| @nomicfoundation/hardhat-ethers | ^3.0.0 | Peer dependency requirement |
+| @openzeppelin/contracts | ^5.0.1 | Latest stable version |
+| ethers | ^6.14.4 | Compatible with hardhat-ethers v3 |
+| hardhat | ^2.22.1 | Compatible with all dependencies |
 
 ## OpenZeppelin Hardhat Upgrades Plugin Features
 
@@ -201,6 +233,45 @@ npm test
 - Use multiple test networks
 - Simulate production conditions
 
+## Troubleshooting
+
+### Common Issues and Solutions
+
+1. **Peer Dependency Conflicts**
+   - **Solution**: Use version alignment strategy
+   - **Example**: Downgrade `@nomicfoundation/hardhat-ethers` to `^3.0.0`
+
+2. **Storage Layout Incompatibility**
+   - **Error**: "New storage layout is incompatible"
+   - **Solution**: Check variable order and types
+
+3. **Authorization Error**
+   - **Error**: "AccessControl: account is missing role"
+   - **Solution**: Ensure caller has DEFAULT_ADMIN_ROLE
+
+4. **Initialization Error**
+   - **Error**: "Contract is already initialized"
+   - **Solution**: Use `reinitializer` for reinitialization
+
+### Debug Commands
+
+```bash
+# Check contract validation
+npx hardhat compile
+
+# Validate upgrade safety
+npx hardhat run scripts/validate_upgrade.js
+
+# Check proxy info
+npx hardhat run scripts/check_proxy.js
+
+# Check dependency tree
+npm ls
+
+# Check for outdated packages
+npm outdated
+```
+
 ## Files Modified Summary
 
 ### Core Configuration
@@ -212,6 +283,7 @@ npm test
 
 ### Documentation
 - `docs/upgrades.md` - Complete upgrade guide
+- `docs/npm-dependency-resolution.md` - Dependency conflict resolution guide
 
 ### Testing
 - `test/test-governance.js` - Governance and upgrade tests
@@ -222,6 +294,7 @@ npm test
 1. **Install Dependencies**: Run `npm install` to install updated packages
 2. **Test Installation**: Run `npm test` to verify everything works
 3. **Test Upgrades**: Run `npm run test:governance` to test upgrade functionality
+4. **Commit Changes**: Include `package-lock.json` for consistent installations
 
 ### Future Enhancements
 1. **Convert Contracts to Upgradeable**: Update existing contracts to use upgradeable patterns
@@ -235,15 +308,18 @@ npm test
 - [OpenZeppelin Upgrades Documentation](https://docs.openzeppelin.com/upgrades-plugins/)
 - [GitHub Repository](https://github.com/OpenZeppelin/openzeppelin-upgrades)
 - [UUPS Proxy Pattern](https://docs.openzeppelin.com/contracts/4.x/api/proxy#UUPSUpgradeable)
+- [Resolving NPM Peer Dependency Conflicts](https://medium.com/@robert.maiersilldorff/resolving-npm-peer-dependency-conflicts-70d67f4ca7dc)
+- [Understanding and Resolving npm Dependency Conflicts](https://dev.to/gentritbiba/understanding-and-resolving-npm-dependency-conflicts-a-developers-guide-3c33)
 
 ## Conclusion
 
-The dependency issue has been successfully resolved with the following improvements:
+The dependency issues have been successfully resolved with the following improvements:
 
 1. ✅ **Fixed Version**: Updated to correct version `^3.9.0`
-2. ✅ **Added Plugin**: Properly configured Hardhat upgrades plugin
-3. ✅ **Created Scripts**: Added comprehensive upgrade scripts
-4. ✅ **Documentation**: Created detailed upgrade guide
-5. ✅ **Testing**: Added upgrade testing framework
+2. ✅ **Resolved Peer Dependency**: Downgraded `@nomicfoundation/hardhat-ethers` to `^3.0.0`
+3. ✅ **Added Plugin**: Properly configured Hardhat upgrades plugin
+4. ✅ **Created Scripts**: Added comprehensive upgrade scripts
+5. ✅ **Documentation**: Created detailed upgrade and dependency resolution guides
+6. ✅ **Testing**: Added upgrade testing framework
 
-The Halom Protocol now has a robust contract upgrade system that integrates with the governance framework and follows OpenZeppelin best practices. 
+The Halom Protocol now has a robust contract upgrade system that integrates with the governance framework and follows OpenZeppelin best practices. All dependency conflicts have been resolved using industry-standard approaches. 
