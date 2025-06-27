@@ -9,13 +9,13 @@ import json
 import logging
 import smtplib
 import schedule
-from datetime import datetime, timedelta
+from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 from web3 import Web3
-from web3.middleware.geth_poa import geth_poa_middleware
+from web3.middleware import ExtraDataToPOAMiddleware
 import requests
 
 # Import local modules with proper error handling
@@ -81,13 +81,13 @@ class OracleUpdater:
         """Initialize Web3 connection"""
         try:
             self.w3 = Web3(Web3.HTTPProvider(self.rpc_url))
-            self.w3.middleware_onion.inject(geth_poa_middleware, layer=0)
-            
-            if not self.w3.is_connected():
-                raise Exception(f"Could not connect to RPC URL: {self.rpc_url}")
-            
+            if self.w3 is not None:
+                self.w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+                if not self.w3.is_connected():
+                    raise Exception(f"Could not connect to RPC URL: {self.rpc_url}")
+            else:
+                raise Exception("Web3 initialization failed")
             logger.info(f"Connected to blockchain at {self.rpc_url}")
-            
         except Exception as e:
             logger.error(f"Failed to initialize Web3: {e}")
             raise

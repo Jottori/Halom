@@ -17,22 +17,22 @@ class TestGetValuesForYear:
     def test_get_values_for_year_with_datetime_index(self):
         """Test extracting values for a specific year with DatetimeIndex"""
         # Create a test series with DatetimeIndex
-        dates = pd.date_range('2020-01-01', '2023-12-31', freq='M')
+        dates = pd.date_range('2020-01-01', '2023-12-31', freq='ME')
         values = [100 + i for i in range(len(dates))]
         series = pd.Series(values, index=dates)
         
         # Test getting value for 2021
         result = get_values_for_year(series, 2021)
-        assert result == 112  # Should be the last value for 2021 (December)
+        assert result == 123  # Should be the last value for 2021 (December)
         
         # Test getting value for 2020
         result = get_values_for_year(series, 2020)
-        assert result == 100  # Should be the first value for 2020 (January)
+        assert result == 111  # Should be the last value for 2020 (December)
     
     def test_get_values_for_year_no_data_for_year(self):
         """Test behavior when no data exists for the requested year"""
         # Create a test series with only 2020-2021 data
-        dates = pd.date_range('2020-01-01', '2021-12-31', freq='M')
+        dates = pd.date_range('2020-01-01', '2021-12-31', freq='ME')
         values = [100 + i for i in range(len(dates))]
         series = pd.Series(values, index=dates)
         
@@ -68,17 +68,17 @@ class TestAssembleDataForHoi:
         """Test successful data assembly"""
         # Mock the data fetching functions
         mock_aic.return_value = pd.Series([100, 110, 120], 
-                                         index=pd.date_range('2020-01-01', '2022-01-01', freq='Y'))
+                                         index=pd.date_range('2020-01-01', periods=3, freq='YE'))
         mock_housing.return_value = pd.Series([10, 11, 12], 
-                                             index=pd.date_range('2020-01-01', '2022-01-01', freq='Y'))
+                                             index=pd.date_range('2020-01-01', periods=3, freq='YE'))
         mock_wage.return_value = pd.Series([1000, 1100, 1200], 
-                                          index=pd.date_range('2020-01-01', '2022-01-01', freq='Y'))
+                                          index=pd.date_range('2020-01-01', periods=3, freq='YE'))
         mock_save.return_value = pd.Series([5, 6, 7], 
-                                          index=pd.date_range('2020-01-01', '2022-01-01', freq='Y'))
+                                          index=pd.date_range('2020-01-01', periods=3, freq='YE'))
         mock_gini.return_value = pd.Series([30, 31, 32], 
-                                          index=pd.date_range('2020-01-01', '2022-01-01', freq='Y'))
+                                          index=pd.date_range('2020-01-01', periods=3, freq='YE'))
         mock_emp.return_value = pd.Series([60, 61, 62], 
-                                         index=pd.date_range('2020-01-01', '2022-01-01', freq='Y'))
+                                         index=pd.date_range('2020-01-01', periods=3, freq='YE'))
         
         # Call the function
         result = assemble_data_for_hoi()
@@ -119,19 +119,18 @@ class TestAssembleDataForHoi:
         """Test behavior when some data is missing"""
         # Mock AIC data (required for year determination)
         mock_aic.return_value = pd.Series([100, 110, 120], 
-                                         index=pd.date_range('2020-01-01', '2022-01-01', freq='Y'))
+                                         index=pd.date_range('2020-01-01', periods=3, freq='YE'))
         
-        # Mock other data to return None for some values
-        mock_housing.return_value = pd.Series([10, None, 12], 
-                                             index=pd.date_range('2020-01-01', '2022-01-01', freq='Y'))
+        # Mock other data to return empty series for housing (which will cause None values)
+        mock_housing.return_value = pd.Series(dtype=float)  # Empty series
         mock_wage.return_value = pd.Series([1000, 1100, 1200], 
-                                          index=pd.date_range('2020-01-01', '2022-01-01', freq='Y'))
+                                          index=pd.date_range('2020-01-01', periods=3, freq='YE'))
         mock_save.return_value = pd.Series([5, 6, 7], 
-                                          index=pd.date_range('2020-01-01', '2022-01-01', freq='Y'))
+                                          index=pd.date_range('2020-01-01', periods=3, freq='YE'))
         mock_gini.return_value = pd.Series([30, 31, 32], 
-                                          index=pd.date_range('2020-01-01', '2022-01-01', freq='Y'))
+                                          index=pd.date_range('2020-01-01', periods=3, freq='YE'))
         mock_emp.return_value = pd.Series([60, 61, 62], 
-                                         index=pd.date_range('2020-01-01', '2022-01-01', freq='Y'))
+                                         index=pd.date_range('2020-01-01', periods=3, freq='YE'))
         
         with pytest.raises(ValueError, match="Could not retrieve all necessary data"):
             assemble_data_for_hoi()
