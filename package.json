@@ -25,12 +25,15 @@
     "test:staking": "npx hardhat test test/test-staking.js",
     "test:token": "npx hardhat test test/test-token.js",
     "test:lp-staking": "npx hardhat test test/test-lp-staking.js",
+    "test:governance": "npx hardhat test test/test-governance.js",
+    "upgrade:contracts": "npx hardhat run scripts/upgrade_contracts.js --network localhost",
+    "upgrade:testnet": "npx hardhat run scripts/upgrade_contracts.js --network zkSyncTestnet",
     "oracle:update": "python offchain/oracle_updater_v2.py",
     "oracle:enhanced": "python offchain/enhanced_updater.py",
     "oracle:setup": "bash offchain/cron_setup.sh"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^4.9.3",
+    "@openzeppelin/contracts": "^5.0.1",
     "dotenv": "^16.4.5",
     "ethers": "^6.14.4",
     "node-schedule": "^2.1.1",
@@ -41,8 +44,9 @@
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^6.0.0",
+    "@nomicfoundation/hardhat-ethers": "^4.0.0",
     "hardhat": "^2.22.1",
-    "@openzeppelin/hardhat-upgrades": "^1.35.0",
+    "@openzeppelin/hardhat-upgrades": "^3.9.0",
     "hardhat-gas-reporter": "^1.0.9",
     "solidity-coverage": "^0.8.5"
   }
