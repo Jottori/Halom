@@ -50,6 +50,27 @@ This document summarizes all dependency-related fixes applied to the Halom Proto
 - `package.json` - Removed Python packages from npm dependencies
 - `docs/npm-dependency-resolution.md` - Added Python vs Node.js dependency clarification
 
+## 4. Hardhat Gas Reporter Version Conflict
+
+### Issue
+- `@nomicfoundation/hardhat-toolbox@6.0.0` requires `hardhat-gas-reporter@^2.3.0`
+- Project had `hardhat-gas-reporter@1.0.10` installed
+- Peer dependency conflict preventing npm installation
+
+### Solution
+- Updated `hardhat-gas-reporter` from `^1.0.9` to `^2.3.0` in `package.json`
+- This satisfies the peer dependency requirement from hardhat-toolbox
+
+### Files Modified
+- `package.json` - Updated hardhat-gas-reporter version
+
+### Benefits of v2.3.0
+According to the [hardhat-gas-reporter documentation](https://www.npmjs.com/package/hardhat-gas-reporter), version 2.3.0 includes:
+- Enhanced L1 and L2 gas cost reporting
+- Support for multiple output formats (JSON, markdown, reStructuredText)
+- Better integration with modern Hardhat tooling
+- Improved accuracy for gas estimations
+
 ## Installation Instructions
 
 ### Node.js Dependencies
@@ -68,6 +89,7 @@ pip install -r requirements.txt
 2. **Version Compatibility**: All peer dependencies are compatible
 3. **Documentation**: Comprehensive guides for dependency management
 4. **Error Prevention**: Clear installation instructions prevent common mistakes
+5. **Regular Updates**: Keeping dependencies updated for security and compatibility
 
 ## Testing
 
@@ -86,6 +108,7 @@ python -c "import pandas, requests, schedule; print('Python dependencies OK')"
 - [npm dependency resolution guide](docs/npm-dependency-resolution.md)
 - [OpenZeppelin upgrades documentation](docs/upgrades.md)
 - [Requirements.txt](requirements.txt) for Python dependencies
+- [Hardhat Gas Reporter v2.3.0](https://www.npmjs.com/package/hardhat-gas-reporter) documentation
 
 ## Dependency Fix Summary - OpenZeppelin Hardhat Upgrades
 

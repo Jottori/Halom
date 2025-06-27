@@ -44,7 +44,7 @@
     "@nomicfoundation/hardhat-ethers": "^3.0.0",
     "hardhat": "^2.22.1",
     "@openzeppelin/hardhat-upgrades": "^3.9.0",
-    "hardhat-gas-reporter": "^1.0.9",
+    "hardhat-gas-reporter": "^2.3.0",
     "solidity-coverage": "^0.8.5"
   }
 }
