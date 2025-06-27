@@ -1,4 +1,93 @@
-# Dependency Fix Summary - OpenZeppelin Hardhat Upgrades
+# Dependency Fix Summary
+
+This document summarizes all dependency-related fixes applied to the Halom Protocol project.
+
+## 1. OpenZeppelin Hardhat Upgrades Version Fix
+
+### Issue
+- `@openzeppelin/hardhat-upgrades@^1.35.0` version did not exist
+- npm installation was failing with "notarget No matching version found"
+
+### Solution
+- Updated to latest available version: `^3.9.0`
+- Added plugin registration in `hardhat.config.js`
+- Created upgrade scripts and documentation
+
+### Files Modified
+- `package.json` - Updated version
+- `hardhat.config.js` - Added plugin registration
+- `scripts/upgrade_contracts.js` - Created upgrade script
+- `docs/upgrades.md` - Added upgrade documentation
+
+## 2. Peer Dependency Conflict Resolution
+
+### Issue
+- Conflict between `@nomicfoundation/hardhat-ethers@^4.0.0` and `@openzeppelin/hardhat-upgrades@3.9.0`
+- `@openzeppelin/hardhat-upgrades@3.9.0` requires ethers version `^3.0.0`
+- `@nomicfoundation/hardhat-ethers@^4.0.0` provides ethers version `^6.14.4`
+
+### Solution
+- Downgraded `@nomicfoundation/hardhat-ethers` to `^3.0.0` in `package.json`
+- This resolves the peer dependency conflict while maintaining functionality
+
+### Files Modified
+- `package.json` - Downgraded hardhat-ethers version
+- `docs/npm-dependency-resolution.md` - Added conflict resolution guide
+
+## 3. Python Package in npm Dependencies Fix
+
+### Issue
+- Python packages (`pandas`, `requests`, `schedule`) were incorrectly listed in `package.json`
+- npm was trying to install non-existent npm packages
+- Error: `npm error notarget No matching version found for pandas@^2.2.0`
+
+### Solution
+- Removed Python packages from `package.json` dependencies
+- Python packages are properly managed via `requirements.txt`
+- Updated documentation to clarify proper installation methods
+
+### Files Modified
+- `package.json` - Removed Python packages from npm dependencies
+- `docs/npm-dependency-resolution.md` - Added Python vs Node.js dependency clarification
+
+## Installation Instructions
+
+### Node.js Dependencies
+```bash
+npm install
+```
+
+### Python Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+## Best Practices Implemented
+
+1. **Separation of Concerns**: Python and Node.js dependencies are properly separated
+2. **Version Compatibility**: All peer dependencies are compatible
+3. **Documentation**: Comprehensive guides for dependency management
+4. **Error Prevention**: Clear installation instructions prevent common mistakes
+
+## Testing
+
+After applying fixes, verify installation:
+
+```bash
+# Test Node.js setup
+npm test
+
+# Test Python setup
+python -c "import pandas, requests, schedule; print('Python dependencies OK')"
+```
+
+## References
+
+- [npm dependency resolution guide](docs/npm-dependency-resolution.md)
+- [OpenZeppelin upgrades documentation](docs/upgrades.md)
+- [Requirements.txt](requirements.txt) for Python dependencies
+
+## Dependency Fix Summary - OpenZeppelin Hardhat Upgrades
 
 ## Issues Resolved
 

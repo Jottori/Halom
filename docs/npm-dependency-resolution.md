@@ -4,6 +4,31 @@
 
 This guide provides comprehensive strategies for resolving npm dependency conflicts, particularly peer dependency conflicts that commonly occur in Node.js projects.
 
+## Python vs Node.js Dependencies
+
+**Important**: This project uses both Python and Node.js dependencies. Make sure to install them correctly:
+
+### Node.js Dependencies (npm)
+```bash
+npm install
+```
+These are defined in `package.json` and include:
+- Hardhat and related tools
+- Web3 libraries
+- Solidity development tools
+
+### Python Dependencies (pip)
+```bash
+pip install -r requirements.txt
+```
+These are defined in `requirements.txt` and include:
+- pandas (data manipulation)
+- requests (HTTP client)
+- schedule (task scheduling)
+- web3 (Python Web3 library)
+
+**Note**: Python packages like `pandas`, `requests`, and `schedule` should NOT be in `package.json` as they are not npm packages.
+
 ## Common Dependency Conflict Types
 
 ### 1. Peer Dependency Conflicts
