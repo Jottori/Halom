@@ -112,6 +112,7 @@ contract HalomToken is IHalomToken, ERC20, AccessControl {
     function _transfer(address from, address to, uint256 amount) internal override(ERC20) {
         require(from != address(0), "ERC20: transfer from the zero address");
         require(to != address(0), "ERC20: transfer to the zero address");
+        require(balanceOf(from) >= amount, "ERC20: transfer amount exceeds balance");
 
         uint256 gons = amount * _gonsPerFragment;
         _gonBalances[from] -= gons;
