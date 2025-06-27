@@ -11,7 +11,7 @@ import "./HalomToken.sol";
 
 /**
  * @title HalomGovernor
- * @dev Governance contract for Halom protocol with fourth root voting power
+ * @dev Governance contract for Halom protocol with parameterizable root voting power
  */
 contract HalomGovernor is 
     Governor, 
@@ -28,9 +28,15 @@ contract HalomGovernor is
     uint256 public constant VOTING_PERIOD = 45818; // ~1 week
     uint256 public constant PROPOSAL_THRESHOLD = 1000e18; // 1000 HLM
     uint256 public constant QUORUM_FRACTION = 4; // 4%
+    
+    // Parameterizable root power (default: 4 = fourth root)
+    uint256 public rootPower = 4;
+    uint256 public constant MIN_ROOT_POWER = 2; // sqrt minimum
+    uint256 public constant MAX_ROOT_POWER = 10; // maximum root power
 
     event TokensLocked(address indexed user, uint256 amount, uint256 lockTime);
     event TokensUnlocked(address indexed user, uint256 amount);
+    event RootPowerUpdated(uint256 oldPower, uint256 newPower);
 
     constructor(
         IVotes _token,
@@ -44,29 +50,62 @@ contract HalomGovernor is
     {}
 
     /**
-     * @dev Calculate fourth root using Babylonian method
+     * @dev Calculate nth root using Babylonian method
      */
-    function fourthRoot(uint256 x) public pure returns (uint256) {
+    function nthRoot(uint256 x, uint256 n) public pure returns (uint256) {
         if (x == 0) return 0;
+        if (n == 1) return x;
+        if (n == 2) return sqrt(x);
+        
         uint256 z = x;
-        uint256 y = (z + 3) / 4;
+        uint256 y = (z + n - 1) / n;
         
         while (y < z) {
             z = y;
-            y = (z + x / (z * z * z)) / 4;
+            // Calculate y = ((n-1) * z + x / z^(n-1)) / n
+            uint256 zPower = z;
+            for (uint256 i = 1; i < n - 1; i++) {
+                zPower = zPower * z / 1e18; // Scale to avoid overflow
+            }
+            y = ((n - 1) * z + x * 1e18 / zPower) / n;
         }
         return z;
     }
 
     /**
-     * @dev Get voting power for a user based on locked tokens
+     * @dev Calculate square root using Babylonian method
+     */
+    function sqrt(uint256 x) public pure returns (uint256) {
+        if (x == 0) return 0;
+        uint256 z = x;
+        uint256 y = (z + 1) / 2;
+        
+        while (y < z) {
+            z = y;
+            y = (z + x / z) / 2;
+        }
+        return z;
+    }
+
+    /**
+     * @dev Get voting power for a user based on locked tokens using nth root
      */
     function getVotePower(address user) public view returns (uint256) {
         if (lockTime[user] == 0) return 0;
         if (block.timestamp < lockTime[user] + LOCK_DURATION) {
-            return fourthRoot(lockedTokens[user]);
+            return nthRoot(lockedTokens[user], rootPower);
         }
         return 0; // Lock expired
+    }
+
+    /**
+     * @dev Update root power (only governor)
+     */
+    function setRootPower(uint256 newRootPower) external onlyGovernance {
+        require(newRootPower >= MIN_ROOT_POWER && newRootPower <= MAX_ROOT_POWER, "Invalid root power");
+        uint256 oldPower = rootPower;
+        rootPower = newRootPower;
+        emit RootPowerUpdated(oldPower, newRootPower);
     }
 
     /**

@@ -1,228 +1,262 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.2;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
 
-interface IHalomToken is IERC20 {
-    function burnFrom(address account, uint256 amount) external;
-}
+contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
+    using SafeERC20 for IERC20;
 
-/// @title HalomStaking
-/// @notice Staking contract for HalomToken with lock-boost and slashing
-/// @dev Users can stake tokens for fixed lock periods to earn rewards. Governor can slash and set parameters.
-contract HalomStaking is AccessControl, ReentrancyGuard {
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
+    bytes32 public constant REWARDER_ROLE = keccak256("REWARDER_ROLE");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
-    /// @notice Lock period options for staking
-    enum LockPeriod {
-        ONE_MONTH,      // 1 month
-        THREE_MONTHS,    // 3 months
-        SIX_MONTHS,      // 6 months  
-        TWELVE_MONTHS,   // 12 months
-        TWENTY_FOUR_MONTHS, // 24 months
-        SIXTY_MONTHS     // 60 months
-    }
+    IERC20 public immutable halomToken;
 
-    IHalomToken public immutable halomToken;
     uint256 public totalStaked;
-    uint256 public rewardsPerShare;
+    mapping(address => uint256) public stakedBalance;
+    mapping(address => uint256) public lastClaimTime;
 
-    /// @notice User-specific staking data
-    struct UserStake {
-        uint256 amount;
-        uint256 rewardDebt;
-        uint256 lockUntil;
-        LockPeriod lockPeriod;
-    }
-    mapping(address => UserStake) public stakes;
+    // Fourth root based reward system
+    uint256 public totalFourthRootStake; // Sum of fourth roots of all stakes
+    mapping(address => uint256) public fourthRootStake; // Fourth root of user's stake
+    uint256 public rewardsPerFourthRoot; // Rewards per fourth root unit
+    mapping(address => uint256) public rewardDebt;
 
-    // --- Delegation ---
-    mapping(address => address) public delegators; // delegator -> validator
-    mapping(address => uint256) public validatorCommission; // validator -> commission rate (basis points)
-    uint256 public constant MAX_COMMISSION = 2000; // 20%
+    // Emergency recovery
+    uint256 public pendingRewards; // Rewards waiting for first staker
 
-    // --- Lock-Boost ---
-    uint256 public lockBoostB0; // e.g., 2000 = 20% boost in basis points
-    uint256 public lockBoostTMax; // e.g., 365 days
+    // Staking parameters
+    uint256 public minStakeAmount = 100e18; // 100 HLM minimum
+    uint256 public maxStakeAmount = 1000000e18; // 1M HLM maximum
+    uint256 public lockPeriod = 30 days; // 30 day lock period
+    mapping(address => uint256) public stakeTime;
 
-    event Staked(address indexed user, uint256 amount, uint256 lockUntil, LockPeriod lockPeriod);
+    event Staked(address indexed user, uint256 amount, uint256 lockTime);
     event Unstaked(address indexed user, uint256 amount);
-    event RewardsClaimed(address indexed user, uint256 amount);
-    event Delegated(address indexed delegator, address indexed validator);
-    event Slashed(address indexed validator, uint256 amount);
+    event RewardAdded(address indexed rewarder, uint256 amount);
+    event RewardClaimed(address indexed user, uint256 amount);
+    event EmergencyRecovery(address indexed token, address indexed to, uint256 amount);
+    event PendingRewardsClaimed(address indexed user, uint256 amount);
+    event StakingParametersUpdated(uint256 minStake, uint256 maxStake, uint256 lockPeriod);
 
-    /// @notice Deploy the staking contract
-    /// @param _tokenAddress The address of the HalomToken contract
-    /// @param _governance The address with governor rights
-    constructor(address _tokenAddress, address _governance) {
-        halomToken = IHalomToken(_tokenAddress);
-        _grantRole(DEFAULT_ADMIN_ROLE, _governance);
-        _grantRole(GOVERNOR_ROLE, _governance);
-        lockBoostB0 = 2000; // Default 20%
-        lockBoostTMax = 365 days; // Default 1 year
+    constructor(
+        address _halomToken,
+        address _governor,
+        address _rewarder,
+        address _pauser
+    ) {
+        require(_halomToken != address(0), "Halom token is zero address");
+
+        halomToken = IERC20(_halomToken);
+
+        _grantRole(DEFAULT_ADMIN_ROLE, _governor);
+        _grantRole(GOVERNOR_ROLE, _governor);
+        _grantRole(REWARDER_ROLE, _rewarder);
+        _grantRole(PAUSER_ROLE, _pauser);
     }
-    
-    // --- Staking and Rewards ---
 
-    /// @notice Stake tokens with a fixed lock period
-    /// @param amount The amount of tokens to stake
-    /// @param lockPeriod The lock period enum value
-    function stakeWithLockPeriod(uint256 amount, LockPeriod lockPeriod) external nonReentrant {
-        uint256 lockDuration = getLockDuration(lockPeriod);
-        _updateRewards(msg.sender);
+    /**
+     * @dev Calculate fourth root using Babylonian method
+     */
+    function fourthRoot(uint256 x) public pure returns (uint256) {
+        if (x == 0) return 0;
+        uint256 z = x;
+        uint256 y = (z + 3) / 4;
         
-        UserStake storage userStake = stakes[msg.sender];
-        userStake.amount += amount;
-        userStake.lockUntil = block.timestamp + lockDuration;
-        userStake.lockPeriod = lockPeriod;
-        totalStaked += amount;
-
-        halomToken.transferFrom(msg.sender, address(this), amount);
-        emit Staked(msg.sender, amount, userStake.lockUntil, lockPeriod);
-    }
-
-    /// @notice Stake tokens with a custom lock duration (for backward compatibility)
-    /// @param amount The amount of tokens to stake
-    /// @param lockDuration The lock duration in seconds
-    function stake(uint256 amount, uint256 lockDuration) external nonReentrant {
-        _updateRewards(msg.sender);
-        
-        UserStake storage userStake = stakes[msg.sender];
-        userStake.amount += amount;
-        userStake.lockUntil = block.timestamp + lockDuration;
-        totalStaked += amount;
-
-        halomToken.transferFrom(msg.sender, address(this), amount);
-        emit Staked(msg.sender, amount, userStake.lockUntil, LockPeriod.THREE_MONTHS); // Default
-    }
-
-    /// @notice Unstake tokens after lock period
-    /// @param amount The amount of tokens to unstake
-    function unstake(uint256 amount) external nonReentrant {
-        UserStake storage userStake = stakes[msg.sender];
-        require(block.timestamp >= userStake.lockUntil, "HalomStaking: Tokens are locked");
-        require(userStake.amount >= amount, "HalomStaking: Insufficient stake");
-
-        _updateRewards(msg.sender);
-        
-        userStake.amount -= amount;
-        totalStaked -= amount;
-        
-        halomToken.transfer(msg.sender, amount);
-        emit Unstaked(msg.sender, amount);
-    }
-
-    /// @notice Claim staking rewards
-    function claimRewards() external nonReentrant {
-        _updateRewards(msg.sender);
-    }
-
-    // --- Governor & Validator Functions ---
-    
-    /// @notice Set lock boost parameters (only governor)
-    /// @param _newB0 New boost base (max 5000 = 50%)
-    /// @param _newTMax New max lock time (30-730 days)
-    function setLockBoostParams(uint256 _newB0, uint256 _newTMax) external onlyRole(GOVERNOR_ROLE) {
-        require(_newB0 <= 5000, "B0 cannot exceed 50%"); // Guardrail: 50% max boost
-        require(_newTMax >= 30 days && _newTMax <= 730 days, "TMax must be between 30 and 730 days");
-        lockBoostB0 = _newB0;
-        lockBoostTMax = _newTMax;
-    }
-
-    /// @notice Set validator commission rate
-    /// @param _newRate New commission rate (max 20%)
-    function setCommissionRate(uint256 _newRate) external {
-        // Can only be called by an address that has stakers delegating to it.
-        // This implicitly makes them a validator.
-        require(stakes[msg.sender].amount > 0, "HalomStaking: Not a staker, cannot be a validator");
-        require(_newRate <= MAX_COMMISSION, "HalomStaking: Commission exceeds maximum");
-        validatorCommission[msg.sender] = _newRate;
-    }
-
-    /// @notice Add rewards to the staking pool (only HalomToken contract)
-    /// @param amount The amount of rewards to add
-    function addRewards(uint256 amount) public {
-        // This can only be called by the HalomToken contract, which has the STAKING_CONTRACT role.
-        // Since AccessControl in this contract does not know about roles in another one,
-        // a simple check on msg.sender is sufficient and gas-efficient.
-        require(msg.sender == address(halomToken), "HalomStaking: Not the token contract");
-        if (totalStaked > 0) {
-            rewardsPerShare += (amount * 1e18) / totalStaked;
+        while (y < z) {
+            z = y;
+            y = (3 * z + x / (z * z * z)) / 4;
         }
+        return z;
     }
 
-    /// @notice Slash a validator's stake (only governor)
-    /// @param validator The address of the validator to slash
-    /// @param amountToSlash The amount to slash
-    function slash(address validator, uint256 amountToSlash) external onlyRole(GOVERNOR_ROLE) nonReentrant {
-        UserStake storage validatorStake = stakes[validator];
-        require(validatorStake.amount >= amountToSlash, "HalomStaking: Slash amount exceeds stake");
-
-        validatorStake.amount -= amountToSlash;
-        totalStaked -= amountToSlash;
-        
-        uint256 toBurn = amountToSlash / 2;
-        uint256 toRewards = amountToSlash - toBurn;
-
-        halomToken.burnFrom(address(this), toBurn);
-        addRewards(toRewards);
-        
-        emit Slashed(validator, amountToSlash);
+    /**
+     * @dev Get governance power (fourth root of stake)
+     */
+    function getGovernancePower(address user) public view returns (uint256) {
+        return fourthRoot(stakedBalance[user]);
     }
 
-    // --- Internal and View Functions ---
-    
-    /// @dev Update rewards for a user (internal)
-    /// @param user The address of the user
-    function _updateRewards(address user) internal {
-        uint256 pending = pendingRewards(user);
+    modifier updateRewards(address _account) {
+        uint256 pending = (fourthRootStake[_account] * rewardsPerFourthRoot) / 1e18 - rewardDebt[_account];
         if (pending > 0) {
-            halomToken.transfer(user, pending);
-            emit RewardsClaimed(user, pending);
+            halomToken.safeTransfer(_account, pending);
+            emit RewardClaimed(_account, pending);
         }
-        stakes[user].rewardDebt = (stakes[user].amount * rewardsPerShare) / 1e18;
+        _;
+        rewardDebt[_account] = (fourthRootStake[_account] * rewardsPerFourthRoot) / 1e18;
     }
 
-    /// @notice View pending rewards for a user
-    /// @param user The address of the user
-    /// @return The amount of pending rewards
-    function pendingRewards(address user) public view returns (uint256) {
-        UserStake memory userStake = stakes[user];
-        uint256 effectiveStake = getEffectiveStake(user);
-        return ((effectiveStake * rewardsPerShare) / 1e18) - userStake.rewardDebt;
+    function stake(uint256 _amount) external nonReentrant whenNotPaused updateRewards(msg.sender) {
+        require(_amount >= minStakeAmount, "Below minimum stake amount");
+        require(_amount <= maxStakeAmount, "Above maximum stake amount");
+        require(stakedBalance[msg.sender] + _amount <= maxStakeAmount, "Would exceed maximum stake");
+        
+        // If this is the first staker and there are pending rewards, distribute them
+        if (totalStaked == 0 && pendingRewards > 0) {
+            rewardsPerFourthRoot = (pendingRewards * 1e18) / fourthRoot(_amount);
+            pendingRewards = 0;
+            emit PendingRewardsClaimed(msg.sender, pendingRewards);
+        }
+        
+        // Calculate old and new fourth root values
+        uint256 oldFourthRoot = fourthRootStake[msg.sender];
+        uint256 newStake = stakedBalance[msg.sender] + _amount;
+        uint256 newFourthRoot = fourthRoot(newStake);
+        
+        // Update totals
+        totalStaked += _amount;
+        totalFourthRootStake = totalFourthRootStake - oldFourthRoot + newFourthRoot;
+        
+        // Update user state
+        stakedBalance[msg.sender] = newStake;
+        fourthRootStake[msg.sender] = newFourthRoot;
+        stakeTime[msg.sender] = block.timestamp;
+        lastClaimTime[msg.sender] = block.timestamp;
+        
+        halomToken.safeTransferFrom(msg.sender, address(this), _amount);
+        emit Staked(msg.sender, _amount, block.timestamp);
     }
 
-    /// @notice Get the effective stake for a user (with lock boost)
-    /// @param user The address of the user
-    /// @return The effective stake amount
-    function getEffectiveStake(address user) public view returns (uint256) {
-        UserStake memory userStake = stakes[user];
-        if (userStake.amount == 0) return 0;
-
-        // Boost: 1m=0.11%, 3m=0.56%, 6m=1.58%, 12m=4.47%, 24m=12.65%, 60m=50%
-        uint256 boost;
-        if (userStake.lockPeriod == LockPeriod.ONE_MONTH) boost = 11; // 0.11%
-        else if (userStake.lockPeriod == LockPeriod.THREE_MONTHS) boost = 56; // 0.56%
-        else if (userStake.lockPeriod == LockPeriod.SIX_MONTHS) boost = 158; // 1.58%
-        else if (userStake.lockPeriod == LockPeriod.TWELVE_MONTHS) boost = 447; // 4.47%
-        else if (userStake.lockPeriod == LockPeriod.TWENTY_FOUR_MONTHS) boost = 1265; // 12.65%
-        else if (userStake.lockPeriod == LockPeriod.SIXTY_MONTHS) boost = 5000; // 50%
-        else boost = 0;
-        return userStake.amount + (userStake.amount * boost) / 10000;
+    function unstake(uint256 _amount) external nonReentrant whenNotPaused updateRewards(msg.sender) {
+        require(_amount > 0, "Cannot unstake 0");
+        require(stakedBalance[msg.sender] >= _amount, "Insufficient staked balance");
+        require(block.timestamp >= stakeTime[msg.sender] + lockPeriod, "Lock period not expired");
+        
+        // Calculate old and new fourth root values
+        uint256 oldFourthRoot = fourthRootStake[msg.sender];
+        uint256 newStake = stakedBalance[msg.sender] - _amount;
+        uint256 newFourthRoot = fourthRoot(newStake);
+        
+        // Update totals
+        totalStaked -= _amount;
+        totalFourthRootStake = totalFourthRootStake - oldFourthRoot + newFourthRoot;
+        
+        // Update user state
+        stakedBalance[msg.sender] = newStake;
+        fourthRootStake[msg.sender] = newFourthRoot;
+        
+        halomToken.safeTransfer(msg.sender, _amount);
+        emit Unstaked(msg.sender, _amount);
+    }
+    
+    function claimRewards() external nonReentrant whenNotPaused updateRewards(msg.sender) {
+        // The updateRewards modifier handles the logic
     }
 
-    /// @notice Get the lock duration in seconds for a given lock period
-    /// @param lockPeriod The lock period enum value
-    /// @return The lock duration in seconds
-    function getLockDuration(LockPeriod lockPeriod) public pure returns (uint256) {
-        if (lockPeriod == LockPeriod.ONE_MONTH) return 30 days;
-        if (lockPeriod == LockPeriod.THREE_MONTHS) return 90 days;
-        if (lockPeriod == LockPeriod.SIX_MONTHS) return 180 days;
-        if (lockPeriod == LockPeriod.TWELVE_MONTHS) return 365 days;
-        if (lockPeriod == LockPeriod.TWENTY_FOUR_MONTHS) return 730 days;
-        if (lockPeriod == LockPeriod.SIXTY_MONTHS) return 1825 days;
-        revert("Invalid lock period");
+    function addRewards(uint256 _amount) external onlyRole(REWARDER_ROLE) {
+        require(_amount > 0, "Cannot add 0 rewards");
+        
+        halomToken.safeTransferFrom(msg.sender, address(this), _amount);
+        
+        if (totalFourthRootStake == 0) {
+            // Store rewards for the first staker instead of losing them
+            pendingRewards += _amount;
+            emit RewardAdded(msg.sender, _amount);
+        } else {
+            rewardsPerFourthRoot += (_amount * 1e18) / totalFourthRootStake;
+            emit RewardAdded(msg.sender, _amount);
+        }
+    }
+
+    function getPendingRewardsForUser(address _account) external view returns (uint256) {
+        return (fourthRootStake[_account] * rewardsPerFourthRoot) / 1e18 - rewardDebt[_account];
+    }
+
+    /**
+     * @dev Update staking parameters (only governor)
+     */
+    function updateStakingParameters(
+        uint256 _minStakeAmount,
+        uint256 _maxStakeAmount,
+        uint256 _lockPeriod
+    ) external onlyRole(GOVERNOR_ROLE) {
+        require(_minStakeAmount <= _maxStakeAmount, "Min stake cannot exceed max stake");
+        require(_lockPeriod <= 365 days, "Lock period too long");
+        
+        minStakeAmount = _minStakeAmount;
+        maxStakeAmount = _maxStakeAmount;
+        lockPeriod = _lockPeriod;
+        
+        emit StakingParametersUpdated(_minStakeAmount, _maxStakeAmount, _lockPeriod);
+    }
+
+    /**
+     * @dev Emergency recovery function to withdraw tokens sent by mistake
+     * @param _token Token address to recover
+     * @param _to Address to send tokens to
+     * @param _amount Amount to recover
+     */
+    function emergencyRecovery(
+        address _token,
+        address _to,
+        uint256 _amount
+    ) external onlyRole(GOVERNOR_ROLE) {
+        require(_to != address(0), "Cannot recover to zero address");
+        require(_amount > 0, "Cannot recover 0 amount");
+        
+        // Prevent recovery of staked tokens
+        require(_token != address(halomToken), "Cannot recover staked tokens");
+        
+        IERC20(_token).safeTransfer(_to, _amount);
+        emit EmergencyRecovery(_token, _to, _amount);
+    }
+
+    /**
+     * @dev Pause staking (only pauser)
+     */
+    function pause() external onlyRole(PAUSER_ROLE) {
+        _pause();
+    }
+
+    /**
+     * @dev Unpause staking (only governor)
+     */
+    function unpause() external onlyRole(GOVERNOR_ROLE) {
+        _unpause();
+    }
+
+    /**
+     * @dev Get pending rewards for first staker
+     */
+    function getPendingRewards() external view returns (uint256) {
+        return pendingRewards;
+    }
+
+    /**
+     * @dev Get total contract balances
+     */
+    function getContractBalances() external view returns (
+        uint256 halomTokenBalance,
+        uint256 pendingRewardsBalance
+    ) {
+        halomTokenBalance = halomToken.balanceOf(address(this));
+        pendingRewardsBalance = pendingRewards;
+    }
+
+    /**
+     * @dev Get total fourth root stake
+     */
+    function getTotalFourthRootStake() external view returns (uint256) {
+        return totalFourthRootStake;
+    }
+
+    /**
+     * @dev Get user's lock status
+     */
+    function getUserLockStatus(address _user) external view returns (
+        uint256 stakedAmount,
+        uint256 stakeTimestamp,
+        uint256 lockEndTime,
+        bool isLocked
+    ) {
+        stakedAmount = stakedBalance[_user];
+        stakeTimestamp = stakeTime[_user];
+        lockEndTime = stakeTimestamp + lockPeriod;
+        isLocked = block.timestamp < lockEndTime;
     }
 } 

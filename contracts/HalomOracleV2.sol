@@ -71,15 +71,10 @@ contract HalomOracleV2 is AccessControl, Pausable, ReentrancyGuard {
         _grantRole(GOVERNOR_ROLE, _governance);
     }
 
-    modifier whenNotPaused() {
-        require(!paused(), "Oracle: paused");
-        _;
-    }
-
     /**
      * @dev Submit HOI value for consensus round
      */
-    function submitHOI(uint256 _hoi) external onlyRole(ORACLE_UPDATER_ROLE) whenNotPaused nonReentrant {
+    function submitHOI(uint256 _hoi) external onlyRole(ORACLE_UPDATER_ROLE) nonReentrant {
         require(authorizedOracles[msg.sender], "Oracle: not authorized");
         require(_hoi > 0, "Oracle: invalid HOI value");
         
