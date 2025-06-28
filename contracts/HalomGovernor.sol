@@ -43,7 +43,7 @@ contract HalomGovernor is
         TimelockController _timelock
     )
         Governor("HalomGovernor")
-        GovernorSettings(VOTING_DELAY, VOTING_PERIOD, PROPOSAL_THRESHOLD)
+        GovernorSettings(uint48(VOTING_DELAY), uint32(VOTING_PERIOD), PROPOSAL_THRESHOLD)
         GovernorVotes(_token)
         GovernorVotesQuorumFraction(QUORUM_FRACTION)
         GovernorTimelockControl(_timelock)
@@ -114,7 +114,7 @@ contract HalomGovernor is
     function lockTokens(uint256 amount) external {
         require(amount > 0, "Amount must be greater than 0");
         require(
-            HalomToken(address(token)).transferFrom(msg.sender, address(this), amount),
+            HalomToken(address(token())).transferFrom(msg.sender, address(this), amount),
             "Transfer failed"
         );
         
@@ -139,7 +139,7 @@ contract HalomGovernor is
         lockTime[msg.sender] = 0;
         
         require(
-            HalomToken(address(token)).transfer(msg.sender, amount),
+            HalomToken(address(token())).transfer(msg.sender, amount),
             "Transfer failed"
         );
         
@@ -162,7 +162,7 @@ contract HalomGovernor is
     function votingDelay()
         public
         view
-        override(IGovernor, GovernorSettings)
+        override(Governor, GovernorSettings)
         returns (uint256)
     {
         return super.votingDelay();
@@ -171,7 +171,7 @@ contract HalomGovernor is
     function votingPeriod()
         public
         view
-        override(IGovernor, GovernorSettings)
+        override(Governor, GovernorSettings)
         returns (uint256)
     {
         return super.votingPeriod();
@@ -180,7 +180,7 @@ contract HalomGovernor is
     function quorum(uint256 blockNumber)
         public
         view
-        override(IGovernor, GovernorVotesQuorumFraction)
+        override(Governor, GovernorVotesQuorumFraction)
         returns (uint256)
     {
         return super.quorum(blockNumber);
@@ -200,7 +200,7 @@ contract HalomGovernor is
         uint256[] memory values,
         bytes[] memory calldatas,
         string memory description
-    ) public override(Governor, IGovernor) returns (uint256) {
+    ) public override(Governor) returns (uint256) {
         return super.propose(targets, values, calldatas, description);
     }
 
@@ -211,16 +211,6 @@ contract HalomGovernor is
         returns (uint256)
     {
         return super.proposalThreshold();
-    }
-
-    function _execute(
-        uint256 proposalId,
-        address[] memory targets,
-        uint256[] memory values,
-        bytes[] memory calldatas,
-        bytes32 descriptionHash
-    ) internal override(Governor, GovernorTimelockControl) {
-        super._execute(proposalId, targets, values, calldatas, descriptionHash);
     }
 
     function _cancel(
@@ -244,9 +234,34 @@ contract HalomGovernor is
     function supportsInterface(bytes4 interfaceId)
         public
         view
-        override(Governor, GovernorTimelockControl)
+        override(Governor)
         returns (bool)
     {
         return super.supportsInterface(interfaceId);
+    }
+
+    // --- Required by OpenZeppelin Governor/TimelockControl multiple inheritance ---
+    function _queueOperations(
+        uint256 proposalId,
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        bytes32 descriptionHash
+    ) internal override(Governor, GovernorTimelockControl) returns (uint48) {
+        return super._queueOperations(proposalId, targets, values, calldatas, descriptionHash);
+    }
+
+    function _executeOperations(
+        uint256 proposalId,
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        bytes32 descriptionHash
+    ) internal override(Governor, GovernorTimelockControl) {
+        super._executeOperations(proposalId, targets, values, calldatas, descriptionHash);
+    }
+
+    function proposalNeedsQueuing(uint256 proposalId) public view override(Governor, GovernorTimelockControl) returns (bool) {
+        return super.proposalNeedsQueuing(proposalId);
     }
 } 

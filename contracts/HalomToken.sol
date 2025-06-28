@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.2;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
 interface IHalomStaking {
     function addRewards(uint256 amount) external;
@@ -14,9 +15,10 @@ interface IHalomToken is IERC20 {
     function burnFrom(address account, uint256 amount) external;
 }
 
-contract HalomToken is IHalomToken, ERC20, AccessControl, IVotes {
+contract HalomToken is IHalomToken, ERC20, AccessControl, IVotes, EIP712 {
     bytes32 public constant REBASE_CALLER = keccak256("REBASE_CALLER");
-    bytes32 public constant STAKING_CONTRACT = keccak256("STAKING_CONTRACT");
+    bytes32 public constant STAKING_CONTRACT_ROLE = keccak256("STAKING_CONTRACT_ROLE");
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
     mapping(address => uint256) private _gonBalances;
 
@@ -35,7 +37,7 @@ contract HalomToken is IHalomToken, ERC20, AccessControl, IVotes {
     mapping(address => bool) public isExcludedFromLimits; // Excluded addresses (contracts, etc.)
 
     // IVotes implementation
-    mapping(address => uint256) private _delegates;
+    mapping(address => address) private _delegates;
     mapping(address => mapping(uint256 => uint256)) private _delegateCheckpoints;
     mapping(address => uint256) private _delegateCheckpointCounts;
     mapping(uint256 => uint256) private _totalSupplyCheckpoints;
@@ -44,10 +46,9 @@ contract HalomToken is IHalomToken, ERC20, AccessControl, IVotes {
     event Rebase(uint256 newTotalSupply, int256 supplyDelta);
     event AntiWhaleLimitsUpdated(uint256 maxTransfer, uint256 maxWallet);
     event ExcludedFromLimits(address indexed account, bool excluded);
-    event DelegateChanged(address indexed delegator, address indexed fromDelegate, address indexed toDelegate);
-    event DelegateVotesChanged(address indexed delegate, uint256 previousBalance, uint256 newBalance);
+    event StakingContractUpdated(address indexed oldContract, address indexed newContract);
     
-    constructor(address _oracleAddress, address _governance) ERC20("Halom", "HOM") {
+    constructor(address _oracleAddress, address _governance) ERC20("Halom", "HOM") EIP712("Halom", "1") {
         uint256 initialSupply = 1_000_000 * 10**decimals();
         _totalSupply = initialSupply;
         _gonsPerFragment = TOTAL_GONS / initialSupply;
@@ -71,18 +72,23 @@ contract HalomToken is IHalomToken, ERC20, AccessControl, IVotes {
         
         // Initialize IVotes
         _delegates[_governance] = _governance;
-        _writeCheckpoint(_governance, 0, 0, initialSupply);
+        _writeCheckpoint(_delegateCheckpoints[_governance], 0, 0, initialSupply);
         _writeTotalSupplyCheckpoint(0, 0, initialSupply);
     }
 
     function setStakingContract(address _stakingAddress) public onlyRole(DEFAULT_ADMIN_ROLE) {
         require(_stakingAddress != address(0), "HalomToken: Zero address");
+        require(_stakingAddress.code.length > 0, "HalomToken: Must be a contract");
+        
+        address oldContract = halomStakingAddress;
         if (halomStakingAddress != address(0)) {
-            _revokeRole(STAKING_CONTRACT, halomStakingAddress);
+            _revokeRole(STAKING_CONTRACT_ROLE, halomStakingAddress);
         }
         halomStakingAddress = _stakingAddress;
-        _grantRole(STAKING_CONTRACT, _stakingAddress);
+        _grantRole(STAKING_CONTRACT_ROLE, _stakingAddress);
         isExcludedFromLimits[_stakingAddress] = true; // Exclude staking contract from limits
+        
+        emit StakingContractUpdated(oldContract, _stakingAddress);
     }
 
     function setRewardRate(uint256 _newRate) public onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -143,11 +149,27 @@ contract HalomToken is IHalomToken, ERC20, AccessControl, IVotes {
         emit Rebase(newS, supplyDelta);
     }
 
-    function burnFrom(address account, uint256 amount) external onlyRole(STAKING_CONTRACT) {
+    function burnFrom(address account, uint256 amount) external onlyRole(STAKING_CONTRACT_ROLE) {
         _burn(account, amount);
     }
 
-    function mint(address to, uint256 amount) public onlyRole(DEFAULT_ADMIN_ROLE) {
+    /**
+     * @dev Mint tokens - only for contracts with MINTER_ROLE
+     * This replaces the old public mint function for security
+     */
+    function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE) {
+        require(to != address(0), "HalomToken: Cannot mint to zero address");
+        require(amount > 0, "HalomToken: Cannot mint zero amount");
+        _mint(to, amount);
+    }
+
+    /**
+     * @dev Internal mint function for rebase rewards
+     * Only callable by the contract itself during rebase
+     */
+    function _mintForRebase(address to, uint256 amount) internal {
+        require(to != address(0), "HalomToken: Cannot mint to zero address");
+        require(amount > 0, "HalomToken: Cannot mint zero amount");
         _mint(to, amount);
     }
 
@@ -162,7 +184,41 @@ contract HalomToken is IHalomToken, ERC20, AccessControl, IVotes {
         return _gonBalances[account] / _gonsPerFragment;
     }
 
-    function _transfer(address from, address to, uint256 amount) internal override(ERC20) {
+    // OpenZeppelin ERC20 now uses _update for all transfers, mints, burns
+    function _update(address from, address to, uint256 amount) internal override {
+        // Mint
+        if (from == address(0)) {
+            unchecked {
+                _totalSupply += amount;
+            }
+            if (_totalSupply > 0) {
+                _gonsPerFragment = TOTAL_GONS / _totalSupply;
+            } else {
+                _gonsPerFragment = 0;
+            }
+            unchecked {
+                _gonBalances[to] += amount * _gonsPerFragment;
+            }
+            emit Transfer(address(0), to, amount);
+            return;
+        }
+        // Burn
+        if (to == address(0)) {
+            unchecked {
+                _totalSupply -= amount;
+            }
+            if (_totalSupply > 0) {
+                _gonsPerFragment = TOTAL_GONS / _totalSupply;
+            } else {
+                _gonsPerFragment = 0;
+            }
+            unchecked {
+                _gonBalances[from] -= amount * _gonsPerFragment;
+            }
+            emit Transfer(from, address(0), amount);
+            return;
+        }
+        // Transfer
         require(from != address(0), "ERC20: transfer from the zero address");
         require(to != address(0), "ERC20: transfer to the zero address");
         require(balanceOf(from) >= amount, "ERC20: transfer amount exceeds balance");
@@ -174,126 +230,122 @@ contract HalomToken is IHalomToken, ERC20, AccessControl, IVotes {
         }
 
         uint256 gons = amount * _gonsPerFragment;
-        _gonBalances[from] -= gons;
-        _gonBalances[to] += gons;
-
+        unchecked {
+            _gonBalances[from] -= gons;
+            _gonBalances[to] += gons;
+        }
         emit Transfer(from, to, amount);
     }
 
-    function _mint(address account, uint256 amount) internal override(ERC20) {
-        require(account != address(0), "ERC20: mint to the zero address");
-        
-        _totalSupply += amount;
-        if (_totalSupply > 0) {
-            _gonsPerFragment = TOTAL_GONS / _totalSupply;
-        } else {
-            _gonsPerFragment = 0;
-        }
-        _gonBalances[account] += amount * _gonsPerFragment;
+    // --- IVotes implementation ---
 
-        emit Transfer(address(0), account, amount);
-    }
-
-    function _burn(address account, uint256 amount) internal override(ERC20) {
-        require(account != address(0), "ERC20: burn from the zero address");
-
-        _totalSupply -= amount;
-        if (_totalSupply > 0) {
-            _gonsPerFragment = TOTAL_GONS / _totalSupply;
-        } else {
-            _gonsPerFragment = 0;
-        }
-        _gonBalances[account] -= amount * _gonsPerFragment;
-
-        emit Transfer(account, address(0), amount);
-    }
-
-    // IVotes implementation
-    function delegates(address account) external view returns (address) {
+    function delegates(address account) public view virtual override returns (address) {
         return _delegates[account];
     }
 
-    function getVotes(address account) external view returns (uint256) {
+    function delegate(address delegatee) public virtual override {
+        address currentDelegate = delegates(msg.sender);
+        _delegates[msg.sender] = delegatee;
+        _moveDelegateVotes(currentDelegate, delegatee, balanceOf(msg.sender));
+    }
+
+    function delegateBySig(
+        address delegatee,
+        uint256 nonce,
+        uint256 expiry,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) public virtual override {
+        require(block.timestamp <= expiry, "ERC20Votes: signature expired");
+        address signer = ecrecover(_hashTypedDataV4(keccak256(abi.encode(_DELEGATION_TYPEHASH, delegatee, nonce, expiry))), v, r, s);
+        require(signer != address(0), "ERC20Votes: invalid signature");
+        require(nonce == _useNonce(signer), "ERC20Votes: invalid nonce");
+        _delegates[signer] = delegatee;
+        _moveDelegateVotes(address(0), delegatee, balanceOf(signer));
+    }
+
+    function getVotes(address account) public view virtual override returns (uint256) {
         uint256 pos = _delegateCheckpointCounts[account];
         return pos == 0 ? 0 : _delegateCheckpoints[account][pos - 1];
     }
 
-    function getPastVotes(address account, uint256 blockNumber) external view returns (uint256) {
-        require(blockNumber < block.number, "HalomToken: Too recent");
-        uint256 pos = _delegateCheckpointCounts[account];
-        if (pos == 0) {
-            return 0;
-        }
+    function getPastVotes(address account, uint256 blockNumber) public view virtual override returns (uint256) {
+        require(blockNumber < block.number, "ERC20Votes: block not yet mined");
+        return _checkpointsLookup(_delegateCheckpoints[account], blockNumber, _delegateCheckpointCounts[account]);
+    }
 
-        uint256[] memory checkpoints = _delegateCheckpoints[account];
-        if (checkpoints.length == 0) {
-            return 0;
-        }
+    function getPastTotalSupply(uint256 blockNumber) public view virtual override returns (uint256) {
+        require(blockNumber < block.number, "ERC20Votes: block not yet mined");
+        return _checkpointsLookup(_totalSupplyCheckpoints, blockNumber, _totalSupplyCheckpointCount);
+    }
 
-        if (checkpoints[pos - 1] <= blockNumber) {
-            return checkpoints[pos - 1];
-        }
+    function _moveDelegateVotes(address src, address dst, uint256 amount) private {
+        if (src != dst && amount > 0) {
+            if (src != address(0)) {
+                (uint256 oldWeight, uint256 newWeight) = _writeCheckpoint(_delegateCheckpoints[src], _delegateCheckpointCounts[src], _delegateCheckpoints[src][_delegateCheckpointCounts[src] - 1], _delegateCheckpoints[src][_delegateCheckpointCounts[src] - 1] - amount);
+            }
 
-        uint256 lower = 0;
-        uint256 upper = pos - 1;
-        while (upper > lower) {
-            uint256 center = upper - (upper - lower) / 2;
-            if (checkpoints[center] <= blockNumber) {
-                lower = center;
-            } else {
-                upper = center - 1;
+            if (dst != address(0)) {
+                (uint256 oldWeight, uint256 newWeight) = _writeCheckpoint(_delegateCheckpoints[dst], _delegateCheckpointCounts[dst], _delegateCheckpoints[dst][_delegateCheckpointCounts[dst] - 1], _delegateCheckpoints[dst][_delegateCheckpointCounts[dst] - 1] + amount);
             }
         }
-        return checkpoints[lower];
     }
 
-    function getPastTotalSupply(uint256 blockNumber) external view returns (uint256) {
-        require(blockNumber < block.number, "HalomToken: Too recent");
-        uint256 pos = _totalSupplyCheckpointCount;
-        if (pos == 0) {
+    function _writeCheckpoint(
+        mapping(uint256 => uint256) storage checkpoints,
+        uint256 checkpointCount,
+        uint256 oldWeight,
+        uint256 newWeight
+    ) private returns (uint256, uint256) {
+        uint256 pos = checkpointCount;
+
+        if (pos > 0 && checkpoints[pos - 1] == oldWeight) {
+            checkpoints[pos - 1] = newWeight;
+        } else {
+            checkpoints[pos] = newWeight;
+            checkpointCount = pos + 1;
+        }
+
+        return (oldWeight, newWeight);
+    }
+
+    function _writeTotalSupplyCheckpoint(uint256 checkpointCount, uint256 oldWeight, uint256 newWeight) private {
+        uint256 pos = checkpointCount;
+
+        if (pos > 0 && _totalSupplyCheckpoints[pos - 1] == oldWeight) {
+            _totalSupplyCheckpoints[pos - 1] = newWeight;
+        } else {
+            _totalSupplyCheckpoints[pos] = newWeight;
+            _totalSupplyCheckpointCount = pos + 1;
+        }
+    }
+
+    function _checkpointsLookup(mapping(uint256 => uint256) storage checkpoints, uint256 blockNumber, uint256 count) private view returns (uint256) {
+        if (count == 0) {
             return 0;
         }
 
-        uint256[] memory checkpoints = _totalSupplyCheckpoints;
-        if (checkpoints.length == 0) {
-            return 0;
-        }
+        uint256 low = 0;
+        uint256 high = count - 1;
 
-        if (checkpoints[pos - 1] <= blockNumber) {
-            return checkpoints[pos - 1];
-        }
-
-        uint256 lower = 0;
-        uint256 upper = pos - 1;
-        while (upper > lower) {
-            uint256 center = upper - (upper - lower) / 2;
-            if (checkpoints[center] <= blockNumber) {
-                lower = center;
+        while (low < high) {
+            uint256 mid = (low + high + 1) / 2;
+            if (checkpoints[mid] <= blockNumber) {
+                low = mid;
             } else {
-                upper = center - 1;
+                high = mid - 1;
             }
         }
-        return checkpoints[lower];
+
+        return checkpoints[low];
     }
 
-    function _writeCheckpoint(address delegatee, uint256 pos, uint256 oldVotes, uint256 newVotes) internal {
-        uint256 blockNumber = block.number;
-        if (pos == 0) {
-            _delegateCheckpoints[delegatee].push(0);
-            pos = _delegateCheckpoints[delegatee].length;
-        }
-        _delegateCheckpoints[delegatee][pos - 1] = newVotes;
-        _delegateCheckpointCounts[delegatee] = pos;
-        emit DelegateVotesChanged(delegatee, oldVotes, newVotes);
+    function _useNonce(address owner) internal virtual returns (uint256 current) {
+        current = _nonces[owner];
+        _nonces[owner] = current + 1;
     }
 
-    function _writeTotalSupplyCheckpoint(uint256 pos, uint256 oldTotalSupply, uint256 newTotalSupply) internal {
-        uint256 blockNumber = block.number;
-        if (pos == 0) {
-            _totalSupplyCheckpoints.push(0);
-            pos = _totalSupplyCheckpoints.length;
-        }
-        _totalSupplyCheckpoints[pos - 1] = newTotalSupply;
-        _totalSupplyCheckpointCount = pos;
-    }
+    mapping(address => uint256) private _nonces;
+    bytes32 private constant _DELEGATION_TYPEHASH = keccak256("Delegation(address delegatee,uint256 nonce,uint256 expiry)");
 } 

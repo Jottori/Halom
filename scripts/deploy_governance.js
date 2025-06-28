@@ -58,15 +58,15 @@ async function main() {
 
     const TimelockController = await ethers.getContractFactory("TimelockController");
     const timelock = await TimelockController.deploy(timelockDelay, proposers, executors, admin);
-    await timelock.deployed();
-    console.log("TimelockController deployed to:", timelock.address);
+    await timelock.waitForDeployment();
+    console.log("TimelockController deployed to:", await timelock.getAddress());
 
     // Deploy HalomGovernor
     console.log("\n2. Deploying HalomGovernor...");
     const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
-    const governor = await HalomGovernor.deploy(deploymentInfo.contracts.halomToken, timelock.address);
-    await governor.deployed();
-    console.log("HalomGovernor deployed to:", governor.address);
+    const governor = await HalomGovernor.deploy(deploymentInfo.contracts.halomToken, await timelock.getAddress());
+    await governor.waitForDeployment();
+    console.log("HalomGovernor deployed to:", await governor.getAddress());
 
     // Setup Timelock roles
     console.log("\n3. Setting up Timelock roles...");
@@ -76,8 +76,8 @@ async function main() {
     const adminRole = await timelock.DEFAULT_ADMIN_ROLE();
 
     // Grant proposer and executor roles to governor
-    await timelock.grantRole(proposerRole, governor.address);
-    await timelock.grantRole(executorRole, governor.address);
+    await timelock.grantRole(proposerRole, await governor.getAddress());
+    await timelock.grantRole(executorRole, await governor.getAddress());
     
     console.log("✅ Governor granted proposer and executor roles");
 
@@ -138,8 +138,8 @@ async function main() {
 
     // Update deployment info
     deploymentInfo.governance = {
-        timelock: timelock.address,
-        governor: governor.address,
+        timelock: await timelock.getAddress(),
+        governor: await governor.getAddress(),
         multisig: multisigAddress || deployer.address,
         timelockDelay: timelockDelay,
         votingDelay: votingDelay,
@@ -155,8 +155,8 @@ async function main() {
 
     // Verify governance setup
     console.log("\n=== Governance Setup Summary ===");
-    console.log("TimelockController:", timelock.address);
-    console.log("HalomGovernor:", governor.address);
+    console.log("TimelockController:", await timelock.getAddress());
+    console.log("HalomGovernor:", await governor.getAddress());
     console.log("Multisig (Admin):", multisigAddress || deployer.address);
     console.log("Timelock Delay:", timelockDelay, "seconds");
     console.log("Voting Delay:", votingDelay, "blocks");
@@ -188,7 +188,7 @@ async function main() {
         console.log("\n⚠️ IMPORTANT: Set MULTISIG_ADDRESS in environment and transfer admin role");
         console.log("Command to transfer admin role:");
         console.log(`npx hardhat console --network ${network.name}`);
-        console.log(`> const timelock = await ethers.getContractAt("TimelockController", "${timelock.address}")`);
+        console.log(`> const timelock = await ethers.getContractAt("TimelockController", "${await timelock.getAddress()}")`);
         console.log(`> await timelock.grantRole(await timelock.DEFAULT_ADMIN_ROLE(), "MULTISIG_ADDRESS")`);
         console.log(`> await timelock.revokeRole(await timelock.DEFAULT_ADMIN_ROLE(), "${deployer.address}")`);
     }

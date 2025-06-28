@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Enhanced Halom Oracle Updater V2 with multi-node consensus support
-Supports HalomOracleV2 consensus mechanism
+Enhanced Halom Oracle Updater V2 with secure role structure and consensus mechanism
 """
 
 import os
@@ -10,14 +9,14 @@ import json
 import logging
 import smtplib
 import schedule
-import requests
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 from web3 import Web3
 from web3.middleware import ExtraDataToPOAMiddleware
+import requests
 
 # Import local modules with proper error handling
 try:
@@ -42,24 +41,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class OracleUpdaterV2:
+class SecureOracleUpdater:
     def __init__(self):
-        self.rpc_url = os.getenv("ORACLE_RPC_URL", "https://testnet.era.zksync.dev")
-        self.private_key = os.getenv("ORACLE_PRIVATE_KEY")
-        self.chain_id = int(os.getenv("CHAIN_ID", "280"))
+        self.rpc_url = os.getenv("RPC_URL", "http://localhost:8545")
+        self.private_key = os.getenv("PRIVATE_KEY")
+        self.chain_id = int(os.getenv("CHAIN_ID", "31337"))
         
-        # Multi-node consensus settings
-        self.consensus_threshold = int(os.getenv("ORACLE_CONSENSUS_THRESHOLD", "2"))
-        self.deviation_threshold = int(os.getenv("ORACLE_DEVIATION_THRESHOLD", "500"))
-        self.submission_window = int(os.getenv("ORACLE_SUBMISSION_WINDOW", "300"))
-        
-        # Oracle node addresses (for consensus)
-        self.oracle_nodes = [
-            os.getenv("ORACLE_NODE_1_ADDRESS"),
-            os.getenv("ORACLE_NODE_2_ADDRESS"),
-            os.getenv("ORACLE_NODE_3_ADDRESS")
-        ]
-        self.oracle_nodes = [addr for addr in self.oracle_nodes if addr and addr != "0x0000000000000000000000000000000000000000"]
+        # Oracle node configuration
+        self.oracle_node_id = os.getenv("ORACLE_NODE_ID", "node_1")
+        self.consensus_threshold = int(os.getenv("CONSENSUS_THRESHOLD", "2"))
+        self.max_deviation = int(os.getenv("MAX_DEVIATION", "500"))  # 5% in basis points
+        self.submission_window = int(os.getenv("SUBMISSION_WINDOW", "300"))  # 5 minutes
         
         # Email notification settings
         self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
@@ -77,18 +69,16 @@ class OracleUpdaterV2:
         
         # Oracle configuration
         self.oracle_address: Optional[str] = None
-        self.updater_address: Optional[str] = None
         self.oracle_contract: Optional[Any] = None
         self.w3: Optional[Web3] = None
-        self.updater_account: Optional[Any] = None
+        self.oracle_account: Optional[Any] = None
         
         # Statistics
-        self.successful_updates = 0
-        self.failed_updates = 0
-        self.last_update_time: Optional[datetime] = None
+        self.successful_submissions = 0
+        self.failed_submissions = 0
+        self.consensus_reached = 0
+        self.last_submission_time: Optional[datetime] = None
         self.consecutive_failures = 0
-        self.consensus_achieved = 0
-        self.consensus_failed = 0
         
         self._initialize_web3()
         self._load_deployment_info()
@@ -116,7 +106,6 @@ class OracleUpdaterV2:
                 addresses = json.load(f)
             
             self.oracle_address = addresses['contracts']['oracle']
-            self.updater_address = addresses['roles']['deployer']  # For testnet, deployer is updater
             
             # Load contract ABI
             oracle_abi_path = os.path.join(os.path.dirname(__file__), '../artifacts/contracts/HalomOracleV2.sol/HalomOracleV2.json')
@@ -137,72 +126,84 @@ class OracleUpdaterV2:
             
             # Initialize account
             if not self.private_key:
-                raise Exception("ORACLE_PRIVATE_KEY not found in environment")
+                raise Exception("PRIVATE_KEY not found in environment")
             
-            self.updater_account = self.w3.eth.account.from_key(self.private_key)
+            self.oracle_account = self.w3.eth.account.from_key(self.private_key)
             
-            logger.info(f"Oracle V2 contract loaded at {self.oracle_address}")
-            logger.info(f"Using updater account: {self.updater_account.address}")
-            logger.info(f"Consensus threshold: {self.consensus_threshold}")
-            logger.info(f"Deviation threshold: {self.deviation_threshold}")
+            logger.info(f"Oracle contract loaded at {self.oracle_address}")
+            if self.oracle_account:
+                logger.info(f"Using oracle node: {self.oracle_account.address}")
+            else:
+                logger.error("Oracle account not initialized")
             
         except Exception as e:
             logger.error(f"Failed to load deployment info: {e}")
             raise
 
+    def check_oracle_authorization(self) -> bool:
+        """Check if this oracle node is authorized"""
+        try:
+            if self.oracle_contract is None or self.oracle_account is None:
+                return False
+                
+            # Type assertion to help linter understand oracle_account is not None
+            oracle_account = self.oracle_account  # type: ignore
+            oracle_address = oracle_account.address
+            is_authorized = self.oracle_contract.functions.isAuthorizedOracle(oracle_address).call()
+            
+            if not is_authorized:
+                logger.error(f"Oracle node {oracle_address} is not authorized!")
+                self._send_alert(f"Oracle node {oracle_address} not authorized")
+                return False
+                
+            logger.info(f"Oracle node {oracle_address} is authorized")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to check oracle authorization: {e}")
+            return False
+
     def fetch_real_time_data(self) -> Dict[str, Any]:
-        """Fetch real-time data from APIs with fallback to static data"""
+        """Fetch real-time data from APIs instead of static CSV files"""
         try:
             logger.info("Fetching real-time economic data...")
             
-            # Try to fetch from APIs first
-            try:
-                # Example: Fetch employment ratio from Eurostat
-                employment_url = f"{self.eurostat_api}LFST_R_LFUR4GPH"
-                response = requests.get(employment_url, timeout=30)
-                response.raise_for_status()
-                
-                # Parse Eurostat response (simplified)
-                data = response.json()
-                employment_ratio = self._extract_employment_ratio(data)
-                
-                # Fetch other indicators from OECD
-                gini_url = f"{self.oecd_api}EQ_DI/.../OECD"
-                response = requests.get(gini_url, timeout=30)
-                response.raise_for_status()
-                
-                gini_data = response.json()
-                gini_index = self._extract_gini_index(gini_data)
-                
-                # Combine with other indicators
-                real_time_data = {
-                    'employment_ratio': employment_ratio,
-                    'gini_index': gini_index,
-                    'timestamp': datetime.now().isoformat(),
-                    'source': 'api'
-                }
-                
-                logger.info(f"Real-time data fetched successfully: {real_time_data}")
-                return real_time_data
-                
-            except Exception as api_error:
-                logger.warning(f"API data fetch failed: {api_error}")
-                logger.info("Falling back to static CSV data")
-                
-                # Fallback to static data
-                static_data = assemble_data_for_hoi()
-                static_data['source'] = 'static'
-                return static_data
+            # Example: Fetch employment ratio from Eurostat
+            employment_url = f"{self.eurostat_api}LFST_R_LFUR4GPH"
+            response = requests.get(employment_url, timeout=30)
+            response.raise_for_status()
+            
+            # Parse Eurostat response (simplified)
+            data = response.json()
+            employment_ratio = self._extract_employment_ratio(data)
+            
+            # Fetch other indicators from OECD
+            gini_url = f"{self.oecd_api}EQ_DI/.../OECD"
+            response = requests.get(gini_url, timeout=30)
+            response.raise_for_status()
+            
+            gini_data = response.json()
+            gini_index = self._extract_gini_index(gini_data)
+            
+            # Combine with other indicators
+            real_time_data = {
+                'employment_ratio': employment_ratio,
+                'gini_index': gini_index,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            logger.info(f"Real-time data fetched: {real_time_data}")
+            return real_time_data
             
         except Exception as e:
-            logger.error(f"Failed to fetch data: {e}")
-            # Final fallback
-            fallback_data = assemble_data_for_hoi()
-            fallback_data['source'] = 'fallback'
-            return fallback_data
+            logger.error(f"Failed to fetch real-time data: {e}")
+            # Fallback to static data
+            logger.info("Falling back to static CSV data")
+            return assemble_data_for_hoi()
 
     def _extract_employment_ratio(self, data: Dict[str, Any]) -> float:
         """Extract employment ratio from Eurostat response"""
+        # Simplified extraction - in production, parse the actual Eurostat format
         try:
             # This is a placeholder - actual implementation would parse Eurostat JSON
             return 75.5  # Default value
@@ -211,6 +212,7 @@ class OracleUpdaterV2:
 
     def _extract_gini_index(self, data: Dict[str, Any]) -> float:
         """Extract Gini index from OECD response"""
+        # Simplified extraction - in production, parse the actual OECD format
         try:
             # This is a placeholder - actual implementation would parse OECD JSON
             return 30.2  # Default value
@@ -218,39 +220,46 @@ class OracleUpdaterV2:
             return 30.2
 
     def calculate_and_submit_hoi(self):
-        """Calculate HOI and submit to oracle V2 with consensus mechanism"""
+        """Calculate HOI and submit to oracle consensus"""
         try:
-            logger.info("Starting HOI calculation and submission to Oracle V2...")
+            logger.info("Starting HOI calculation and submission...")
+            
+            # Check oracle authorization
+            if not self.check_oracle_authorization():
+                raise Exception("Oracle node not authorized")
             
             # Fetch data (real-time or fallback)
             data = self.fetch_real_time_data()
             
             # Calculate HOI
             hoi_float = calculate_hoi(data)
-            hoi_value = int(hoi_float * 1e9)
+            hoi_value = int(hoi_float * 1e9)  # Scale to 9 decimals
             
             logger.info(f"Calculated HOI: {hoi_float:.4f} ({hoi_value})")
-            logger.info(f"Data source: {data.get('source', 'unknown')}")
             
-            if self.oracle_contract is None or self.w3 is None or self.updater_account is None:
+            if self.oracle_contract is None or self.w3 is None or self.oracle_account is None:
                 raise Exception("Oracle contract or Web3 not initialized")
             
-            # Get current round info
-            current_round = self.oracle_contract.functions.getCurrentRound().call()
-            logger.info(f"Current oracle round: {current_round}")
+            # Get current nonce
+            current_nonce = self.oracle_contract.functions.nonce().call()
+            logger.info(f"Current oracle nonce: {current_nonce}")
             
-            # Check if we can submit (within submission window)
-            submission_deadline = self.oracle_contract.functions.getSubmissionDeadline().call()
-            current_time = int(time.time())
-            
-            if current_time > submission_deadline:
-                logger.warning("Submission window has closed for current round")
+            # Check if already submitted for this nonce
+            submission = self.oracle_contract.functions.getOracleSubmission(self.oracle_account.address).call()
+            if submission[2]:  # submitted field
+                logger.info(f"Already submitted for nonce {current_nonce}")
                 return
             
-            # Submit HOI to oracle
+            # Check submission window
+            round_info = self.oracle_contract.functions.getCurrentRound().call()
+            if round_info[2] > 0 and time.time() > round_info[2]:  # endTime
+                logger.warning(f"Submission window closed for nonce {current_nonce}")
+                return
+            
+            # Build and send transaction
             tx = self.oracle_contract.functions.submitHOI(hoi_value).build_transaction({
-                'from': self.updater_account.address,
-                'nonce': self.w3.eth.get_transaction_count(self.updater_account.address),
+                'from': self.oracle_account.address,
+                'nonce': self.w3.eth.get_transaction_count(self.oracle_account.address),
                 'gas': 300000,
                 'gasPrice': self.w3.eth.gas_price
             })
@@ -258,36 +267,29 @@ class OracleUpdaterV2:
             signed_tx = self.w3.eth.account.sign_transaction(tx, self.private_key)
             tx_hash = self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
             
-            logger.info(f"HOI submission transaction sent: {tx_hash.hex()}")
+            logger.info(f"HOI submission sent: {tx_hash.hex()}")
             
             # Wait for confirmation
             receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
             
             if receipt['status'] == 1:
                 logger.info(f"HOI submission confirmed in block {receipt['blockNumber']}")
-                
-                # Check if consensus was achieved
-                consensus_achieved = self.oracle_contract.functions.isConsensusAchieved().call()
-                if consensus_achieved:
-                    logger.info("✅ Consensus achieved! Rebase will be executed automatically.")
-                    self.consensus_achieved += 1
-                else:
-                    logger.info("⏳ Consensus not yet achieved. Waiting for more submissions.")
-                    self.consensus_failed += 1
-                
-                self.successful_updates += 1
+                self.successful_submissions += 1
                 self.consecutive_failures = 0
-                self.last_update_time = datetime.now()
+                self.last_submission_time = datetime.now()
+                
+                # Check if consensus was reached
+                self._check_consensus_status()
                 
                 # Log statistics
                 self._log_statistics()
                 
             else:
-                raise Exception("Transaction failed")
+                raise Exception("HOI submission failed")
                 
         except Exception as e:
             logger.error(f"Failed to submit HOI: {e}")
-            self.failed_updates += 1
+            self.failed_submissions += 1
             self.consecutive_failures += 1
             
             # Send alert if too many consecutive failures
@@ -296,80 +298,70 @@ class OracleUpdaterV2:
             
             raise
 
-    def check_consensus_status(self):
-        """Check current consensus status"""
+    def _check_consensus_status(self):
+        """Check if consensus was reached for the current round"""
         try:
             if self.oracle_contract is None:
                 return
-            
-            current_round = self.oracle_contract.functions.getCurrentRound().call()
-            consensus_achieved = self.oracle_contract.functions.isConsensusAchieved().call()
-            submission_count = self.oracle_contract.functions.getSubmissionCount().call()
-            submission_deadline = self.oracle_contract.functions.getSubmissionDeadline().call()
-            
-            logger.info(f"Consensus Status - Round: {current_round}, Achieved: {consensus_achieved}, Submissions: {submission_count}")
-            
-            if consensus_achieved:
-                logger.info("🎉 Consensus achieved for current round!")
-            elif submission_deadline < int(time.time()):
-                logger.warning("⚠️ Submission window closed without consensus")
-            else:
-                remaining_time = submission_deadline - int(time.time())
-                logger.info(f"⏳ Waiting for consensus... {remaining_time}s remaining")
+                
+            round_info = self.oracle_contract.functions.getCurrentRound().call()
+            if round_info[4]:  # executed field
+                self.consensus_reached += 1
+                logger.info(f"Consensus reached for nonce {round_info[0]}")
+                
+                # Get consensus details
+                latest_hoi = self.oracle_contract.functions.latestHOI().call()
+                last_update = self.oracle_contract.functions.lastUpdateTime().call()
+                
+                logger.info(f"Consensus HOI: {latest_hoi / 1e9:.4f}")
+                logger.info(f"Last update: {datetime.fromtimestamp(last_update)}")
                 
         except Exception as e:
             logger.error(f"Failed to check consensus status: {e}")
 
-    def force_consensus(self):
-        """Force consensus using governor role (emergency function)"""
-        try:
-            logger.warning("Attempting to force consensus...")
-            
-            if self.oracle_contract is None or self.w3 is None or self.updater_account is None:
-                raise Exception("Oracle contract or Web3 not initialized")
-            
-            # Check if we have governor role
-            governor_role = self.oracle_contract.functions.GOVERNOR_ROLE().call()
-            has_governor_role = self.oracle_contract.functions.hasRole(governor_role, self.updater_account.address).call()
-            
-            if not has_governor_role:
-                logger.error("No governor role - cannot force consensus")
-                return
-            
-            # Force consensus
-            tx = self.oracle_contract.functions.forceConsensus().build_transaction({
-                'from': self.updater_account.address,
-                'nonce': self.w3.eth.get_transaction_count(self.updater_account.address),
-                'gas': 500000,
-                'gasPrice': self.w3.eth.gas_price
-            })
-            
-            signed_tx = self.w3.eth.account.sign_transaction(tx, self.private_key)
-            tx_hash = self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
-            
-            logger.info(f"Force consensus transaction sent: {tx_hash.hex()}")
-            
-            # Wait for confirmation
-            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
-            
-            if receipt['status'] == 1:
-                logger.info("✅ Consensus forced successfully")
-            else:
-                raise Exception("Force consensus transaction failed")
-                
-        except Exception as e:
-            logger.error(f"Failed to force consensus: {e}")
-
     def _log_statistics(self):
-        """Log update statistics"""
-        total_updates = self.successful_updates + self.failed_updates
-        success_rate = (self.successful_updates / total_updates * 100) if total_updates > 0 else 0
-        consensus_rate = (self.consensus_achieved / (self.consensus_achieved + self.consensus_failed) * 100) if (self.consensus_achieved + self.consensus_failed) > 0 else 0
+        """Log submission statistics"""
+        total_submissions = self.successful_submissions + self.failed_submissions
+        success_rate = (self.successful_submissions / total_submissions * 100) if total_submissions > 0 else 0
         
-        logger.info(f"Statistics - Total: {total_updates}, Success: {self.successful_updates}, "
-                   f"Failed: {self.failed_updates}, Success Rate: {success_rate:.1f}%")
-        logger.info(f"Consensus - Achieved: {self.consensus_achieved}, Failed: {self.consensus_failed}, "
-                   f"Rate: {consensus_rate:.1f}%")
+        logger.info(f"Statistics - Total: {total_submissions}, Success: {self.successful_submissions}, "
+                   f"Failed: {self.failed_submissions}, Success Rate: {success_rate:.1f}%, "
+                   f"Consensus Reached: {self.consensus_reached}")
+
+    def health_check(self):
+        """Perform health check on oracle contract"""
+        try:
+            if self.oracle_contract is None or self.oracle_account is None:
+                raise Exception("Oracle contract or account not initialized")
+                
+            # Check if oracle is paused
+            is_paused = self.oracle_contract.functions.paused().call()
+            if is_paused:
+                logger.warning("Oracle contract is paused")
+            
+            # Check current round
+            round_info = self.oracle_contract.functions.getCurrentRound().call()
+            logger.info(f"Current round: {round_info}")
+            
+            # Check oracle authorization
+            is_authorized = self.oracle_contract.functions.isAuthorizedOracle(self.oracle_account.address).call()
+            if not is_authorized:
+                logger.error("This oracle node is not authorized!")
+                self._send_alert("Oracle node not authorized")
+                return False
+            
+            # Check oracle node count
+            oracle_nodes = self.oracle_contract.functions.getOracleNodes().call()
+            logger.info(f"Total oracle nodes: {len(oracle_nodes)}")
+            
+            if len(oracle_nodes) < 3:
+                logger.warning(f"Too few oracle nodes: {len(oracle_nodes)}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Health check failed: {e}")
+            return False
 
     def _send_alert(self, message):
         """Send alert via email and/or Slack"""
@@ -398,20 +390,21 @@ class OracleUpdaterV2:
         msg = MIMEMultipart()
         msg['From'] = self.smtp_username
         msg['To'] = self.notification_email
-        msg['Subject'] = "Halom Oracle V2 Alert"
+        msg['Subject'] = "Halom Oracle Alert"
         
         body = f"""
-        Halom Oracle V2 Updater Alert
+        Halom Oracle Updater Alert
         
         Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        Node ID: {self.oracle_node_id}
+        Node Address: {self.oracle_account.address if self.oracle_account else 'Unknown'}
         Message: {message}
         
         Statistics:
-        - Successful Updates: {self.successful_updates}
-        - Failed Updates: {self.failed_updates}
-        - Consensus Achieved: {self.consensus_achieved}
-        - Consensus Failed: {self.consensus_failed}
-        - Last Update: {self.last_update_time}
+        - Successful Submissions: {self.successful_submissions}
+        - Failed Submissions: {self.failed_submissions}
+        - Consensus Reached: {self.consensus_reached}
+        - Last Submission: {self.last_submission_time}
         """
         
         msg.attach(MIMEText(body, 'plain'))
@@ -430,28 +423,33 @@ class OracleUpdaterV2:
             return
             
         payload = {
-            "text": f"🚨 Halom Oracle V2 Alert: {message}",
+            "text": f"🚨 Halom Oracle Alert: {message}",
             "attachments": [
                 {
                     "fields": [
                         {
-                            "title": "Successful Updates",
-                            "value": str(self.successful_updates),
+                            "title": "Node ID",
+                            "value": self.oracle_node_id,
                             "short": True
                         },
                         {
-                            "title": "Failed Updates", 
-                            "value": str(self.failed_updates),
+                            "title": "Node Address",
+                            "value": self.oracle_account.address if self.oracle_account else 'Unknown',
                             "short": True
                         },
                         {
-                            "title": "Consensus Achieved",
-                            "value": str(self.consensus_achieved),
+                            "title": "Successful Submissions",
+                            "value": str(self.successful_submissions),
                             "short": True
                         },
                         {
-                            "title": "Consensus Failed",
-                            "value": str(self.consensus_failed),
+                            "title": "Failed Submissions", 
+                            "value": str(self.failed_submissions),
+                            "short": True
+                        },
+                        {
+                            "title": "Consensus Reached",
+                            "value": str(self.consensus_reached),
                             "short": True
                         }
                     ]
@@ -462,34 +460,6 @@ class OracleUpdaterV2:
         response = requests.post(self.slack_webhook, json=payload, timeout=10)
         response.raise_for_status()
 
-    def health_check(self):
-        """Perform health check on oracle contract"""
-        try:
-            if self.oracle_contract is None or self.updater_account is None:
-                raise Exception("Oracle contract or updater account not initialized")
-                
-            # Check if oracle is paused
-            is_paused = self.oracle_contract.functions.paused().call()
-            if is_paused:
-                logger.warning("Oracle contract is paused")
-            
-            # Check current round
-            round_info = self.oracle_contract.functions.getCurrentRound().call()
-            logger.info(f"Current round: {round_info}")
-            
-            # Check oracle authorization
-            updater_role = self.oracle_contract.functions.ORACLE_UPDATER_ROLE().call()
-            is_authorized = self.oracle_contract.functions.hasRole(updater_role, self.updater_account.address).call()
-            if not is_authorized:
-                logger.error("This oracle node is not authorized!")
-                self._send_alert("Oracle node not authorized")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Health check failed: {e}")
-            return False
-
     def run_scheduled_update(self):
         """Run scheduled update with error handling"""
         try:
@@ -498,9 +468,6 @@ class OracleUpdaterV2:
             # Health check
             if not self.health_check():
                 raise Exception("Health check failed")
-            
-            # Check consensus status
-            self.check_consensus_status()
             
             # Calculate and submit HOI
             self.calculate_and_submit_hoi()
@@ -514,7 +481,7 @@ class OracleUpdaterV2:
 def main():
     """Main function with scheduling"""
     try:
-        updater = OracleUpdaterV2()
+        updater = SecureOracleUpdater()
         
         # Schedule updates every hour
         schedule.every().hour.do(updater.run_scheduled_update)
@@ -523,7 +490,7 @@ def main():
         logger.info("Running initial update...")
         updater.run_scheduled_update()
         
-        logger.info("Starting scheduled updater V2 (every hour)...")
+        logger.info("Starting scheduled oracle updater (every hour)...")
         
         # Keep running and execute scheduled tasks
         while True:
@@ -531,7 +498,7 @@ def main():
             time.sleep(60)  # Check every minute
             
     except KeyboardInterrupt:
-        logger.info("Updater stopped by user")
+        logger.info("Oracle updater stopped by user")
     except Exception as e:
         logger.error(f"Fatal error: {e}")
         raise

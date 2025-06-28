@@ -11,33 +11,33 @@ describe("Halom Protocol Security Audit Tests", function () {
         // Deploy contracts
         const HalomToken = await ethers.getContractFactory("HalomToken");
         halomToken = await HalomToken.deploy(deployer.address, deployer.address);
-        await halomToken.deployed();
+        await halomToken.waitForDeployment();
 
         const HalomStaking = await ethers.getContractFactory("HalomStaking");
         staking = await HalomStaking.deploy(
-            halomToken.address,
+            await halomToken.getAddress(),
             deployer.address,
             deployer.address,
             deployer.address
         );
-        await staking.deployed();
+        await staking.waitForDeployment();
 
         const HalomLPStaking = await ethers.getContractFactory("HalomLPStaking");
         lpStaking = await HalomLPStaking.deploy(
-            halomToken.address, // Using HLM as LP token for testing
-            halomToken.address,
+            await halomToken.getAddress(), // Using HLM as LP token for testing
+            await halomToken.getAddress(),
             deployer.address,
             deployer.address
         );
-        await lpStaking.deployed();
+        await lpStaking.waitForDeployment();
 
         // Setup roles
-        await halomToken.setStakingContract(staking.address);
+        await halomToken.setStakingContract(await staking.getAddress());
         const REWARDER_ROLE = await staking.REWARDER_ROLE();
-        await staking.grantRole(REWARDER_ROLE, halomToken.address);
+        await staking.grantRole(REWARDER_ROLE, await halomToken.getAddress());
 
         // Mint initial tokens
-        initialSupply = ethers.utils.parseEther("10000000"); // 10M HLM
+        initialSupply = ethers.parseEther("10000000"); // 10M HLM
         await halomToken.mint(deployer.address, initialSupply);
 
         // Get anti-whale limits

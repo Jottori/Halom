@@ -32,24 +32,24 @@ async function main() {
     console.log("\n1. Deploying HalomToken...");
     const HalomToken = await ethers.getContractFactory("HalomToken");
     const halomToken = await HalomToken.deploy(deployer.address, deployer.address);
-    await halomToken.deployed();
-    console.log("HalomToken deployed to:", halomToken.address);
+    await halomToken.waitForDeployment();
+    console.log("HalomToken deployed to:", await halomToken.getAddress());
 
     // Deploy Mock Tokens for testing
     console.log("\n2. Deploying Mock Tokens...");
     const MockERC20 = await ethers.getContractFactory("MockERC20");
     
     const mockUSDC = await MockERC20.deploy("USDC", "USDC", 6);
-    await mockUSDC.deployed();
-    console.log("Mock USDC deployed to:", mockUSDC.address);
+    await mockUSDC.waitForDeployment();
+    console.log("Mock USDC deployed to:", await mockUSDC.getAddress());
 
     const mockUSDT = await MockERC20.deploy("USDT", "USDT", 6);
-    await mockUSDT.deployed();
-    console.log("Mock USDT deployed to:", mockUSDT.address);
+    await mockUSDT.waitForDeployment();
+    console.log("Mock USDT deployed to:", await mockUSDT.getAddress());
 
     const mockDAI = await MockERC20.deploy("DAI", "DAI", 18);
-    await mockDAI.deployed();
-    console.log("Mock DAI deployed to:", mockDAI.address);
+    await mockDAI.waitForDeployment();
+    console.log("Mock DAI deployed to:", await mockDAI.getAddress());
 
     // Deploy TimelockController
     console.log("\n3. Deploying TimelockController...");
@@ -59,63 +59,63 @@ async function main() {
 
     const TimelockController = await ethers.getContractFactory("TimelockController");
     const timelock = await TimelockController.deploy(timelockDelay, proposers, executors, admin);
-    await timelock.deployed();
-    console.log("TimelockController deployed to:", timelock.address);
+    await timelock.waitForDeployment();
+    console.log("TimelockController deployed to:", await timelock.getAddress());
 
     // Deploy HalomGovernor
     console.log("\n4. Deploying HalomGovernor...");
     const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
-    const governor = await HalomGovernor.deploy(halomToken.address, timelock.address);
-    await governor.deployed();
-    console.log("HalomGovernor deployed to:", governor.address);
+    const governor = await HalomGovernor.deploy(await halomToken.getAddress(), await timelock.getAddress());
+    await governor.waitForDeployment();
+    console.log("HalomGovernor deployed to:", await governor.getAddress());
 
     // Deploy HalomStaking
     console.log("\n5. Deploying HalomStaking...");
     const HalomStaking = await ethers.getContractFactory("HalomStaking");
     const staking = await HalomStaking.deploy(
-        halomToken.address,
-        governor.address,
+        await halomToken.getAddress(),
+        await governor.getAddress(),
         deployer.address, // rewarder
         deployer.address  // pauser
     );
-    await staking.deployed();
-    console.log("HalomStaking deployed to:", staking.address);
+    await staking.waitForDeployment();
+    console.log("HalomStaking deployed to:", await staking.getAddress());
 
     // Deploy HalomLPStaking
     console.log("\n6. Deploying HalomLPStaking...");
     const HalomLPStaking = await ethers.getContractFactory("HalomLPStaking");
     const lpStaking = await HalomLPStaking.deploy(
-        mockUSDC.address, // LP token (using mock USDC)
-        halomToken.address,
-        governor.address,
+        await mockUSDC.getAddress(), // LP token (using mock USDC)
+        await halomToken.getAddress(),
+        await governor.getAddress(),
         deployer.address
     );
-    await lpStaking.deployed();
-    console.log("HalomLPStaking deployed to:", lpStaking.address);
+    await lpStaking.waitForDeployment();
+    console.log("HalomLPStaking deployed to:", await lpStaking.getAddress());
 
     // Deploy HalomTreasury
     console.log("\n7. Deploying HalomTreasury...");
     const HalomTreasury = await ethers.getContractFactory("HalomTreasury");
     const treasury = await HalomTreasury.deploy(
-        halomToken.address,
-        mockUSDC.address, // Using mock USDC as stablecoin
-        governor.address,
+        await halomToken.getAddress(),
+        await mockUSDC.getAddress(), // Using mock USDC as stablecoin
+        await governor.getAddress(),
         deployer.address, // operator
         deployer.address  // pauser
     );
-    await treasury.deployed();
-    console.log("HalomTreasury deployed to:", treasury.address);
+    await treasury.waitForDeployment();
+    console.log("HalomTreasury deployed to:", await treasury.getAddress());
 
     // Deploy HalomOracleV2 (multi-node consensus)
     console.log("\n8. Deploying HalomOracleV2...");
     const HalomOracleV2 = await ethers.getContractFactory("HalomOracleV2");
     const oracle = await HalomOracleV2.deploy(
-        governor.address,
+        await governor.getAddress(),
         deployer.address, // updater
         deployer.address  // pauser
     );
-    await oracle.deployed();
-    console.log("HalomOracleV2 deployed to:", oracle.address);
+    await oracle.waitForDeployment();
+    console.log("HalomOracleV2 deployed to:", await oracle.getAddress());
 
     // Setup governance roles
     console.log("\n9. Setting up governance roles...");
@@ -133,22 +133,39 @@ async function main() {
     // Setup token roles
     console.log("\n10. Setting up token roles...");
     
-    // Set staking contract address in token
+    // Set staking contract address in token (CRITICAL for rebase rewards)
     await halomToken.setStakingContract(staking.address);
+    console.log("✅ Staking contract address set in token");
+    
+    // Grant MINTER_ROLE to staking contract for rebase rewards (NOT DEFAULT_ADMIN_ROLE)
+    const MINTER_ROLE = await halomToken.MINTER_ROLE();
+    await halomToken.grantRole(MINTER_ROLE, staking.address);
+    console.log("✅ MINTER_ROLE granted to staking contract");
+    
+    // Verify STAKING_CONTRACT_ROLE is automatically granted by setStakingContract
+    const STAKING_CONTRACT_ROLE = await halomToken.STAKING_CONTRACT_ROLE();
+    const hasStakingRole = await halomToken.hasRole(STAKING_CONTRACT_ROLE, staking.address);
+    if (!hasStakingRole) {
+        throw new Error("STAKING_CONTRACT_ROLE not granted to staking contract");
+    }
+    console.log("✅ STAKING_CONTRACT_ROLE verified for staking contract");
     
     // Grant REWARDER_ROLE to token contract so it can call addRewards
     const REWARDER_ROLE = await staking.REWARDER_ROLE();
     await staking.grantRole(REWARDER_ROLE, halomToken.address);
+    console.log("✅ REWARDER_ROLE granted to token contract");
     
     // Grant REWARDER_ROLE to LP staking as well
     const lpStakingRewarderRole = await lpStaking.REWARDER_ROLE();
     await lpStaking.grantRole(lpStakingRewarderRole, deployer.address);
+    console.log("✅ REWARDER_ROLE granted to LP staking");
 
     // Grant oracle roles
     const ORACLE_UPDATER_ROLE = await oracle.ORACLE_UPDATER_ROLE();
     await oracle.grantRole(ORACLE_UPDATER_ROLE, deployer.address);
+    console.log("✅ ORACLE_UPDATER_ROLE granted to deployer");
     
-    console.log("Token roles configured");
+    console.log("✅ Token roles configured securely");
 
     // Configure token parameters
     console.log("\n11. Configuring token parameters...");

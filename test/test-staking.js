@@ -35,39 +35,39 @@ describe("HalomStaking", function () {
 
   describe("Staking with Lock Periods", function () {
     it("Should allow staking with minimum amount", async function () {
-      await staking.connect(user1).stake(ethers.parseEther("100"));
+      await staking.connect(user1).stakeWithLock(ethers.parseEther("100"), 30 * 24 * 60 * 60); // 30 days lock
       const userStake = await staking.stakedBalance(user1.address);
       expect(userStake).to.equal(ethers.parseEther("100"));
     });
 
     it("Should allow staking with maximum amount", async function () {
-      await staking.connect(user1).stake(ethers.parseEther("10000"));
+      await staking.connect(user1).stakeWithLock(ethers.parseEther("10000"), 30 * 24 * 60 * 60); // 30 days lock
       const userStake = await staking.stakedBalance(user1.address);
       expect(userStake).to.equal(ethers.parseEther("10000"));
     });
 
     it("Should revert with amount below minimum", async function () {
       await expect(
-        staking.connect(user1).stake(ethers.parseEther("50"))
-      ).to.be.revertedWith("Below minimum stake amount");
+        staking.connect(user1).stakeWithLock(ethers.parseEther("50"), 30 * 24 * 60 * 60)
+      ).to.be.revertedWith("Amount below minimum");
     });
 
     it("Should revert with amount above maximum", async function () {
       await expect(
-        staking.connect(user1).stake(ethers.parseEther("2000000"))
-      ).to.be.revertedWith("Above maximum stake amount");
+        staking.connect(user1).stakeWithLock(ethers.parseEther("2000000"), 30 * 24 * 60 * 60)
+      ).to.be.revertedWith("Amount above maximum");
     });
   });
 
   describe("Staking, Unstaking, and Rewards", function () {
     it("Should allow staking and correctly update balances", async function () {
-      await staking.connect(user1).stake(ethers.parseEther("100"));
+      await staking.connect(user1).stakeWithLock(ethers.parseEther("100"), 30 * 24 * 60 * 60);
       const userStake = await staking.stakedBalance(user1.address);
       expect(userStake).to.equal(ethers.parseEther("100"));
     });
 
     it("Should allow unstaking after lock period", async function () {
-      await staking.connect(user1).stake(ethers.parseEther("100"));
+      await staking.connect(user1).stakeWithLock(ethers.parseEther("100"), 30 * 24 * 60 * 60);
       
       // Fast forward time to pass lock period
       await ethers.provider.send("evm_increaseTime", [31 * 24 * 60 * 60]); // 31 days
@@ -79,11 +79,62 @@ describe("HalomStaking", function () {
     });
 
     it("Should revert unstaking before lock period", async function () {
-      await staking.connect(user1).stake(ethers.parseEther("100"));
+      await staking.connect(user1).stakeWithLock(ethers.parseEther("100"), 30 * 24 * 60 * 60);
       
       await expect(
         staking.connect(user1).unstake(ethers.parseEther("50"))
-      ).to.be.revertedWith("Lock period not expired");
+      ).to.be.revertedWith("Lock period not met");
+    });
+
+    it("Should allow additional staking after initial stake", async function () {
+      // Initial stake with lock
+      await staking.connect(user1).stakeWithLock(ethers.parseEther("100"), 30 * 24 * 60 * 60);
+      
+      // Additional stake (should preserve lock period) - use minimum amount
+      await staking.connect(user1).stake(ethers.parseEther("100"));
+      
+      const userStake = await staking.stakedBalance(user1.address);
+      expect(userStake).to.equal(ethers.parseEther("200"));
+    });
+
+    it("Should revert initial stake without lock period", async function () {
+      await expect(
+        staking.connect(user1).stake(ethers.parseEther("100"))
+      ).to.be.revertedWith("Use stakeWithLock for initial stake");
+    });
+  });
+
+  describe("Rewards and Fourth Root System", function () {
+    it("Should calculate fourth root correctly", async function () {
+      const fourthRoot = await staking.fourthRoot(ethers.parseEther("10000"));
+      expect(fourthRoot).to.be.gt(0);
+    });
+
+    it("Should calculate governance power correctly", async function () {
+      await staking.connect(user1).stakeWithLock(ethers.parseEther("1000"), 30 * 24 * 60 * 60);
+      const governancePower = await staking.getGovernancePower(user1.address);
+      expect(governancePower).to.be.gt(0);
+    });
+
+    it("Should allow adding rewards", async function () {
+      await staking.connect(user1).stakeWithLock(ethers.parseEther("100"), 30 * 24 * 60 * 60);
+      
+      // Grant REWARDER_ROLE to governor for testing
+      const REWARDER_ROLE = await staking.REWARDER_ROLE();
+      await staking.connect(governor).grantRole(REWARDER_ROLE, governor.address);
+      
+      // Grant MINTER_ROLE to governor for testing
+      await token.connect(owner).grantRole(await token.MINTER_ROLE(), governor.address);
+      
+      // Mint tokens to governor and approve staking contract
+      await token.connect(governor).mint(governor.address, ethers.parseEther("1000"));
+      await token.connect(governor).approve(staking.target, ethers.parseEther("1000"));
+      
+      // Add rewards (only governor can do this)
+      await staking.connect(governor).addRewards(ethers.parseEther("100"));
+      
+      const pendingRewards = await staking.getPendingRewardsForUser(user1.address);
+      expect(pendingRewards).to.be.gt(0);
     });
   });
 
@@ -109,6 +160,10 @@ describe("HalomStaking", function () {
 
   describe("Governance Functions", function () {
     it("Should allow governor to update staking parameters", async function () {
+      // Grant GOVERNOR_ROLE to governor for testing
+      const GOVERNOR_ROLE = await staking.GOVERNOR_ROLE();
+      await staking.connect(governor).grantRole(GOVERNOR_ROLE, governor.address);
+      
       await staking.connect(governor).updateStakingParameters(
         ethers.parseEther("200"), // new min stake
         ethers.parseEther("2000000"), // new max stake
@@ -127,14 +182,26 @@ describe("HalomStaking", function () {
           ethers.parseEther("2000000"),
           60 * 24 * 60 * 60
         )
-      ).to.be.reverted;
+      ).to.be.revertedWithCustomError(staking, "AccessControlUnauthorizedAccount");
     });
   });
 
   describe("Slashing", function () {
-    it("Should not have slashing functionality in current version", async function () {
-      // Slashing functionality was removed in favor of emergency recovery
-      expect(true).to.be.true;
+    it("Should allow governor to slash users", async function () {
+      await staking.connect(user1).stakeWithLock(ethers.parseEther("1000"), 30 * 24 * 60 * 60);
+      
+      // Grant SLASHER_ROLE to governor for testing
+      const SLASHER_ROLE = await staking.SLASHER_ROLE();
+      await staking.connect(governor).grantRole(SLASHER_ROLE, governor.address);
+      
+      const initialBalance = await staking.stakedBalance(user1.address);
+      expect(initialBalance).to.equal(ethers.parseEther("1000"));
+      
+      // Slash 50% of user's stake
+      await staking.connect(governor).slash(user1.address, "Test slash");
+      
+      const finalBalance = await staking.stakedBalance(user1.address);
+      expect(finalBalance).to.be.lt(initialBalance);
     });
   });
 

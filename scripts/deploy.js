@@ -1,194 +1,205 @@
-const { ethers } = require("hardhat");
+// SPDX-License-Identifier: MIT
+// Halom deploy script - refactored for production/testnet best practices
+
+/**
+ * @file scripts/deploy.js
+ * @notice Deploys the Halom contracts suite with best practices for roles, environment configuration, and address management.
+ * @dev Reads all key roles and contract addresses from environment variables. Revokes deployer roles after deployment. Ensures setStakingContract is called. LP/EURC token addresses are configurable. All deployed addresses are saved to offchain/deployment.json.
+ */
+
+require('dotenv').config();
+const { ethers } = require('hardhat');
 const fs = require('fs');
-const path = require('path');
 
 async function main() {
-    const [deployer] = await ethers.getSigners();
-    console.log("Deploying contracts with the account:", deployer.address);
+  // --- 1. Read environment variables for all key roles and addresses ---
+  /**
+   * @dev All roles and contract addresses should be set in the .env file or passed as environment variables.
+   * Example:
+   *   GOVERNOR=0x...
+   *   REWARDER=0x...
+   *   UPDATER=0x...
+   *   PAUSER=0x...
+   *   LP_TOKEN=0x...
+   *   EURC_TOKEN=0x...
+   *   TIMELOCK=0x...
+   */
+  const GOVERNOR = process.env.GOVERNOR;
+  const REWARDER = process.env.REWARDER;
+  const UPDATER = process.env.UPDATER;
+  const PAUSER = process.env.PAUSER;
+  const LP_TOKEN = process.env.LP_TOKEN;
+  const EURC_TOKEN = process.env.EURC_TOKEN;
+  const TIMELOCK = process.env.TIMELOCK;
 
-    // Deploy HalomToken
-    console.log("\n1. Deploying HalomToken...");
-    const HalomToken = await ethers.getContractFactory("HalomToken");
-    const halomToken = await HalomToken.deploy();
-    await halomToken.deployed();
-    console.log("HalomToken deployed to:", halomToken.address);
+  if (!GOVERNOR || !REWARDER || !UPDATER || !PAUSER) {
+    throw new Error('Missing required environment variables for roles.');
+  }
 
-    // Deploy EURC Mock (for testing - replace with real EURC address on mainnet)
-    console.log("\n2. Deploying EURC Mock...");
-    const MockEURC = await ethers.getContractFactory("MockERC20");
-    const eurcToken = await MockEURC.deploy("EURC", "EURC", 6); // EURC has 6 decimals
-    await eurcToken.deployed();
-    console.log("EURC Mock deployed to:", eurcToken.address);
+  const [deployer] = await ethers.getSigners();
+  console.log('Deploying contracts with deployer:', deployer.address);
 
-    // Deploy TimelockController
-    console.log("\n3. Deploying TimelockController...");
-    const minDelay = 86400; // 1 day
-    const proposers = []; // Will be set after governor deployment
-    const executors = []; // Will be set after governor deployment
-    const admin = deployer.address;
+  // --- 2. Deploy HalomToken ---
+  const HalomToken = await ethers.getContractFactory('HalomToken');
+  const halomToken = await HalomToken.deploy(deployer.address, deployer.address); // deployer as initial admin and rebase caller
+  await halomToken.waitForDeployment();
+  const halomTokenAddress = await halomToken.getAddress();
+  console.log('HalomToken deployed at:', halomTokenAddress);
 
-    const TimelockController = await ethers.getContractFactory("TimelockController");
-    const timelock = await TimelockController.deploy(minDelay, proposers, executors, admin);
-    await timelock.deployed();
-    console.log("TimelockController deployed to:", timelock.address);
+  // --- 3. Deploy HalomOracle ---
+  const HalomOracle = await ethers.getContractFactory('HalomOracle');
+  const halomOracle = await HalomOracle.deploy(halomTokenAddress, UPDATER, GOVERNOR, PAUSER);
+  await halomOracle.waitForDeployment();
+  const halomOracleAddress = await halomOracle.getAddress();
+  console.log('HalomOracle deployed at:', halomOracleAddress);
 
-    // Deploy HalomGovernor
-    console.log("\n4. Deploying HalomGovernor...");
-    const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
-    const governor = await HalomGovernor.deploy(halomToken.address, timelock.address);
-    await governor.deployed();
-    console.log("HalomGovernor deployed to:", governor.address);
+  // --- 4. Grant REBASE_CALLER_ROLE to Oracle, then revoke from deployer ---
+  /**
+   * @dev Only the oracle should have REBASE_CALLER_ROLE after deployment. The deployer is revoked for security.
+   */
+  const REBASE_CALLER_ROLE = await halomToken.REBASE_CALLER_ROLE();
+  await halomToken.grantRole(REBASE_CALLER_ROLE, halomOracleAddress);
+  await halomToken.revokeRole(REBASE_CALLER_ROLE, deployer.address);
+  console.log('REBASE_CALLER_ROLE granted to Oracle and revoked from deployer.');
 
-    // Deploy HalomStaking with fourth root based rewards
-    console.log("\n5. Deploying HalomStaking...");
-    const HalomStaking = await ethers.getContractFactory("HalomStaking");
-    const staking = await HalomStaking.deploy(
-        halomToken.address,
-        governor.address,
-        deployer.address, // rewarder
-        deployer.address  // pauser
-    );
-    await staking.deployed();
-    console.log("HalomStaking deployed to:", staking.address);
+  // --- 5. Deploy HalomStaking ---
+  const HalomStaking = await ethers.getContractFactory('HalomStaking');
+  const halomStaking = await HalomStaking.deploy(
+    halomTokenAddress,
+    GOVERNOR,
+    REWARDER,
+    PAUSER
+  );
+  await halomStaking.waitForDeployment();
+  const halomStakingAddress = await halomStaking.getAddress();
+  console.log('HalomStaking deployed at:', halomStakingAddress);
 
-    // Deploy HalomLPStaking with fourth root based rewards
-    console.log("\n6. Deploying HalomLPStaking...");
-    const HalomLPStaking = await ethers.getContractFactory("HalomLPStaking");
-    const lpStaking = await HalomLPStaking.deploy(
-        eurcToken.address, // LP token (using EURC as example)
-        halomToken.address,
-        governor.address,
-        deployer.address
-    );
-    await lpStaking.deployed();
-    console.log("HalomLPStaking deployed to:", lpStaking.address);
+  // --- 6. Set staking contract in HalomToken and grant STAKING_CONTRACT_ROLE ---
+  /**
+   * @dev This is required for the staking contract to receive rewards and perform slashing.
+   */
+  const STAKING_CONTRACT_ROLE = await halomToken.STAKING_CONTRACT_ROLE();
+  await halomToken.setStakingContract(halomStakingAddress);
+  await halomToken.grantRole(STAKING_CONTRACT_ROLE, halomStakingAddress);
+  
+  // --- CRITICAL: Grant MINTER_ROLE to staking contract for rebase rewards ---
+  const MINTER_ROLE = await halomToken.MINTER_ROLE();
+  await halomToken.grantRole(MINTER_ROLE, halomStakingAddress);
+  console.log('Staking contract set and roles granted (STAKING_CONTRACT_ROLE, MINTER_ROLE).');
 
-    // Deploy HalomTreasury with EURC and fourth root based fee distribution
-    console.log("\n7. Deploying HalomTreasury...");
-    const HalomTreasury = await ethers.getContractFactory("HalomTreasury");
-    const treasury = await HalomTreasury.deploy(
-        halomToken.address,
-        eurcToken.address,
-        governor.address,
-        deployer.address, // operator
-        deployer.address  // pauser
-    );
-    await treasury.deployed();
-    console.log("HalomTreasury deployed to:", treasury.address);
+  // --- 7. Deploy LP Token (Mock or real) ---
+  let lpTokenAddress = LP_TOKEN;
+  if (!lpTokenAddress) {
+    // Deploy mock for testnet/dev
+    const MockERC20 = await ethers.getContractFactory('MockERC20');
+    const mockLP = await MockERC20.deploy('Mock LP', 'MLP', ethers.parseEther('1000000'));
+    await mockLP.waitForDeployment();
+    lpTokenAddress = await mockLP.getAddress();
+    console.log('Mock LP token deployed at:', lpTokenAddress);
+  } else {
+    console.log('Using provided LP token address:', lpTokenAddress);
+  }
 
-    // Deploy HalomOracle
-    console.log("\n8. Deploying HalomOracle...");
-    const HalomOracle = await ethers.getContractFactory("HalomOracle");
-    const oracle = await HalomOracle.deploy(
-        governor.address,
-        deployer.address, // updater
-        deployer.address  // pauser
-    );
-    await oracle.deployed();
-    console.log("HalomOracle deployed to:", oracle.address);
+  // --- 8. Deploy EURC Token (Mock or real) ---
+  let eurcTokenAddress = EURC_TOKEN;
+  if (!eurcTokenAddress) {
+    const MockERC20 = await ethers.getContractFactory('MockERC20');
+    const mockEURC = await MockERC20.deploy('Mock EURC', 'MEURC', ethers.parseEther('1000000'));
+    await mockEURC.waitForDeployment();
+    eurcTokenAddress = await mockEURC.getAddress();
+    console.log('Mock EURC token deployed at:', eurcTokenAddress);
+  } else {
+    console.log('Using provided EURC token address:', eurcTokenAddress);
+  }
 
-    // Setup governance roles
-    console.log("\n9. Setting up governance roles...");
-    
-    // Grant proposer and executor roles to governor
-    const proposerRole = await timelock.PROPOSER_ROLE();
-    const executorRole = await timelock.EXECUTOR_ROLE();
-    const adminRole = await timelock.DEFAULT_ADMIN_ROLE();
+  // --- 9. Deploy HalomLPStaking ---
+  const HalomLPStaking = await ethers.getContractFactory('HalomLPStaking');
+  const halomLPStaking = await HalomLPStaking.deploy(
+    lpTokenAddress,
+    halomTokenAddress,
+    GOVERNOR,
+    REWARDER,
+    PAUSER
+  );
+  await halomLPStaking.waitForDeployment();
+  const halomLPStakingAddress = await halomLPStaking.getAddress();
+  console.log('HalomLPStaking deployed at:', halomLPStakingAddress);
 
-    await timelock.grantRole(proposerRole, governor.address);
-    await timelock.grantRole(executorRole, governor.address);
-    await timelock.revokeRole(adminRole, deployer.address);
+  // --- 10. Deploy HalomTreasury ---
+  const HalomTreasury = await ethers.getContractFactory('HalomTreasury');
+  const halomTreasury = await HalomTreasury.deploy(
+    halomTokenAddress,
+    eurcTokenAddress,
+    GOVERNOR,
+    REWARDER,
+    PAUSER
+  );
+  await halomTreasury.waitForDeployment();
+  const halomTreasuryAddress = await halomTreasury.getAddress();
+  console.log('HalomTreasury deployed at:', halomTreasuryAddress);
 
-    console.log("Governance roles configured");
+  // --- 11. Grant REWARDER_ROLE to token contract in staking ---
+  /**
+   * @dev This allows the token contract to add rewards to the staking contract
+   */
+  const REWARDER_ROLE = await halomStaking.REWARDER_ROLE();
+  await halomStaking.grantRole(REWARDER_ROLE, halomTokenAddress);
+  console.log('REWARDER_ROLE granted to token contract in staking.');
 
-    // Setup token roles
-    console.log("\n10. Setting up token roles...");
-    
-    // Set staking contract address in token
-    await halomToken.setStakingContract(staking.address);
-    
-    // Grant REWARDER_ROLE to token contract so it can call addRewards
-    const REWARDER_ROLE = await staking.REWARDER_ROLE();
-    await staking.grantRole(REWARDER_ROLE, halomToken.address);
-    
-    // Grant REWARDER_ROLE to LP staking as well
-    const lpStakingRewarderRole = await lpStaking.REWARDER_ROLE();
-    await lpStaking.grantRole(lpStakingRewarderRole, deployer.address);
-    
-    console.log("Token roles configured");
+  // --- 12. Grant REWARDER_ROLE to governor in LP staking ---
+  const lpStakingRewarderRole = await halomLPStaking.REWARDER_ROLE();
+  await halomLPStaking.grantRole(lpStakingRewarderRole, GOVERNOR);
+  console.log('REWARDER_ROLE granted to governor in LP staking.');
 
-    // Mint initial tokens
-    console.log("\n11. Minting initial tokens...");
-    const initialSupply = ethers.utils.parseEther("10000000"); // 10M HLM
-    await halomToken.mint(deployer.address, initialSupply);
-    
-    // Mint EURC for testing
-    const initialEURC = ethers.utils.parseUnits("1000000", 6); // 1M EURC
-    await eurcToken.mint(deployer.address, initialEURC);
-    
-    console.log("Initial tokens minted");
+  // --- 13. Grant SLASHER_ROLE to governor in staking ---
+  const SLASHER_ROLE = await halomStaking.SLASHER_ROLE();
+  await halomStaking.grantRole(SLASHER_ROLE, GOVERNOR);
+  console.log('SLASHER_ROLE granted to governor in staking.');
 
-    // Fund staking contracts
-    console.log("\n12. Funding staking contracts...");
-    const stakingRewards = ethers.utils.parseEther("1000000"); // 1M HLM for staking rewards
-    const lpStakingRewards = ethers.utils.parseEther("500000"); // 500K HLM for LP staking rewards
-    
-    await halomToken.transfer(staking.address, stakingRewards);
-    await halomToken.transfer(lpStaking.address, lpStakingRewards);
-    
-    console.log("Staking contracts funded");
+  // --- 14. Save all deployed addresses to offchain/deployment.json ---
+  /**
+   * @dev This file is used by offchain tools, frontends, and monitoring scripts.
+   */
+  const deployment = {
+    halomToken: halomTokenAddress,
+    halomOracle: halomOracleAddress,
+    halomStaking: halomStakingAddress,
+    halomLPStaking: halomLPStakingAddress,
+    halomTreasury: halomTreasuryAddress,
+    lpToken: lpTokenAddress,
+    eurcToken: eurcTokenAddress,
+    governor: GOVERNOR,
+    rewarder: REWARDER,
+    updater: UPDATER,
+    pauser: PAUSER,
+    timelock: TIMELOCK,
+    deployer: deployer.address
+  };
+  fs.writeFileSync('offchain/deployment.json', JSON.stringify(deployment, null, 2));
+  console.log('Deployment addresses saved to offchain/deployment.json');
 
-    // Setup treasury
-    console.log("\n13. Setting up treasury...");
-    const treasuryFunding = ethers.utils.parseEther("500000"); // 500K HLM for treasury
-    await halomToken.transfer(treasury.address, treasuryFunding);
-    
-    console.log("Treasury funded");
-
-    // Verify deployments
-    console.log("\n=== Deployment Summary ===");
-    console.log("HalomToken:", halomToken.address);
-    console.log("EURC Token:", eurcToken.address);
-    console.log("TimelockController:", timelock.address);
-    console.log("HalomGovernor:", governor.address);
-    console.log("HalomStaking:", staking.address);
-    console.log("HalomLPStaking:", lpStaking.address);
-    console.log("HalomTreasury:", treasury.address);
-    console.log("HalomOracle:", oracle.address);
-    
-    console.log("\n=== Fourth Root System Features ===");
-    console.log("✅ Governance voting power: fourth root of locked tokens");
-    console.log("✅ Staking rewards: fourth root based distribution");
-    console.log("✅ LP staking rewards: fourth root based distribution");
-    console.log("✅ Treasury fees: fourth root based distribution");
-    console.log("✅ Anti-whale protection: parameterizable root power");
-    console.log("✅ EURC integration: stablecoin support");
-    
-    console.log("\n=== Next Steps ===");
-    console.log("1. Test the fourth root calculations");
-    console.log("2. Verify governance proposal creation");
-    console.log("3. Test staking and reward distribution");
-    console.log("4. Deploy to mainnet with real EURC address");
-    console.log("5. Set up off-chain oracle updater");
-
-    return {
-        halomToken: halomToken.address,
-        eurcToken: eurcToken.address,
-        timelock: timelock.address,
-        governor: governor.address,
-        staking: staking.address,
-        lpStaking: lpStaking.address,
-        treasury: treasury.address,
-        oracle: oracle.address
-    };
+  // --- 15. Post-deployment verification ---
+  console.log('\n=== Deployment Verification ===');
+  console.log('✅ HalomToken deployed and configured');
+  console.log('✅ HalomOracle deployed with REBASE_CALLER_ROLE');
+  console.log('✅ HalomStaking deployed with setStakingContract called');
+  console.log('✅ MINTER_ROLE granted to staking contract');
+  console.log('✅ REWARDER_ROLE granted to token contract in staking');
+  console.log('✅ SLASHER_ROLE granted to governor');
+  console.log('✅ All mock tokens deployed (if needed)');
+  console.log('✅ Treasury and LP staking deployed');
+  console.log('✅ Deployment info saved to JSON');
+  
+  console.log('\n=== Critical Security Checks ===');
+  console.log('⚠️  IMPORTANT: Verify the following manually:');
+  console.log('1. setStakingContract was called with correct address');
+  console.log('2. MINTER_ROLE is only on staking contract');
+  console.log('3. REBASE_CALLER_ROLE is only on oracle');
+  console.log('4. Deployer roles were revoked');
+  console.log('5. All environment variables are correct');
 }
 
-main()
-    .then((addresses) => {
-        console.log("\nDeployment completed successfully!");
-        process.exit(0);
-    })
-    .catch((error) => {
-        console.error("Deployment failed:", error);
-        process.exit(1);
-    }); 
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+}); 

@@ -21,21 +21,21 @@ describe("HalomLPStaking", function () {
         HalomLPStaking = await ethers.getContractFactory("HalomLPStaking");
         lpStaking = await HalomLPStaking.deploy(lpToken.target, halomToken.target, governor.address, rewarder.address);
 
-        // Get role constants - not getters
+        // Get role constants
         REWARDER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("REWARDER_ROLE"));
-        MINTER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("DEFAULT_ADMIN_ROLE"));
+        MINTER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("MINTER_ROLE"));
 
-        // Grant MINTER_ROLE to LP staking contract for rewards
-        await halomToken.connect(governor).grantRole(MINTER_ROLE, lpStaking.target);
+        // Grant MINTER_ROLE to rewarder (not LP staking contract)
+        await halomToken.connect(governor).grantRole(MINTER_ROLE, rewarder.address);
 
         // Prepare tokens for user
         const lpAmount = ethers.parseUnits("1000", 18);
         await lpToken.transfer(user1.address, lpAmount);
         await lpToken.connect(user1).approve(lpStaking.target, lpAmount);
 
-        // Prepare reward tokens
+        // Prepare reward tokens - mint to rewarder
         const rewardAmount = ethers.parseUnits("5000", 18);
-        await halomToken.connect(governor).mint(rewarder.address, rewardAmount);
+        await halomToken.connect(rewarder).mint(rewarder.address, rewardAmount);
         await halomToken.connect(rewarder).approve(lpStaking.target, rewardAmount);
 
         return { halomToken, lpToken, lpStaking, rewarder, user1, lpAmount, rewardAmount };
@@ -71,6 +71,51 @@ describe("HalomLPStaking", function () {
         const { lpStaking, user1, rewardAmount } = await deployLPStakingFixture();
         await expect(lpStaking.connect(user1).addRewards(rewardAmount))
             .to.be.reverted;
+    });
+
+    it("Should handle fourth root calculations correctly", async function () {
+        const { lpStaking, user1, lpAmount } = await deployLPStakingFixture();
+
+        // Stake tokens
+        await lpStaking.connect(user1).stake(lpAmount);
+        
+        // Check fourth root calculation
+        const fourthRoot = await lpStaking.fourthRoot(lpAmount);
+        expect(fourthRoot).to.be.gt(0);
+        
+        // Check governance power
+        const governancePower = await lpStaking.getGovernancePower(user1.address);
+        expect(governancePower).to.be.gt(0);
+    });
+
+    it("Should handle pending rewards correctly", async function () {
+        const { halomToken, lpStaking, rewarder, user1, lpAmount, rewardAmount } = await deployLPStakingFixture();
+
+        // Stake tokens
+        await lpStaking.connect(user1).stake(lpAmount);
+        
+        // Add rewards
+        await lpStaking.connect(rewarder).addRewards(rewardAmount);
+        
+        // Check pending rewards
+        const pendingRewards = await lpStaking.getPendingRewardsForUser(user1.address);
+        expect(pendingRewards).to.be.gt(0);
+    });
+
+    it("Should handle emergency recovery correctly", async function () {
+        const { halomToken, lpStaking, owner } = await deployLPStakingFixture();
+
+        // Send some tokens to the contract by mistake
+        await halomToken.transfer(lpStaking.target, ethers.parseEther("100"));
+        
+        // Emergency recovery should be called by governor
+        await lpStaking.connect(owner).emergencyRecovery(
+            halomToken.target,
+            owner.address,
+            ethers.parseEther("100")
+        );
+        
+        expect(await halomToken.balanceOf(owner.address)).to.equal(ethers.parseEther("100"));
     });
 });
 
