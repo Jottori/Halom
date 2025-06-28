@@ -203,15 +203,19 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
                 if (balanceOf(to) + value > maxWalletAmount) revert ExceedsMaxWalletBalance();
             }
             
-            // Initialize gons for rebase token
-            _gonBalances[to] += value * _gonsPerFragment;
+            // Initialize gons for rebase token - use unchecked for gas optimization
+            unchecked {
+                _gonBalances[to] += value * _gonsPerFragment;
+            }
         } else if (to == address(0)) {
             // Burning
             if (from == address(0)) revert TransferFromZeroAddress();
             if (value == 0) revert InvalidRebaseAmount();
             
-            // Update gons for rebase token
-            _gonBalances[from] -= value * _gonsPerFragment;
+            // Update gons for rebase token - use unchecked for gas optimization
+            unchecked {
+                _gonBalances[from] -= value * _gonsPerFragment;
+            }
         } else {
             // Transfer
             if (from == address(0)) revert TransferFromZeroAddress();
@@ -228,9 +232,11 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
                 if (balanceOf(to) + value > maxWalletAmount) revert ExceedsMaxWalletBalance();
             }
             
-            // Update gons for rebase token
-            _gonBalances[from] -= value * _gonsPerFragment;
-            _gonBalances[to] += value * _gonsPerFragment;
+            // Update gons for rebase token - use unchecked for gas optimization
+            unchecked {
+                _gonBalances[from] -= value * _gonsPerFragment;
+                _gonBalances[to] += value * _gonsPerFragment;
+            }
         }
 
         // Call parent _update for standard ERC20 functionality

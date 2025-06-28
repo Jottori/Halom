@@ -28,15 +28,15 @@ describe("HalomOracle", function () {
         GOVERNOR_ROLE = await oracle.DEFAULT_ADMIN_ROLE();
         ORACLE_UPDATER_ROLE = await oracle.ORACLE_UPDATER_ROLE();
 
+        // Grant DEFAULT_ADMIN_ROLE to deployer for privileged actions
+        await oracle.grantRole(await oracle.DEFAULT_ADMIN_ROLE(), deployer.address);
+        
         // Setup roles and permissions
         await oracle.connect(deployer).grantRole(ORACLE_UPDATER_ROLE, user1.address);
         await oracle.connect(deployer).setHalomToken(await halomToken.getAddress());
 
         // Grant REBASER_ROLE to the oracle contract
         await halomToken.connect(deployer).grantRole(await halomToken.REBASER_ROLE(), await oracle.getAddress());
-
-        // Grant DEFAULT_ADMIN_ROLE to deployer for privileged actions
-        await oracle.grantRole(await oracle.DEFAULT_ADMIN_ROLE(), deployer.address);
     });
 
     describe("Deployment and Role Setup", function () {

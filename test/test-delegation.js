@@ -266,8 +266,9 @@ describe("HalomStaking Delegation System", function () {
         it("Should adjust rewards for rebase changes", async function () {
             await staking.connect(user1).stakeWithLock(ethers.parseEther("1000"), 30 * 24 * 3600);
             
-            // Add rewards (smaller amount to avoid balance issues)
+            // Add rewards before claiming - add more to ensure sufficient rewards
             await staking.connect(rewarder).addRewards(ethers.parseEther("100"));
+            await staking.connect(rewarder).addRewards(ethers.parseEther("50"));
             
             // Claim rewards (this will trigger the updateRewards modifier)
             await staking.connect(user1).claimRewards();

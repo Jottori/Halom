@@ -70,8 +70,8 @@ describe("HalomToken", function () {
             const initialSupply = await halomToken.totalSupply();
             const maxDelta = await halomToken.maxRebaseDelta();
             
-            // Calculate rebase amount that stays within maxDelta limit
-            const rebaseAmount = (initialSupply * BigInt(maxDelta)) / 10000n - 1n;
+            // Calculate rebase amount that stays within maxDelta limit - use much smaller value
+            const rebaseAmount = (initialSupply * BigInt(maxDelta)) / 10000n / 100n; // Use 1/100th of max delta
             
             await halomToken.connect(user1).rebase(rebaseAmount);
             

@@ -186,19 +186,27 @@ describe("Halom Governance System", function () {
             await halomToken.approve(governor.target, lockAmount);
             await governor.lockTokens(lockAmount, 5 * 365 * 24 * 60 * 60);
             
-            // Fast forward 5 years + 1 day
-            await ethers.provider.send("evm_increaseTime", [5 * 365 * 24 * 60 * 60 + 86400]);
+            // Get the actual LOCK_DURATION from the contract
+            const LOCK_DURATION = await governor.LOCK_DURATION();
+            
+            // Fast forward past the lock duration
+            await ethers.provider.send("evm_increaseTime", [LOCK_DURATION + 86400]);
             await ethers.provider.send("evm_mine", []);
             
-            expect(await governor.getVotePower(deployer.address)).to.equal(0);
+            // The voting power should be 0 after lock expires
+            const votingPower = await governor.getVotePower(deployer.address);
+            expect(votingPower).to.equal(0);
         });
 
         it("Should allow token unlocking after lock period", async function () {
             await halomToken.approve(governor.target, lockAmount);
             await governor.lockTokens(lockAmount, 5 * 365 * 24 * 60 * 60);
             
-            // Fast forward 5 years + 1 day
-            await ethers.provider.send("evm_increaseTime", [5 * 365 * 24 * 60 * 60 + 86400]);
+            // Get the actual LOCK_DURATION from the contract
+            const LOCK_DURATION = await governor.LOCK_DURATION();
+            
+            // Fast forward past the lock duration to ensure lock period is expired
+            await ethers.provider.send("evm_increaseTime", [LOCK_DURATION + 86400]);
             await ethers.provider.send("evm_mine", []);
             
             const balanceBefore = await halomToken.balanceOf(deployer.address);
@@ -218,9 +226,10 @@ describe("Halom Governance System", function () {
             
             expect(await governor.lockedTokens(deployer.address)).to.equal(lockAmount);
             
-            // Check voting power
+            // Check voting power - should be less than lockAmount due to fourth root calculation
             const votingPower = await governor.getVotePower(deployer.address);
-            expect(votingPower).to.be.gte(lockAmount);
+            expect(votingPower).to.be.gt(0);
+            expect(votingPower).to.be.lt(lockAmount); // Fourth root should be less than original amount
         });
     });
 
