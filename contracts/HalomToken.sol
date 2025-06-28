@@ -116,7 +116,10 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         // Check maxRebaseDelta limits first
         uint256 maxDeltaValue = (S * maxRebaseDelta) / 10000;
         uint256 absDelta = supplyDelta > 0 ? uint256(supplyDelta) : uint256(-supplyDelta);
-        require(absDelta <= maxDeltaValue, supplyDelta > 0 ? "HalomToken: Supply increase too large" : "HalomToken: Supply decrease too large");
+        require(
+            absDelta <= maxDeltaValue,
+            supplyDelta > 0 ? "HalomToken: Supply increase too large" : "HalomToken: Supply decrease too large"
+        );
 
         uint256 newS;
         if (supplyDelta > 0) {
@@ -244,7 +247,10 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         bytes32 s
     ) public virtual override {
         require(block.timestamp <= expiry, "ERC20Votes: signature expired");
-        address signer = ecrecover(_hashTypedDataV4(keccak256(abi.encode(_DELEGATION_TYPEHASH, delegatee, nonce, expiry))), v, r, s);
+        address signer = ecrecover(
+            _hashTypedDataV4(keccak256(abi.encode(_DELEGATION_TYPEHASH, delegatee, nonce, expiry))),
+            v, r, s
+        );
         require(signer != address(0), "ERC20Votes: invalid signature");
         require(nonce == _useNonce(signer), "ERC20Votes: invalid nonce");
         _delegates[signer] = delegatee;
@@ -269,11 +275,21 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     function _moveDelegateVotes(address src, address dst, uint256 amount) private {
         if (src != dst && amount > 0) {
             if (src != address(0)) {
-                (uint256 oldWeight, uint256 newWeight) = _writeCheckpoint(_delegateCheckpoints[src], _delegateCheckpointCounts[src], _delegateCheckpoints[src][_delegateCheckpointCounts[src] - 1], _delegateCheckpoints[src][_delegateCheckpointCounts[src] - 1] - amount);
+                (uint256 oldWeight, uint256 newWeight) = _writeCheckpoint(
+                    _delegateCheckpoints[src],
+                    _delegateCheckpointCounts[src],
+                    _delegateCheckpoints[src][_delegateCheckpointCounts[src] - 1],
+                    _delegateCheckpoints[src][_delegateCheckpointCounts[src] - 1] - amount
+                );
             }
 
             if (dst != address(0)) {
-                (uint256 oldWeight, uint256 newWeight) = _writeCheckpoint(_delegateCheckpoints[dst], _delegateCheckpointCounts[dst], _delegateCheckpoints[dst][_delegateCheckpointCounts[dst] - 1], _delegateCheckpoints[dst][_delegateCheckpointCounts[dst] - 1] + amount);
+                (uint256 oldWeight, uint256 newWeight) = _writeCheckpoint(
+                    _delegateCheckpoints[dst],
+                    _delegateCheckpointCounts[dst],
+                    _delegateCheckpoints[dst][_delegateCheckpointCounts[dst] - 1],
+                    _delegateCheckpoints[dst][_delegateCheckpointCounts[dst] - 1] + amount
+                );
             }
         }
     }
@@ -307,7 +323,11 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         }
     }
 
-    function _checkpointsLookup(mapping(uint256 => uint256) storage checkpoints, uint256 blockNumber, uint256 count) private view returns (uint256) {
+    function _checkpointsLookup(
+        mapping(uint256 => uint256) storage checkpoints,
+        uint256 blockNumber,
+        uint256 count
+    ) private view returns (uint256) {
         if (count == 0) {
             return 0;
         }
@@ -333,5 +353,7 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     }
 
     mapping(address => uint256) private _nonces;
-    bytes32 private constant _DELEGATION_TYPEHASH = keccak256("Delegation(address delegatee,uint256 nonce,uint256 expiry)");
+    bytes32 private constant _DELEGATION_TYPEHASH = keccak256(
+        "Delegation(address delegatee,uint256 nonce,uint256 expiry)"
+    );
 } 

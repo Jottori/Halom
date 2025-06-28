@@ -188,7 +188,10 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
     /**
      * @dev Stake tokens with a specific lock period
      */
-    function stakeWithLock(uint256 _amount, uint256 _lockPeriod) external nonReentrant whenNotPaused updateRewards(msg.sender) {
+    function stakeWithLock(
+        uint256 _amount,
+        uint256 _lockPeriod
+    ) external nonReentrant whenNotPaused updateRewards(msg.sender) {
         require(_amount >= minStakeAmount, "Amount below minimum");
         require(_amount <= maxStakeAmount, "Amount above maximum");
         require(_lockPeriod >= MIN_LOCK_PERIOD && _lockPeriod <= MAX_LOCK_PERIOD, "Invalid lock period");

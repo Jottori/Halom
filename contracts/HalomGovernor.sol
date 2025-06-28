@@ -261,7 +261,9 @@ contract HalomGovernor is
         super._executeOperations(proposalId, targets, values, calldatas, descriptionHash);
     }
 
-    function proposalNeedsQueuing(uint256 proposalId) public view override(Governor, GovernorTimelockControl) returns (bool) {
+    function proposalNeedsQueuing(
+        uint256 proposalId
+    ) public view override(Governor, GovernorTimelockControl) returns (bool) {
         return super.proposalNeedsQueuing(proposalId);
     }
 } 
