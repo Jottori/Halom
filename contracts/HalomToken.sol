@@ -48,7 +48,7 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         address caller;
     }
     RebaseInfo[] public rebaseHistory;
-    uint256 public constant maxRebaseHistory = 100;
+    uint256 public constant MAX_REBASE_HISTORY = 100;
     
     // Governance parameters
     uint256 public rewardRate;
@@ -202,7 +202,7 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         dailyRebaseCount++;
         
         // Record rebase history
-        if (rebaseHistory.length >= maxRebaseHistory) {
+        if (rebaseHistory.length >= MAX_REBASE_HISTORY) {
             // Remove oldest entry
             for (uint256 i = 0; i < rebaseHistory.length - 1; i++) {
                 rebaseHistory[i] = rebaseHistory[i + 1];
