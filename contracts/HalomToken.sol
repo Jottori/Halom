@@ -1,75 +1,68 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
-// Custom errors for gas optimization
-error ZeroAddress();
-error InvalidAmount();
-error InsufficientBalance();
-error Unauthorized();
-error InvalidNonce();
-error Paused();
-error TransferAmountExceedsLimit();
-error WalletBalanceExceedsLimit();
-error SupplyOverflow();
-error SupplyUnderflow();
-error RateExceedsMaximum();
-error InvalidRebaseDelta();
-error RebaseDeltaTooHigh();
-error TimeNotElapsed();
-
+/**
+ * @title HalomToken
+ * @dev Rebase-aware ERC20 token with governance capabilities
+ * Features: Anti-whale protection, rebase logic, governance voting, emergency controls
+ */
 contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
+    // Roles
+    bytes32 public constant DEFAULT_ADMIN_ROLE = 0x00;
     bytes32 public constant REBASE_CALLER = keccak256("REBASE_CALLER");
     bytes32 public constant STAKING_CONTRACT_ROLE = keccak256("STAKING_CONTRACT_ROLE");
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
-    mapping(address => uint256) private _gonBalances;
-
-    uint256 private constant TOTAL_GONS = type(uint256).max;
-    uint256 private _gonsPerFragment;
-
-    uint256 public rewardRate; // e.g., 2000 = 20% (stored in basis points, 1% = 100)
-    address public halomStakingAddress;
-
+    // Rebase state
     uint256 private _totalSupply;
-    uint256 public maxRebaseDelta; // In basis points, e.g., 500 = 5%
+    uint256 private _gonsPerFragment;
+    uint256 public constant TOTAL_GONS = type(uint256).max - (type(uint256).max % 1e18);
     
     // Anti-whale protection
     uint256 public maxTransferAmount; // Maximum transfer amount
     uint256 public maxWalletAmount; // Maximum wallet balance
-    mapping(address => bool) public isExcludedFromLimits; // Excluded addresses (contracts, etc.)
-
-    // IVotes implementation
-    mapping(address => address) private _delegates;
-    mapping(address => mapping(uint256 => uint256)) private _delegateCheckpoints;
-    mapping(address => uint256) private _delegateCheckpointCounts;
-    mapping(uint256 => uint256) private _totalSupplyCheckpoints;
-    uint256 private _totalSupplyCheckpointCount;
-
-    // Rebase protection variables
-    uint256 public lastRebaseTime;
-    uint256 public rebaseCooldown = 1 hours; // Minimum time between rebases
-    uint256 public maxRebasePerDay = 5; // Maximum rebases per day
-    uint256 public dailyRebaseCount;
-    uint256 public lastRebaseDay;
+    mapping(address => bool) public isExcludedFromLimits;
     
-    // Rebase history for monitoring
+    // Rebase protection
+    uint256 public rebaseCooldown = 1 hours;
+    uint256 public maxRebasePerDay = 3;
+    uint256 public lastRebaseTime;
+    uint256 public lastRebaseDay;
+    uint256 public dailyRebaseCount;
+    
+    // Rebase history tracking
     struct RebaseInfo {
         int256 supplyDelta;
         uint256 timestamp;
         uint256 newSupply;
         address caller;
     }
-    
     RebaseInfo[] public rebaseHistory;
-    uint256 public maxRebaseHistory = 100; // Keep last 100 rebases
+    uint256 public constant maxRebaseHistory = 100;
+    
+    // Governance parameters
+    uint256 public rewardRate;
+    uint256 public maxRebaseDelta;
+    address public halomStakingAddress;
+    
+    // IVotes implementation
+    mapping(address => address) private _delegates;
+    mapping(address => mapping(uint256 => uint256)) private _delegateCheckpoints;
+    mapping(address => uint256) private _delegateCheckpointCounts;
+    mapping(uint256 => uint256) private _totalSupplyCheckpoints;
+    uint256 private _totalSupplyCheckpointCount;
+    
+    // Gon balances for rebase token
+    mapping(address => uint256) private _gonBalances;
 
-    event Rebase(uint256 newTotalSupply, int256 supplyDelta);
+    // Events
+    event Rebase(uint256 indexed newSupply, int256 supplyDelta);
     event AntiWhaleLimitsUpdated(uint256 maxTransfer, uint256 maxWallet);
     event ExcludedFromLimits(address indexed account, bool excluded);
     event StakingContractUpdated(address indexed oldContract, address indexed newContract);
@@ -347,21 +340,25 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     function _moveDelegateVotes(address src, address dst, uint256 amount) private {
         if (src != dst && amount > 0) {
             if (src != address(0)) {
-                (uint256 _oldWeight, uint256 _newWeight) = _writeCheckpoint(
+                (uint256 oldWeight, uint256 newWeight) = _writeCheckpoint(
                     _delegateCheckpoints[src],
                     _delegateCheckpointCounts[src],
                     _delegateCheckpoints[src][_delegateCheckpointCounts[src] - 1],
                     _delegateCheckpoints[src][_delegateCheckpointCounts[src] - 1] - amount
                 );
+                // Log voting power change for source delegate
+                emit DelegateVotesChanged(src, oldWeight, newWeight);
             }
 
             if (dst != address(0)) {
-                (uint256 _oldWeight, uint256 _newWeight) = _writeCheckpoint(
+                (uint256 oldWeight, uint256 newWeight) = _writeCheckpoint(
                     _delegateCheckpoints[dst],
                     _delegateCheckpointCounts[dst],
                     _delegateCheckpoints[dst][_delegateCheckpointCounts[dst] - 1],
                     _delegateCheckpoints[dst][_delegateCheckpointCounts[dst] - 1] + amount
                 );
+                // Log voting power change for destination delegate
+                emit DelegateVotesChanged(dst, oldWeight, newWeight);
             }
         }
     }
@@ -451,4 +448,19 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         rebaseCooldown = _cooldown;
         emit RebaseResumed(_cooldown);
     }
+
+    // Custom errors for gas optimization
+    error ZeroAddress();
+    error InvalidAmount();
+    error InsufficientBalance();
+    error TransferAmountExceedsLimit();
+    error WalletBalanceExceedsLimit();
+    error RateExceedsMaximum();
+    error InvalidRebaseDelta();
+    error RebaseDeltaTooHigh();
+    error SupplyOverflow();
+    error SupplyUnderflow();
+    error TimeNotElapsed();
+    error InvalidNonce();
+    error Unauthorized();
 } 

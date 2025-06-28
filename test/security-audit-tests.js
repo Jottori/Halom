@@ -142,15 +142,27 @@ describe("Halom Protocol Security Audit Tests", function () {
         });
 
         it("Should allow admin to update anti-whale limits", async function () {
-            // This test is skipped as anti-whale protection is not implemented
-            // TODO: Implement anti-whale protection in HalomToken
-            this.skip();
+            const newMaxTransfer = ethers.parseEther("50000"); // 50k tokens
+            const newMaxWallet = ethers.parseEther("100000"); // 100k tokens
+            
+            await halomToken.connect(deployer).setAntiWhaleLimits(newMaxTransfer, newMaxWallet);
+            
+            expect(await halomToken.maxTransferAmount()).to.equal(newMaxTransfer);
+            expect(await halomToken.maxWalletAmount()).to.equal(newMaxWallet);
         });
 
         it("Should allow admin to exclude addresses from limits", async function () {
-            // This test is skipped as anti-whale protection is not implemented
-            // TODO: Implement anti-whale protection in HalomToken
-            this.skip();
+            // Exclude user1 from limits
+            await halomToken.connect(deployer).setExcludedFromLimits(user1.address, true);
+            
+            // User1 should be able to transfer large amounts
+            const largeAmount = ethers.parseEther("1000000"); // 1M tokens
+            await halomToken.connect(deployer).transfer(user1.address, largeAmount);
+            
+            // User1 should be able to transfer large amounts without hitting limits
+            await expect(
+                halomToken.connect(user1).transfer(user2.address, largeAmount)
+            ).to.not.be.reverted;
         });
     });
 

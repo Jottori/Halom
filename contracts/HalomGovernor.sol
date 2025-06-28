@@ -17,6 +17,7 @@ error InvalidRootPower();
 error VotingPowerExceedsCap();
 error FlashLoanDetected();
 error EmergencyPaused();
+error InvalidAmount();
 
 /**
  * @title HalomGovernor
