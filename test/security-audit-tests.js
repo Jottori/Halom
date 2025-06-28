@@ -9,48 +9,54 @@ describe("Halom Protocol Security Audit Tests", function () {
     beforeEach(async function () {
         [deployer, user1, user2, user3] = await ethers.getSigners();
         
-        // Deploy HalomToken with new constructor parameters
+        // Deploy HalomToken with correct constructor parameters
         const HalomToken = await ethers.getContractFactory("HalomToken");
         halomToken = await HalomToken.deploy(
-            "Halom", "HOM", deployer.address, 
-            ethers.parseEther("1000000"), ethers.parseEther("10000"), 
-            ethers.parseEther("2000000"), 500
+            "Halom Token", "HLM", deployer.address, 
+            ethers.parseEther("10000000"), // initial supply
+            ethers.parseEther("1000000"), // max transfer amount
+            ethers.parseEther("5000000"), // max wallet amount
+            500 // max rebase delta (5%)
         );
 
         // Get MINTER_ROLE for use in tests
         MINTER_ROLE = await halomToken.MINTER_ROLE();
 
-        // Deploy HalomStaking with new constructor parameters
+        // Deploy HalomRoleManager with correct constructor parameters
+        const HalomRoleManager = await ethers.getContractFactory("HalomRoleManager");
+        roleManager = await HalomRoleManager.deploy(deployer.address, deployer.address);
+
+        // Deploy HalomStaking with correct constructor parameters
         const HalomStaking = await ethers.getContractFactory("HalomStaking");
         staking = await HalomStaking.deploy(
-            await halomToken.getAddress(), deployer.address, 2000,
-            30 * 24 * 60 * 60, 5 * 365 * 24 * 60 * 60
+            await halomToken.getAddress(),
+            await roleManager.getAddress(),
+            2000, // reward rate (20%)
+            30 * 24 * 3600, // min lock period (30 days)
+            365 * 24 * 3600 // max lock period (1 year)
         );
 
-        // Deploy HalomLPStaking with new constructor parameters
-        const MockERC20 = await ethers.getContractFactory("MockERC20");
-        lpToken = await MockERC20.deploy("LP Token", "LP", ethers.parseEther("1000000"));
-        
+        // Deploy HalomLPStaking with correct constructor parameters
         const HalomLPStaking = await ethers.getContractFactory("HalomLPStaking");
         lpStaking = await HalomLPStaking.deploy(
-            await lpToken.getAddress(), await halomToken.getAddress(), deployer.address, 2000
+            await halomToken.getAddress(), // LP token (using halom token for testing)
+            await halomToken.getAddress(),
+            await roleManager.getAddress(),
+            2000 // reward rate (20%)
         );
 
-        // Deploy HalomOracle with new constructor parameters
+        // Deploy HalomOracle with correct constructor parameters
         const HalomOracle = await ethers.getContractFactory("HalomOracle");
         oracle = await HalomOracle.deploy(
-            await halomToken.getAddress(), deployer.address
+            deployer.address, // governance
+            1 // chainId
         );
 
-        // Deploy HalomTreasury with new constructor parameters
+        // Deploy HalomTreasury with correct constructor parameters
         const HalomTreasury = await ethers.getContractFactory("HalomTreasury");
         treasury = await HalomTreasury.deploy(
             await halomToken.getAddress(), deployer.address
         );
-
-        // Deploy HalomRoleManager
-        const HalomRoleManager = await ethers.getContractFactory("HalomRoleManager");
-        roleManager = await HalomRoleManager.deploy();
 
         // Deploy TimelockController
         const TimelockController = await ethers.getContractFactory("TimelockController");
@@ -58,7 +64,7 @@ describe("Halom Protocol Security Audit Tests", function () {
             60, [deployer.address], [deployer.address], deployer.address
         );
 
-        // Deploy HalomGovernor with new constructor parameters
+        // Deploy HalomGovernor with correct constructor parameters
         const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
         governor = await HalomGovernor.deploy(
             await halomToken.getAddress(), await timelock.getAddress(),

@@ -10,18 +10,21 @@ describe("HalomOracle", function () {
     beforeEach(async function () {
         [deployer, user1, user2, user3] = await ethers.getSigners();
 
-        // Deploy HalomToken with new constructor parameters
+        // Deploy HalomToken with correct constructor parameters
         const HalomToken = await ethers.getContractFactory("HalomToken");
         halomToken = await HalomToken.deploy(
-            "Halom", "HOM", deployer.address, 
-            ethers.parseEther("1000000"), ethers.parseEther("10000"), 
-            ethers.parseEther("2000000"), 500
+            "Halom Token", "HLM", deployer.address, 
+            ethers.parseEther("10000000"), // initial supply
+            ethers.parseEther("1000000"), // max transfer amount
+            ethers.parseEther("5000000"), // max wallet amount
+            500 // max rebase delta (5%)
         );
 
-        // Deploy HalomOracle with new constructor parameters
+        // Deploy HalomOracle with correct constructor parameters
         const HalomOracle = await ethers.getContractFactory("HalomOracle");
         oracle = await HalomOracle.deploy(
-            await halomToken.getAddress(), deployer.address
+            deployer.address, // governance
+            1 // chainId
         );
 
         // Get role constants from contract
@@ -37,6 +40,9 @@ describe("HalomOracle", function () {
 
         // Grant REBASER_ROLE to the oracle contract
         await halomToken.connect(deployer).grantRole(await halomToken.REBASER_ROLE(), await oracle.getAddress());
+        
+        // Set token reference for tests
+        token = halomToken;
     });
 
     describe("Deployment and Role Setup", function () {

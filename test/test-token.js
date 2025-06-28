@@ -68,11 +68,15 @@ describe("HalomToken", function () {
     describe("Rebase Functionality", function () {
         it("Should allow authorized rebase caller to trigger rebase", async function () {
             const initialSupply = await halomToken.totalSupply();
+            const maxDelta = await halomToken.maxRebaseDelta();
             
-            // Use a minimal positive value for rebase
-            const rebaseAmount = 1n; // Use 1 wei as minimum positive value
+            // Calculate a very small rebase amount (0.001% of max delta to ensure it's well within limits)
+            const safeRebaseAmount = (initialSupply * BigInt(maxDelta)) / 10000n / 100000n; // 0.001% of max delta
             
-            await halomToken.connect(user1).rebase(rebaseAmount);
+            // Ensure the amount is at least 1000 wei to avoid precision issues
+            const finalRebaseAmount = safeRebaseAmount > 1000n ? safeRebaseAmount : 1000n;
+            
+            await halomToken.connect(user1).rebase(finalRebaseAmount);
             
             const finalSupply = await halomToken.totalSupply();
             expect(finalSupply).to.be.gt(initialSupply);
