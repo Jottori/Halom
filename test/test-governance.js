@@ -133,7 +133,6 @@ describe("Halom Governance System", function () {
         it("Should allow root power updates by governance", async function () {
             // Test governance functionality without using lockTokens to avoid transfer issues
             // Instead, test that the governor can update root power directly
-            
             const targets = [await governor.getAddress()];
             const values = [0];
             const calldatas = [governor.interface.encodeFunctionData("setRootPower", [ethers.parseEther("1000")])];
@@ -142,7 +141,7 @@ describe("Halom Governance System", function () {
             // This will fail due to insufficient voting power, but that's expected
             // The important thing is that the governance mechanism works
             await expect(governor.connect(deployer).propose(targets, values, calldatas, description))
-                .to.be.revertedWith("Governor: proposer votes below proposal threshold");
+                .to.be.revertedWithCustomError(governor, "GovernorInsufficientProposerVotes");
         });
     });
 
@@ -338,6 +337,13 @@ describe("Halom Governance System", function () {
             await treasury.pause();
             await treasury.unpause();
             expect(await treasury.paused()).to.be.false;
+        });
+
+        it("Should prevent unauthorized emergency recovery", async function () {
+            // Test that unauthorized users cannot perform emergency actions
+            await expect(
+                halomToken.connect(user1).setMaxRebaseDelta(500)
+            ).to.be.revertedWithCustomError(halomToken, "AccessControlUnauthorizedAccount");
         });
     });
 

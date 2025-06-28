@@ -36,7 +36,7 @@ async function main() {
     throw new Error('Missing required environment variables for roles.');
   }
 
-  const [deployer] = await ethers.getSigners();
+    const [deployer] = await ethers.getSigners();
   console.log('Deploying contracts with deployer:', deployer.address);
 
   // --- 2. Deploy HalomToken ---
@@ -205,5 +205,5 @@ async function main() {
 
 main().catch((error) => {
   console.error(error);
-  process.exit(1);
-}); 
+        process.exit(1);
+    }); 
