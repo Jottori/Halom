@@ -247,7 +247,11 @@ contract HalomRoleManager is AccessControl, Pausable {
     /**
      * @dev Check pending role grant
      */
-    function getPendingRoleGrant(bytes32 role, address account) external view returns (uint256 timestamp, address[] memory approvals) {
+    function getPendingRoleGrant(bytes32 role, address account)
+        external
+        view
+        returns (uint256 timestamp, address[] memory approvals)
+    {
         timestamp = pendingRoleGrants[role][account];
         approvals = roleGrantApprovals[role][account];
     }
@@ -256,14 +260,18 @@ contract HalomRoleManager is AccessControl, Pausable {
      * @dev Override grantRole to prevent direct usage
      */
     function grantRole(bytes32 role, address account) public virtual override {
-        revert("Use grantRoleToContract for contracts or requestRoleGrant for humans");
+        revert(
+            "Use grantRoleToContract for contracts or requestRoleGrant for humans"
+        );
     }
     
     /**
      * @dev Override revokeRole to prevent direct usage
      */
     function revokeRole(bytes32 role, address account) public virtual override {
-        revert("Use revokeRoleFromHuman for humans or specific functions for contracts");
+        revert(
+            "Use revokeRoleFromHuman for humans or specific functions for contracts"
+        );
     }
     
     /**
