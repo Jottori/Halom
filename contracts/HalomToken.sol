@@ -41,14 +41,10 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     
     constructor(address _oracleAddress, address _governance) ERC20("Halom", "HOM") EIP712("Halom", "1") {
         uint256 initialSupply = 1_000_000 * 10**decimals();
-        
-        // Set initial supply and gons per fragment
-        _totalSupply = initialSupply;
-        _gonsPerFragment = TOTAL_GONS / initialSupply;
-        
+
         // Mint initial supply to governance using _update to avoid conflicts
         _update(address(0), _governance, initialSupply);
-        
+
         _grantRole(DEFAULT_ADMIN_ROLE, _governance);
         _grantRole(REBASE_CALLER, _oracleAddress);
 
