@@ -39,7 +39,7 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
 
     mapping(address => uint256) private _gonBalances;
 
-    uint256 private constant TOTAL_GONS = type(uint256).max;
+    uint256 private constant TOTAL_GONS = 1e24; // 1 million gons
     uint256 private _gonsPerFragment;
 
     uint256 public rewardRate; // e.g., 2000 = 20% (stored in basis points, 1% = 100)
@@ -92,6 +92,12 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         maxWalletAmount = _maxWalletAmount;
         maxRebaseDelta = _maxRebaseDelta;
 
+        // Initialize gons per fragment for rebase token
+        _gonsPerFragment = TOTAL_GONS / _initialSupply;
+
+        // Exclude deployer from limits before minting
+        isExcludedFromLimits[msg.sender] = true;
+
         _mint(msg.sender, _initialSupply);
     }
 
@@ -137,17 +143,26 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     }
 
     function rebase(uint256 supplyDelta) external onlyRole(REBASER_ROLE) {
-        if (supplyDelta == 0) revert InvalidRebaseAmount();
-        
         uint256 oldTotalSupply = totalSupply();
-        uint256 newTotalSupply;
         
-        // For now, only allow positive supply changes
-        newTotalSupply = oldTotalSupply + supplyDelta;
+        // Check max rebase delta limit first
+        uint256 maxDelta = (oldTotalSupply * maxRebaseDelta) / 10000;
+        if (supplyDelta > maxDelta) revert ExceedsMaxRebaseDelta();
         
-        if (supplyDelta > maxRebaseDelta) revert ExceedsMaxRebaseDelta();
+        // Calculate new total supply
+        uint256 newTotalSupply = oldTotalSupply + supplyDelta;
+        
+        // Ensure we don't overflow
+        if (newTotalSupply < oldTotalSupply) revert InvalidRebaseAmount();
+        
+        // Ensure new total supply is not zero
+        if (newTotalSupply == 0) revert InvalidRebaseAmount();
 
+        // Update total supply
         _totalSupply = newTotalSupply;
+        
+        // Update gons per fragment to maintain proportional balances
+        _gonsPerFragment = TOTAL_GONS / newTotalSupply;
         
         emit Rebase(oldTotalSupply, newTotalSupply, int256(supplyDelta));
     }
@@ -187,10 +202,16 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
             if (!isExcludedFromLimits[to]) {
                 if (balanceOf(to) + value > maxWalletAmount) revert ExceedsMaxWalletBalance();
             }
+            
+            // Initialize gons for rebase token
+            _gonBalances[to] += value * _gonsPerFragment;
         } else if (to == address(0)) {
             // Burning
             if (from == address(0)) revert TransferFromZeroAddress();
             if (value == 0) revert InvalidRebaseAmount();
+            
+            // Update gons for rebase token
+            _gonBalances[from] -= value * _gonsPerFragment;
         } else {
             // Transfer
             if (from == address(0)) revert TransferFromZeroAddress();
@@ -206,8 +227,13 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
             if (!isExcludedFromLimits[to]) {
                 if (balanceOf(to) + value > maxWalletAmount) revert ExceedsMaxWalletBalance();
             }
+            
+            // Update gons for rebase token
+            _gonBalances[from] -= value * _gonsPerFragment;
+            _gonBalances[to] += value * _gonsPerFragment;
         }
 
+        // Call parent _update for standard ERC20 functionality
         super._update(from, to, value);
     }
 

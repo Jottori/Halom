@@ -9,7 +9,7 @@ describe("Secure Role Structure", function () {
     let chainId;
 
     // Role constants
-    let DEFAULT_ADMIN_ROLE, GOVERNOR_ROLE, MINTER_ROLE, REBASE_CALLER;
+    let DEFAULT_ADMIN_ROLE, GOVERNOR_ROLE, MINTER_ROLE, REBASER_ROLE;
     let STAKING_CONTRACT_ROLE, ORACLE_UPDATER_ROLE, REWARDER_ROLE;
     let SLASHER_ROLE, TREASURY_CONTROLLER, PAUSER_ROLE;
 
@@ -17,79 +17,58 @@ describe("Secure Role Structure", function () {
         [owner, user1, user2, user3] = await ethers.getSigners();
         chainId = (await ethers.provider.getNetwork()).chainId;
 
-        // Deploy TimelockController
-        const HalomTimelock = await ethers.getContractFactory("HalomTimelock");
-        timelock = await HalomTimelock.deploy(
-            86400, // 1 day delay
-            [], // proposers
-            [], // executors
-            owner.address // admin
-        );
-        await timelock.waitForDeployment();
-
-        console.log("Timelock deployed at:", await timelock.getAddress());
-
-        // Deploy HalomToken
+        // Deploy HalomToken with new constructor parameters
         const HalomToken = await ethers.getContractFactory("HalomToken");
         halomToken = await HalomToken.deploy(
-            ethers.ZeroAddress, // oracle (will be set later)
-            owner.address // governance (deployer is admin for test)
+            "Halom", "HOM", owner.address, 
+            ethers.parseEther("1000000"), ethers.parseEther("10000"), 
+            ethers.parseEther("2000000"), 500
         );
-        await halomToken.waitForDeployment();
 
-        // Deploy HalomGovernor
-        const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
-        governor = await HalomGovernor.deploy(
-            await halomToken.getAddress(),
-            await timelock.getAddress()
-        );
-        await governor.waitForDeployment();
-
-        // Deploy HalomOracleV2
-        const HalomOracleV2 = await ethers.getContractFactory("HalomOracleV2");
-        oracle = await HalomOracleV2.deploy(
-            owner.address, // Use owner as governor for test
-            chainId
-        );
-        await oracle.waitForDeployment();
-
-        // Deploy HalomStaking
+        // Deploy HalomStaking with new constructor parameters
         const HalomStaking = await ethers.getContractFactory("HalomStaking");
         staking = await HalomStaking.deploy(
-            await halomToken.getAddress(),
-            owner.address, // Use owner as governance for testing
-            2000, // rewardRate
-            30 * 24 * 60 * 60, // lockPeriod (30 days)
-            5000 // slashPercentage (50%)
+            await halomToken.getAddress(), owner.address, 2000,
+            30 * 24 * 60 * 60, 5 * 365 * 24 * 60 * 60
         );
-        await staking.waitForDeployment();
 
-        // Deploy HalomLPStaking
+        // Deploy HalomLPStaking with new constructor parameters
+        const MockERC20 = await ethers.getContractFactory("MockERC20");
+        lpToken = await MockERC20.deploy("LP Token", "LP", ethers.parseEther("1000000"));
+        
         const HalomLPStaking = await ethers.getContractFactory("HalomLPStaking");
         lpStaking = await HalomLPStaking.deploy(
-            await halomToken.getAddress(), // LP token (using HalomToken as LP for testing)
-            await halomToken.getAddress(),
-            owner.address, // Use owner as governance for testing
-            2000 // rewardRate
+            await lpToken.getAddress(), await halomToken.getAddress(), owner.address, 2000
         );
-        await lpStaking.waitForDeployment();
 
-        // Deploy HalomTreasury
+        // Deploy HalomOracle with new constructor parameters
+        const HalomOracle = await ethers.getContractFactory("HalomOracle");
+        oracle = await HalomOracle.deploy(
+            await halomToken.getAddress(), owner.address
+        );
+
+        // Deploy HalomTreasury with new constructor parameters
         const HalomTreasury = await ethers.getContractFactory("HalomTreasury");
         treasury = await HalomTreasury.deploy(
-            await halomToken.getAddress(),
-            await halomToken.getAddress(), // EURC token (using HalomToken as EURC for testing)
-            owner.address // Use owner as governance for testing
+            await halomToken.getAddress(), owner.address
         );
-        await treasury.waitForDeployment();
 
         // Deploy HalomRoleManager
         const HalomRoleManager = await ethers.getContractFactory("HalomRoleManager");
-        roleManager = await HalomRoleManager.deploy(
-            await timelock.getAddress(),
-            await governor.getAddress()
+        roleManager = await HalomRoleManager.deploy();
+
+        // Deploy TimelockController
+        const TimelockController = await ethers.getContractFactory("TimelockController");
+        timelock = await TimelockController.deploy(
+            60, [owner.address], [owner.address], owner.address
         );
-        await roleManager.waitForDeployment();
+
+        // Deploy HalomGovernor with new constructor parameters
+        const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
+        governor = await HalomGovernor.deploy(
+            await halomToken.getAddress(), await timelock.getAddress(),
+            1, 45818, ethers.parseEther("1000"), 4
+        );
 
         // Debug: Check if all addresses are properly initialized
         console.log("Timelock address:", await timelock.getAddress());
@@ -103,7 +82,7 @@ describe("Secure Role Structure", function () {
         DEFAULT_ADMIN_ROLE = await timelock.DEFAULT_ADMIN_ROLE();
         GOVERNOR_ROLE = await halomToken.DEFAULT_ADMIN_ROLE();
         MINTER_ROLE = await halomToken.MINTER_ROLE();
-        REBASE_CALLER = await halomToken.REBASE_CALLER();
+        REBASER_ROLE = await halomToken.REBASER_ROLE();
         STAKING_CONTRACT_ROLE = await halomToken.STAKING_CONTRACT_ROLE();
         ORACLE_UPDATER_ROLE = await oracle.ORACLE_UPDATER_ROLE();
         REWARDER_ROLE = await staking.REWARDER_ROLE();
@@ -115,7 +94,7 @@ describe("Secure Role Structure", function () {
         console.log('DEFAULT_ADMIN_ROLE:', DEFAULT_ADMIN_ROLE, typeof DEFAULT_ADMIN_ROLE);
         console.log('GOVERNOR_ROLE:', GOVERNOR_ROLE, typeof GOVERNOR_ROLE);
         console.log('MINTER_ROLE:', MINTER_ROLE, typeof MINTER_ROLE);
-        console.log('REBASE_CALLER:', REBASE_CALLER, typeof REBASE_CALLER);
+        console.log('REBASER_ROLE:', REBASER_ROLE, typeof REBASER_ROLE);
         console.log('STAKING_CONTRACT_ROLE:', STAKING_CONTRACT_ROLE, typeof STAKING_CONTRACT_ROLE);
         console.log('ORACLE_UPDATER_ROLE:', ORACLE_UPDATER_ROLE, typeof ORACLE_UPDATER_ROLE);
         console.log('REWARDER_ROLE:', REWARDER_ROLE, typeof REWARDER_ROLE);
@@ -141,14 +120,14 @@ describe("Secure Role Structure", function () {
         }
         
         await halomToken.connect(owner).setStakingContract(await staking.getAddress());
-        await halomToken.connect(owner).grantRole(REBASE_CALLER, await oracle.getAddress());
+        await halomToken.connect(owner).grantRole(REBASER_ROLE, await oracle.getAddress());
         await halomToken.connect(owner).grantRole(MINTER_ROLE, await staking.getAddress());
 
         // Grant roles to governor contract
         await halomToken.connect(owner).grantRole(SLASHER_ROLE, await governor.getAddress());
         await halomToken.connect(owner).grantRole(TREASURY_CONTROLLER, await governor.getAddress());
         await halomToken.connect(owner).grantRole(GOVERNOR_ROLE, await governor.getAddress());
-        await halomToken.connect(owner).grantRole(REBASE_CALLER, owner.address); // Grant rebase role to owner for testing
+        await halomToken.connect(owner).grantRole(REBASER_ROLE, owner.address); // Grant rebase role to owner for testing
 
         // Grant roles to staking and treasury contracts
         await staking.grantRole(SLASHER_ROLE, await governor.getAddress());
@@ -180,6 +159,8 @@ describe("Secure Role Structure", function () {
         await halomToken.connect(owner).setExcludedFromLimits(await oracle.getAddress(), true);
         await halomToken.connect(owner).setExcludedFromLimits(await governor.getAddress(), true);
         await halomToken.connect(owner).setExcludedFromLimits(owner.address, true);
+
+        return { halomToken, staking, lpStaking, oracle, treasury, roleManager, timelock, governor };
     }
 
     beforeEach(async function () {
@@ -236,10 +217,10 @@ describe("Secure Role Structure", function () {
         });
     });
 
-    describe("REBASE_CALLER Security", function () {
+    describe("REBASER_ROLE Security", function () {
         it("Should only be assigned to Oracle contract", async function () {
-            expect(await halomToken.hasRole(REBASE_CALLER, await oracle.getAddress())).to.be.true;
-            expect(await halomToken.hasRole(REBASE_CALLER, user1.address)).to.be.false;
+            expect(await halomToken.hasRole(REBASER_ROLE, await oracle.getAddress())).to.be.true;
+            expect(await halomToken.hasRole(REBASER_ROLE, user1.address)).to.be.false;
         });
 
         it("Should prevent unauthorized rebase", async function () {

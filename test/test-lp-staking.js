@@ -9,60 +9,73 @@ describe("HalomLPStaking", function () {
     async function deployLPStakingFixture() {
         [owner, governor, rewarder, user1] = await ethers.getSigners();
 
-        // Deploy HalomToken (as reward token)
+        // Deploy HalomToken with new constructor parameters
         HalomToken = await ethers.getContractFactory("HalomToken");
-        halomToken = await HalomToken.deploy(owner.address, governor.address); // (oracle, governor)
+        halomToken = await HalomToken.deploy(
+            "Halom", // name
+            "HOM", // symbol
+            owner.address, // roleManager
+            ethers.parseEther("1000000"), // initialSupply
+            ethers.parseEther("10000"), // maxTransferAmount
+            ethers.parseEther("2000000"), // maxWalletAmount (increased to accommodate initial supply)
+            500 // maxRebaseDelta (5%)
+        );
 
         // Deploy a mock LP token
         MockERC20 = await ethers.getContractFactory("MockERC20");
         lpToken = await MockERC20.deploy("LP Token", "LP", ethers.parseUnits("1000000", 18));
         
-        // Deploy LP Staking contract
+        // Deploy LP Staking contract with new constructor parameters
         HalomLPStaking = await ethers.getContractFactory("HalomLPStaking");
-        lpStaking = await HalomLPStaking.deploy(lpToken.target, halomToken.target, governor.address, 2000);
+        lpStaking = await HalomLPStaking.deploy(
+            await lpToken.getAddress(), // lpToken
+            await halomToken.getAddress(), // halomToken
+            owner.address, // roleManager
+            2000 // rewardRate (20%)
+        );
 
         // Get role constants
         REWARDER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("REWARDER_ROLE"));
         MINTER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("MINTER_ROLE"));
 
         // Grant MINTER_ROLE to owner and governor for testing
-        await halomToken.connect(governor).grantRole(MINTER_ROLE, owner.address);
-        await halomToken.connect(governor).grantRole(MINTER_ROLE, governor.address);
+        await halomToken.connect(owner).grantRole(MINTER_ROLE, owner.address);
+        await halomToken.connect(owner).grantRole(MINTER_ROLE, governor.address);
 
         // Grant DEFAULT_ADMIN_ROLE to owner for testing
-        await halomToken.connect(governor).grantRole(await halomToken.DEFAULT_ADMIN_ROLE(), owner.address);
+        await halomToken.connect(owner).grantRole(await halomToken.DEFAULT_ADMIN_ROLE(), owner.address);
 
         // Mint tokens to owner for testing
         await halomToken.connect(owner).mint(owner.address, ethers.parseEther("1000000"));
 
         // Exclude from wallet limits
-        await halomToken.connect(owner).setExcludedFromLimits(lpStaking.target, true);
+        await halomToken.connect(owner).setExcludedFromLimits(await lpStaking.getAddress(), true);
         await halomToken.connect(owner).setExcludedFromLimits(owner.address, true);
 
         // Grant REWARDER_ROLE to rewarder in LP staking contract
-        await lpStaking.connect(governor).grantRole(REWARDER_ROLE, rewarder.address);
+        await lpStaking.connect(owner).grantRole(REWARDER_ROLE, rewarder.address);
 
         // Grant GOVERNOR_ROLE to owner for testing
-        await lpStaking.connect(governor).grantRole(await lpStaking.GOVERNOR_ROLE(), owner.address);
+        await lpStaking.connect(owner).grantRole(await lpStaking.DEFAULT_ADMIN_ROLE(), owner.address);
 
         // Grant MINTER_ROLE to rewarder (not LP staking contract)
-        await halomToken.connect(governor).grantRole(MINTER_ROLE, rewarder.address);
+        await halomToken.connect(owner).grantRole(MINTER_ROLE, rewarder.address);
 
         // Prepare tokens for user
         const lpAmount = ethers.parseUnits("1000", 18);
         await lpToken.transfer(user1.address, lpAmount);
-        await lpToken.connect(user1).approve(lpStaking.target, lpAmount);
+        await lpToken.connect(user1).approve(await lpStaking.getAddress(), lpAmount);
 
         // Prepare reward tokens - mint to rewarder
         const rewardAmount = ethers.parseUnits("5000", 18);
         await halomToken.connect(rewarder).mint(rewarder.address, rewardAmount);
-        await halomToken.connect(rewarder).approve(lpStaking.target, rewardAmount);
+        await halomToken.connect(rewarder).approve(await lpStaking.getAddress(), rewardAmount);
 
         // Emergency recovery teszt előtt:
         await halomToken.connect(rewarder).approve(await halomToken.getAddress(), ethers.parseEther("1000000"));
         
         // Grant MINTER_ROLE to LP staking contract for rewards
-        await halomToken.connect(governor).grantRole(MINTER_ROLE, lpStaking.target);
+        await halomToken.connect(owner).grantRole(MINTER_ROLE, await lpStaking.getAddress());
 
         return { halomToken, lpToken, lpStaking, rewarder, user1, lpAmount, rewardAmount, owner };
     }

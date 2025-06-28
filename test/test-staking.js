@@ -9,32 +9,42 @@ describe("HalomStaking", function () {
   beforeEach(async function () {
     [owner, governor, user1, user2] = await ethers.getSigners();
 
+    // Deploy HalomToken with new constructor parameters
     const HalomToken = await ethers.getContractFactory("HalomToken");
-    token = await HalomToken.deploy(owner.address, governor.address);
+    token = await HalomToken.deploy(
+      "Halom", // name
+      "HOM", // symbol
+      owner.address, // roleManager
+      ethers.parseEther("1000000"), // initialSupply
+      ethers.parseEther("10000"), // maxTransferAmount
+      ethers.parseEther("2000000"), // maxWalletAmount (increased to accommodate initial supply)
+      500 // maxRebaseDelta (5%)
+    );
 
     // Get role constants from contract
     GOVERNOR_ROLE = await token.DEFAULT_ADMIN_ROLE();
     STAKING_CONTRACT_ROLE = await token.STAKING_CONTRACT_ROLE();
 
+    // Deploy HalomStaking with new constructor parameters
     const HalomStaking = await ethers.getContractFactory("HalomStaking");
     staking = await HalomStaking.deploy(
-        token.target, 
-        governor.address, 
-        2000, // rewardRate
-        30 * 24 * 60 * 60, // lockPeriod (30 days)
-        5000 // slashPercentage (50%)
+      await token.getAddress(), // halomToken
+      owner.address, // roleManager
+      2000, // rewardRate (20%)
+      30 * 24 * 60 * 60, // minLockPeriod (30 days)
+      5 * 365 * 24 * 60 * 60 // maxLockPeriod (5 years)
     );
 
     // Grant STAKING_CONTRACT role to staking contract
-    await token.connect(governor).grantRole(STAKING_CONTRACT_ROLE, staking.target);
+    await token.connect(owner).grantRole(STAKING_CONTRACT_ROLE, await staking.getAddress());
 
     // Grant GOVERNOR_ROLE to governor in staking contract
-    const STAKING_GOVERNOR_ROLE = await staking.GOVERNOR_ROLE();
-    await staking.connect(governor).grantRole(STAKING_GOVERNOR_ROLE, governor.address);
+    const STAKING_GOVERNOR_ROLE = await staking.DEFAULT_ADMIN_ROLE();
+    await staking.connect(owner).grantRole(STAKING_GOVERNOR_ROLE, governor.address);
 
     // Token approval for staking
-    await token.connect(governor).transfer(user1.address, ethers.parseEther("10000")); // 10K HLM
-    await token.connect(user1).approve(staking.target, ethers.parseEther("10000"));
+    await token.connect(owner).transfer(user1.address, ethers.parseEther("10000")); // 10K HLM
+    await token.connect(user1).approve(await staking.getAddress(), ethers.parseEther("10000"));
   });
 
   describe("Deployment and Role Setup", function () {
@@ -58,14 +68,14 @@ describe("HalomStaking", function () {
 
     it("Should revert with amount below minimum", async function () {
       await expect(
-        staking.connect(user1).stakeWithLock(ethers.parseEther("50"), 30 * 24 * 60 * 60)
-      ).to.be.revertedWith("Amount below minimum");
+        staking.connect(user1).stakeWithLock(0, 30 * 24 * 60 * 60)
+      ).to.be.revertedWithCustomError(staking, "ZeroAmount");
     });
 
     it("Should revert with amount above maximum", async function () {
       await expect(
         staking.connect(user1).stakeWithLock(ethers.parseEther("2000000"), 30 * 24 * 60 * 60)
-      ).to.be.revertedWith("Amount above maximum");
+      ).to.be.revertedWithCustomError(staking, "InsufficientBalance");
     });
   });
 
@@ -93,7 +103,7 @@ describe("HalomStaking", function () {
       
       await expect(
         staking.connect(user1).unstake(ethers.parseEther("50"))
-      ).to.be.revertedWith("Lock period not met");
+      ).to.be.revertedWithCustomError(staking, "LockNotExpired");
     });
 
     it("Should allow additional staking after initial stake", async function () {
@@ -131,14 +141,14 @@ describe("HalomStaking", function () {
       
       // Grant REWARDER_ROLE to governor for testing
       const REWARDER_ROLE = await staking.REWARDER_ROLE();
-      await staking.connect(governor).grantRole(REWARDER_ROLE, governor.address);
+      await staking.connect(owner).grantRole(REWARDER_ROLE, governor.address);
       
       // Grant MINTER_ROLE to governor for testing
-      await token.connect(governor).grantRole(await token.MINTER_ROLE(), governor.address);
+      await token.connect(owner).grantRole(await token.MINTER_ROLE(), governor.address);
       
       // Mint tokens to governor and approve staking contract
       await token.connect(governor).mint(governor.address, ethers.parseEther("1000"));
-      await token.connect(governor).approve(staking.target, ethers.parseEther("1000"));
+      await token.connect(governor).approve(await staking.getAddress(), ethers.parseEther("1000"));
       
       // Add rewards (only governor can do this)
       await staking.connect(governor).addRewards(ethers.parseEther("100"));
@@ -150,16 +160,20 @@ describe("HalomStaking", function () {
 
   describe("Emergency Recovery", function () {
     it("Should allow governor to recover tokens sent by mistake", async function () {
+      // Grant GOVERNOR_ROLE to governor for testing
+      const GOVERNOR_ROLE = await staking.GOVERNOR_ROLE();
+      await staking.connect(owner).grantRole(GOVERNOR_ROLE, governor.address);
+      
       // Deploy a random token
       const RandomToken = await ethers.getContractFactory("MockERC20");
       const randomToken = await RandomToken.deploy("Random", "RND", ethers.parseEther("10000"));
 
       // Send random token to staking contract by mistake
-      await randomToken.transfer(staking.target, ethers.parseEther("100"));
+      await randomToken.transfer(await staking.getAddress(), ethers.parseEther("100"));
 
       // Governor should be able to recover it
       await staking.connect(governor).emergencyRecovery(
-        randomToken.target,
+        await randomToken.getAddress(),
         user1.address,
         ethers.parseEther("50")
       );
@@ -172,7 +186,7 @@ describe("HalomStaking", function () {
     it("Should allow governor to update staking parameters", async function () {
       // Grant GOVERNOR_ROLE to governor for testing
       const GOVERNOR_ROLE = await staking.GOVERNOR_ROLE();
-      await staking.connect(governor).grantRole(GOVERNOR_ROLE, governor.address);
+      await staking.connect(owner).grantRole(GOVERNOR_ROLE, governor.address);
       
       await staking.connect(governor).updateStakingParameters(
         ethers.parseEther("200"), // new min stake
@@ -202,7 +216,7 @@ describe("HalomStaking", function () {
       
       // Grant SLASHER_ROLE to governor for testing
       const SLASHER_ROLE = await staking.SLASHER_ROLE();
-      await staking.connect(governor).grantRole(SLASHER_ROLE, governor.address);
+      await staking.connect(owner).grantRole(SLASHER_ROLE, governor.address);
       
       const initialBalance = await staking.stakedBalance(user1.address);
       expect(initialBalance).to.equal(ethers.parseEther("1000"));

@@ -7,17 +7,35 @@ describe("Halom Governance System", function () {
     let initialSupply, lockAmount;
 
     beforeEach(async function () {
-        [deployer, user1, user2, user3, multisig] = await ethers.getSigners();
+        [deployer, user1, user2, user3] = await ethers.getSigners();
         
-        // Deploy contracts
+        // Deploy HalomToken first
         const HalomToken = await ethers.getContractFactory("HalomToken");
-        halomToken = await HalomToken.deploy(deployer.address, deployer.address);
+        halomToken = await HalomToken.deploy(
+            "Halom", "HOM", deployer.address, 
+            ethers.parseEther("1000000"), ethers.parseEther("10000"), 
+            ethers.parseEther("2000000"), 500
+        );
 
+        // Deploy TimelockController
         const TimelockController = await ethers.getContractFactory("TimelockController");
-        timelock = await TimelockController.deploy(86400, [], [], deployer.address);
+        timelock = await TimelockController.deploy(
+            60, // minDelay
+            [deployer.address], // proposers
+            [deployer.address], // executors
+            deployer.address // admin
+        );
 
+        // Deploy HalomGovernor with new constructor parameters
         const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
-        governor = await HalomGovernor.deploy(halomToken.target, timelock.target);
+        governor = await HalomGovernor.deploy(
+            await halomToken.getAddress(), // token
+            await timelock.getAddress(), // timelock
+            1, // votingDelay
+            45818, // votingPeriod (~1 week)
+            ethers.parseEther("1000"), // proposalThreshold
+            4 // quorumPercentage (4%)
+        );
 
         const HalomTreasury = await ethers.getContractFactory("HalomTreasury");
         treasury = await HalomTreasury.deploy(
@@ -34,11 +52,11 @@ describe("Halom Governance System", function () {
 
         const HalomStaking = await ethers.getContractFactory("HalomStaking");
         staking = await HalomStaking.deploy(
-            halomToken.target,
+            await halomToken.getAddress(),
             deployer.address,
             2000, // rewardRate
-            30 * 24 * 60 * 60, // lockPeriod (30 days)
-            5000 // slashPercentage (50%)
+            30 * 24 * 60 * 60, // minLockPeriod (30 days)
+            5 * 365 * 24 * 60 * 60 // maxLockPeriod (5 years)
         );
 
         const HalomLPStaking = await ethers.getContractFactory("HalomLPStaking");
@@ -97,7 +115,7 @@ describe("Halom Governance System", function () {
 
     describe("Timelock Configuration", function () {
         it("Should have correct initial configuration", async function () {
-            expect(await timelock.getMinDelay()).to.equal(86400); // 24 hours
+            expect(await timelock.getMinDelay()).to.equal(60);
             expect(await timelock.hasRole(await timelock.PROPOSER_ROLE(), governor.target)).to.be.true;
             expect(await timelock.hasRole(await timelock.EXECUTOR_ROLE(), governor.target)).to.be.true;
             expect(await timelock.hasRole(await timelock.DEFAULT_ADMIN_ROLE(), deployer.address)).to.be.true;

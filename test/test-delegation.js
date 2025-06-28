@@ -6,31 +6,32 @@ describe("HalomStaking Delegation System", function () {
     let mockLP, mockEURC;
 
     beforeEach(async function () {
-        [owner, user1, user2, user3, rewarder] = await ethers.getSigners();
+        [deployer, user1, user2, user3, rewarder] = await ethers.getSigners();
 
         // Deploy mock tokens
         const MockERC20 = await ethers.getContractFactory("MockERC20");
         mockLP = await MockERC20.deploy("Mock LP", "MLP", ethers.parseEther("1000000"));
         mockEURC = await MockERC20.deploy("Mock EURC", "MEURC", ethers.parseEther("1000000"));
 
-        // Deploy HalomToken with correct constructor parameters
+        // Deploy HalomToken with new constructor parameters
         const HalomToken = await ethers.getContractFactory("HalomToken");
-        halomToken = await HalomToken.deploy(owner.address, owner.address); // (oracle, governor)
+        halomToken = await HalomToken.deploy(
+            "Halom", "HOM", deployer.address, 
+            ethers.parseEther("1000000"), ethers.parseEther("10000"), 
+            ethers.parseEther("2000000"), 500
+        );
 
-        // Deploy HalomStaking
+        // Deploy HalomStaking with new constructor parameters
         const HalomStaking = await ethers.getContractFactory("HalomStaking");
         staking = await HalomStaking.deploy(
-            halomToken.target,
-            owner.address,
-            2000, // rewardRate
-            30 * 24 * 60 * 60, // lockPeriod (30 days)
-            5000 // slashPercentage (50%)
+            await halomToken.getAddress(), deployer.address, 2000,
+            30 * 24 * 60 * 60, 5 * 365 * 24 * 60 * 60
         );
 
         // Grant MINTER_ROLE to rewarder and staking contract
         await halomToken.grantRole(await halomToken.MINTER_ROLE(), rewarder.address);
         await halomToken.grantRole(await halomToken.MINTER_ROLE(), await staking.getAddress());
-        await halomToken.grantRole(await halomToken.MINTER_ROLE(), owner.address); // Grant to owner for testing
+        await halomToken.grantRole(await halomToken.MINTER_ROLE(), deployer.address); // Grant to owner for testing
 
         // Mint tokens to users via rewarder
         await halomToken.connect(rewarder).mint(user1.address, ethers.parseEther("10000"));
@@ -50,17 +51,17 @@ describe("HalomStaking Delegation System", function () {
         await staking.grantRole(await staking.REWARDER_ROLE(), rewarder.address);
 
         // Ensure all contracts and users have enough tokens
-        await halomToken.connect(owner).mint(staking.target, ethers.parseEther("1000000"));
-        await halomToken.connect(owner).mint(rewarder.address, ethers.parseEther("1000000"));
-        await halomToken.connect(owner).mint(user1.address, ethers.parseEther("1000000"));
-        await halomToken.connect(owner).mint(user2.address, ethers.parseEther("1000000"));
-        await halomToken.connect(owner).mint(user3.address, ethers.parseEther("1000000"));
+        await halomToken.connect(deployer).mint(staking.target, ethers.parseEther("1000000"));
+        await halomToken.connect(deployer).mint(rewarder.address, ethers.parseEther("1000000"));
+        await halomToken.connect(deployer).mint(user1.address, ethers.parseEther("1000000"));
+        await halomToken.connect(deployer).mint(user2.address, ethers.parseEther("1000000"));
+        await halomToken.connect(deployer).mint(user3.address, ethers.parseEther("1000000"));
         // Exclude from wallet limits
-        await halomToken.connect(owner).setExcludedFromLimits(staking.target, true);
-        await halomToken.connect(owner).setExcludedFromLimits(rewarder.address, true);
-        await halomToken.connect(owner).setExcludedFromLimits(user1.address, true);
-        await halomToken.connect(owner).setExcludedFromLimits(user2.address, true);
-        await halomToken.connect(owner).setExcludedFromLimits(user3.address, true);
+        await halomToken.connect(deployer).setExcludedFromLimits(staking.target, true);
+        await halomToken.connect(deployer).setExcludedFromLimits(rewarder.address, true);
+        await halomToken.connect(deployer).setExcludedFromLimits(user1.address, true);
+        await halomToken.connect(deployer).setExcludedFromLimits(user2.address, true);
+        await halomToken.connect(deployer).setExcludedFromLimits(user3.address, true);
     });
 
     describe("Delegation Functionality", function () {

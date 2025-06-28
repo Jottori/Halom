@@ -380,7 +380,7 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         uint256 _minStakeAmount,
         uint256 _maxStakeAmount,
         uint256 _lockPeriod
-    ) external onlyRole(GOVERNOR_ROLE) {
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(_minStakeAmount <= _maxStakeAmount, "Min stake cannot exceed max stake");
         require(_lockPeriod <= 365 days, "Lock period too long");
         

@@ -9,40 +9,44 @@ describe("Halom Protocol Security Audit Tests", function () {
     beforeEach(async function () {
         [deployer, user1, user2, user3] = await ethers.getSigners();
         
-        // Deploy contracts
+        // Deploy HalomToken with new constructor parameters
         const HalomToken = await ethers.getContractFactory("HalomToken");
-        halomToken = await HalomToken.deploy(deployer.address, deployer.address);
-        await halomToken.waitForDeployment();
+        halomToken = await HalomToken.deploy(
+            "Halom", "HOM", deployer.address, 
+            ethers.parseEther("1000000"), ethers.parseEther("10000"), 
+            ethers.parseEther("2000000"), 500
+        );
 
         // Get MINTER_ROLE for use in tests
         MINTER_ROLE = await halomToken.MINTER_ROLE();
 
+        // Deploy HalomStaking with new constructor parameters
         const HalomStaking = await ethers.getContractFactory("HalomStaking");
         staking = await HalomStaking.deploy(
-            halomToken.target,
-            deployer.address,
-            2000, // rewardRate
-            30 * 24 * 60 * 60, // lockPeriod (30 days)
-            5000 // slashPercentage (50%)
+            await halomToken.getAddress(), deployer.address, 2000,
+            30 * 24 * 60 * 60, 5 * 365 * 24 * 60 * 60
         );
-        await staking.waitForDeployment();
 
+        // Deploy HalomLPStaking with new constructor parameters
+        const MockERC20 = await ethers.getContractFactory("MockERC20");
+        lpToken = await MockERC20.deploy("LP Token", "LP", ethers.parseEther("1000000"));
+        
         const HalomLPStaking = await ethers.getContractFactory("HalomLPStaking");
         lpStaking = await HalomLPStaking.deploy(
-            halomToken.target,
-            halomToken.target,
-            deployer.address,
-            2000 // rewardRate
+            await lpToken.getAddress(), await halomToken.getAddress(), deployer.address, 2000
         );
-        await lpStaking.waitForDeployment();
 
+        // Deploy HalomOracle with new constructor parameters
+        const HalomOracle = await ethers.getContractFactory("HalomOracle");
+        oracle = await HalomOracle.deploy(
+            await halomToken.getAddress(), deployer.address
+        );
+
+        // Deploy HalomTreasury with new constructor parameters
         const HalomTreasury = await ethers.getContractFactory("HalomTreasury");
         treasury = await HalomTreasury.deploy(
-            halomToken.target,
-            halomToken.target,
-            deployer.address
+            await halomToken.getAddress(), deployer.address
         );
-        await treasury.waitForDeployment();
 
         // Setup roles
         await halomToken.connect(deployer).setStakingContract(await staking.getAddress());

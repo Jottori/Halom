@@ -8,37 +8,41 @@ describe("HalomOracle", function () {
     let GOVERNOR_ROLE, ORACLE_UPDATER_ROLE, REBASE_CALLER_ROLE;
 
     beforeEach(async function () {
-        [owner, governor, updater, otherAccount] = await ethers.getSigners();
-        chainId = (await ethers.provider.getNetwork()).chainId;
+        [deployer, user1, user2, user3] = await ethers.getSigners();
 
-        // Deploy mock token
-        HalomToken = await ethers.getContractFactory("HalomToken");
-        token = await HalomToken.deploy(governor.address, governor.address); // (governor, governor)
+        // Deploy HalomToken with new constructor parameters
+        const HalomToken = await ethers.getContractFactory("HalomToken");
+        halomToken = await HalomToken.deploy(
+            "Halom", "HOM", deployer.address, 
+            ethers.parseEther("1000000"), ethers.parseEther("10000"), 
+            ethers.parseEther("2000000"), 500
+        );
 
-        // Deploy oracle
-        HalomOracle = await ethers.getContractFactory("HalomOracle");
-        oracle = await HalomOracle.deploy(governor.address, chainId);
+        // Deploy HalomOracle with new constructor parameters
+        const HalomOracle = await ethers.getContractFactory("HalomOracle");
+        oracle = await HalomOracle.deploy(
+            await halomToken.getAddress(), deployer.address
+        );
 
         // Get role constants from contract
         GOVERNOR_ROLE = await oracle.DEFAULT_ADMIN_ROLE();
         ORACLE_UPDATER_ROLE = await oracle.ORACLE_UPDATER_ROLE();
-        REBASE_CALLER_ROLE = await token.REBASE_CALLER();
 
         // Setup roles and permissions
-        await oracle.connect(governor).grantRole(ORACLE_UPDATER_ROLE, updater.address);
-        await oracle.connect(governor).setHalomToken(token.target);
+        await oracle.connect(deployer).grantRole(ORACLE_UPDATER_ROLE, user1.address);
+        await oracle.connect(deployer).setHalomToken(await halomToken.getAddress());
 
-        // Grant REBASE_CALLER role to the oracle contract
-        await token.connect(governor).grantRole(REBASE_CALLER_ROLE, oracle.target);
+        // Grant REBASER_ROLE to the oracle contract
+        await halomToken.connect(deployer).grantRole(await halomToken.REBASER_ROLE(), await oracle.getAddress());
     });
 
     describe("Deployment and Role Setup", function () {
         it("Should grant GOVERNOR_ROLE to the governor address", async function () {
-            expect(await oracle.hasRole(GOVERNOR_ROLE, governor.address)).to.be.true;
+            expect(await oracle.hasRole(GOVERNOR_ROLE, deployer.address)).to.be.true;
         });
 
         it("Should grant ORACLE_UPDATER_ROLE to the updater address", async function () {
-            expect(await oracle.hasRole(ORACLE_UPDATER_ROLE, updater.address)).to.be.true;
+            expect(await oracle.hasRole(ORACLE_UPDATER_ROLE, user1.address)).to.be.true;
         });
     });
 
@@ -47,7 +51,7 @@ describe("HalomOracle", function () {
             const currentNonce = await oracle.nonce();
             const hoiValue = ethers.parseUnits("1.001", 9); // Smaller value
 
-            await expect(oracle.connect(updater).setHOI(hoiValue, currentNonce))
+            await expect(oracle.connect(user1).setHOI(hoiValue, currentNonce))
                 .to.emit(oracle, "HOISet");
             
             expect(await oracle.latestHOI()).to.equal(hoiValue);
@@ -58,7 +62,7 @@ describe("HalomOracle", function () {
             const currentNonce = await oracle.nonce();
             const hoiValue = ethers.parseUnits("1.1", 9);
 
-            await expect(oracle.connect(otherAccount).setHOI(hoiValue, currentNonce))
+            await expect(oracle.connect(user2).setHOI(hoiValue, currentNonce))
                 .to.be.reverted;
         });
 
@@ -66,46 +70,46 @@ describe("HalomOracle", function () {
             const wrongNonce = (await oracle.nonce()) + 1n;
             const hoiValue = ethers.parseUnits("1.1", 9);
 
-            await expect(oracle.connect(updater).setHOI(hoiValue, wrongNonce))
+            await expect(oracle.connect(user1).setHOI(hoiValue, wrongNonce))
                 .to.be.revertedWith("HalomOracle: Invalid nonce");
         });
     });
 
     describe("Pausable Functionality", function () {
         it("Should allow governor to pause and unpause", async function () {
-            await oracle.connect(governor).pause();
+            await oracle.connect(deployer).pause();
             expect(await oracle.paused()).to.be.true;
 
-            await oracle.connect(governor).unpause();
+            await oracle.connect(deployer).unpause();
             expect(await oracle.paused()).to.be.false;
         });
 
         it("Should revert setHOI when paused", async function () {
-            await oracle.connect(governor).pause();
+            await oracle.connect(deployer).pause();
             const currentNonce = await oracle.nonce();
             const hoiValue = ethers.parseUnits("1.1", 9);
 
             // OpenZeppelin v5 uses custom errors, so we just check for revert
-            await expect(oracle.connect(updater).setHOI(hoiValue, currentNonce))
+            await expect(oracle.connect(user1).setHOI(hoiValue, currentNonce))
                 .to.be.reverted;
         });
 
         it("Should allow setHOI after unpausing", async function () {
-            await oracle.connect(governor).pause();
-            await oracle.connect(governor).unpause();
+            await oracle.connect(deployer).pause();
+            await oracle.connect(deployer).unpause();
 
             const currentNonce = await oracle.nonce();
             const hoiValue = ethers.parseUnits("1.01", 9); // Smaller value
 
-            await expect(oracle.connect(updater).setHOI(hoiValue, currentNonce)).to.not.be.reverted;
+            await expect(oracle.connect(user1).setHOI(hoiValue, currentNonce)).to.not.be.reverted;
         });
 
         it("Should not allow non-governor to pause or unpause", async function () {
-            await expect(oracle.connect(otherAccount).pause()).to.be.reverted;
+            await expect(oracle.connect(user2).pause()).to.be.reverted;
             
             // First pause as governor to test unpause
-            await oracle.connect(governor).pause();
-            await expect(oracle.connect(otherAccount).unpause()).to.be.reverted;
+            await oracle.connect(deployer).pause();
+            await expect(oracle.connect(user2).unpause()).to.be.reverted;
         });
     });
 
@@ -116,7 +120,7 @@ describe("HalomOracle", function () {
             
             const initialSupply = await token.totalSupply();
             
-            await oracle.connect(updater).setHOI(hoiValue, currentNonce);
+            await oracle.connect(user1).setHOI(hoiValue, currentNonce);
             
             const finalSupply = await token.totalSupply();
             expect(finalSupply).to.be.gt(initialSupply);
@@ -128,7 +132,7 @@ describe("HalomOracle", function () {
             
             const initialSupply = await token.totalSupply();
             
-            await oracle.connect(updater).setHOI(hoiValue, currentNonce);
+            await oracle.connect(user1).setHOI(hoiValue, currentNonce);
             
             const finalSupply = await token.totalSupply();
             expect(finalSupply).to.be.lt(initialSupply);
@@ -140,7 +144,7 @@ describe("HalomOracle", function () {
             // ORACLE_UPDATER_ROLE already granted to updater in beforeEach
             const currentNonce = await oracle.nonce();
             const newValue = ethers.parseUnits("1.001", 9); // Much smaller value to avoid rebase limit
-            await oracle.connect(updater).setHOI(newValue, currentNonce);
+            await oracle.connect(user1).setHOI(newValue, currentNonce);
             
             expect(await oracle.latestHOI()).to.equal(newValue);
         });
@@ -149,7 +153,7 @@ describe("HalomOracle", function () {
             const currentNonce = await oracle.nonce();
             const newValue = ethers.parseUnits("1.001", 9); // Much smaller value
             await expect(
-                oracle.connect(otherAccount).setHOI(newValue, currentNonce)
+                oracle.connect(user2).setHOI(newValue, currentNonce)
             ).to.be.revertedWithCustomError(oracle, "AccessControlUnauthorizedAccount");
         });
 
@@ -159,11 +163,11 @@ describe("HalomOracle", function () {
             const nonce = await oracle.nonce();
             
             // First update should succeed
-            await oracle.connect(updater).setHOI(newValue, nonce);
+            await oracle.connect(user1).setHOI(newValue, nonce);
             
             // Second update with same nonce should fail
             await expect(
-                oracle.connect(updater).setHOI(newValue, nonce)
+                oracle.connect(user1).setHOI(newValue, nonce)
             ).to.be.revertedWith("HalomOracle: Invalid nonce");
         });
     });
