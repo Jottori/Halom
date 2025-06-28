@@ -10,7 +10,7 @@ import "@openzeppelin/contracts/governance/extensions/GovernorVotes.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "./HalomToken.sol";
 
-// Custom errors for gas optimization (only those not already in HalomToken)
+// Custom errors for gas optimization
 error LockPeriodNotExpired();
 error TransferFailed();
 error InvalidRootPower();
@@ -18,10 +18,14 @@ error VotingPowerExceedsCap();
 error FlashLoanDetected();
 error EmergencyPaused();
 error InvalidAmount();
+error InvalidProposalState();
+error ProposalNotActive();
+error VoteAlreadyCast();
+error InvalidVoteReason();
 
 /**
  * @title HalomGovernor
- * @dev Governance contract for Halom protocol with parameterizable root voting power
+ * @dev Enhanced governance contract for Halom protocol with quadratic + time-based voting power
  * Includes protection against flash loan attacks and governance takeovers
  */
 contract HalomGovernor is 
@@ -34,16 +38,30 @@ contract HalomGovernor is
     AccessControl
 {
     bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
+    bytes32 public constant MOCK_STAKING_ROLE = keccak256("MOCK_STAKING_ROLE");
     
+    // Voting power tracking
     mapping(address => uint256) public lockedTokens;
     mapping(address => uint256) public lockTime;
+    mapping(address => uint256) public stakingWeight; // Mock staking weight for testing
+    
+    // Voting tracking
+    mapping(uint256 => mapping(address => bool)) public userHasVoted;
+    mapping(uint256 => mapping(address => string)) public voteReasons;
+    mapping(uint256 => uint256) public proposalVoteCount;
+    
+    // Constants
     uint256 public constant LOCK_DURATION = 5 * 365 * 24 * 60 * 60; // 5 years
     uint256 public constant VOTING_DELAY = 1; // 1 block
     uint256 public constant VOTING_PERIOD = 45818; // ~1 week
     uint256 public constant PROPOSAL_THRESHOLD = 1000e18; // 1000 HLM
     uint256 public constant QUORUM_FRACTION = 4; // 4%
     
-    // Parameterizable root power (default: 4 = fourth root)
+    // Quadratic voting parameters
+    uint256 public quadraticFactor = 1e18; // Scaling factor for quadratic voting
+    uint256 public timeWeightFactor = 1e18; // Time-based weight factor
+    
+    // Legacy root power support (for backward compatibility)
     uint256 public rootPower = 4;
     uint256 public constant MIN_ROOT_POWER = 2; // sqrt minimum
     uint256 public constant MAX_ROOT_POWER = 10; // maximum root power
@@ -63,6 +81,7 @@ contract HalomGovernor is
     uint256 public emergencyQuorum = 10; // 10% quorum for emergency proposals
     bool public emergencyMode;
 
+    // Events
     event TokensLocked(address indexed user, uint256 amount, uint256 lockTime);
     event TokensUnlocked(address indexed user, uint256 amount);
     event RootPowerUpdated(uint256 oldPower, uint256 newPower);
@@ -70,6 +89,10 @@ contract HalomGovernor is
     event EmergencyResumed(address indexed caller);
     event VotingPowerCapUpdated(uint256 oldCap, uint256 newCap);
     event FlashLoanDetectedEvent(address indexed attacker, uint256 amount);
+    event VoteCastWithReason(uint256 indexed proposalId, address indexed voter, uint8 support, string reason);
+    event MockStakingWeightSet(address indexed user, uint256 weight);
+    event QuadraticFactorUpdated(uint256 oldFactor, uint256 newFactor);
+    event TimeWeightFactorUpdated(uint256 oldFactor, uint256 newFactor);
 
     constructor(
         IVotes _token,
@@ -83,6 +106,7 @@ contract HalomGovernor is
     {
         _grantRole(DEFAULT_ADMIN_ROLE, address(_timelock));
         _grantRole(EMERGENCY_ROLE, address(_timelock));
+        _grantRole(MOCK_STAKING_ROLE, address(_timelock));
     }
 
     /**
@@ -158,54 +182,119 @@ contract HalomGovernor is
     }
 
     /**
-     * @dev Get voting power for a user based on locked tokens using nth root
-     * Includes flash loan protection and voting power caps
+     * @dev Cast vote with reason (enhanced version of castVote)
+     */
+    function castVoteWithReason(
+        uint256 proposalId,
+        uint8 support,
+        string calldata reason
+    ) public virtual override returns (uint256) {
+        if (bytes(reason).length == 0) revert InvalidVoteReason();
+        if (userHasVoted[proposalId][msg.sender]) revert VoteAlreadyCast();
+        
+        uint256 weight = super.castVote(proposalId, support);
+        userHasVoted[proposalId][msg.sender] = true;
+        voteReasons[proposalId][msg.sender] = reason;
+        proposalVoteCount[proposalId]++;
+        
+        emit VoteCastWithReason(proposalId, msg.sender, support, reason);
+        return weight;
+    }
+
+    /**
+     * @dev Enhanced voting power calculation with quadratic + time-based weighting
      */
     function getVotePower(address user) public view returns (uint256) {
         if (lockTime[user] == 0) return 0;
         if (block.timestamp < lockTime[user] + LOCK_DURATION) {
-            uint256 power = nthRoot(lockedTokens[user], rootPower);
+            uint256 basePower = lockedTokens[user];
+            
+            // Quadratic voting power: sqrt(tokens) * quadraticFactor
+            uint256 quadraticPower = sqrt(basePower * quadraticFactor);
+            
+            // Time-based weight: longer lock = more power
+            uint256 lockAge = block.timestamp - lockTime[user];
+            uint256 timeWeight = (lockAge * timeWeightFactor) / 1 days;
+            
+            // Combined power: quadratic + time weight
+            uint256 totalPower = quadraticPower + timeWeight;
+            
+            // Add mock staking weight for testing
+            totalPower += stakingWeight[user];
+            
             // Cap voting power per address
-            if (power > maxVotingPowerPerAddress) {
-                power = maxVotingPowerPerAddress;
+            if (totalPower > maxVotingPowerPerAddress) {
+                totalPower = maxVotingPowerPerAddress;
             }
-            return power;
+            
+            return totalPower;
         }
         return 0; // Lock expired
     }
-    
+
     /**
-     * @dev Check for flash loan attack patterns
+     * @dev Set mock staking weight for testing (only MOCK_STAKING_ROLE)
      */
-    function _checkFlashLoanAttack(address voter) internal {
-        // Check vote frequency
-        if (block.timestamp < lastVoteTime[voter] + VOTE_COOLDOWN) {
-            revert FlashLoanDetected();
-        }
-        
-        // Check daily vote limit
-        uint256 currentDay = block.timestamp / 1 days;
-        uint256 lastVoteDay = lastVoteTime[voter] / 1 days;
-        
-        if (currentDay == lastVoteDay && voteCount[voter] >= MAX_VOTES_PER_DAY) {
-            revert FlashLoanDetected();
-        }
-        
-        // Check if tokens were locked recently (flash loan detection)
-        if (block.timestamp < lockTime[voter] + minLockDuration) {
-            emit FlashLoanDetectedEvent(voter, lockedTokens[voter]);
-            // Don't revert, but log the attempt
-        }
+    function setMockStakingWeight(address user, uint256 weight) external onlyRole(MOCK_STAKING_ROLE) {
+        stakingWeight[user] = weight;
+        emit MockStakingWeightSet(user, weight);
     }
 
     /**
-     * @dev Update root power (only governor)
+     * @dev Update quadratic voting factor
      */
-    function setRootPower(uint256 newRootPower) external onlyGovernance {
-        if (newRootPower < MIN_ROOT_POWER || newRootPower > MAX_ROOT_POWER) revert InvalidRootPower();
-        uint256 oldPower = rootPower;
-        rootPower = newRootPower;
-        emit RootPowerUpdated(oldPower, newRootPower);
+    function setQuadraticFactor(uint256 newFactor) external onlyGovernance {
+        uint256 oldFactor = quadraticFactor;
+        quadraticFactor = newFactor;
+        emit QuadraticFactorUpdated(oldFactor, newFactor);
+    }
+
+    /**
+     * @dev Update time weight factor
+     */
+    function setTimeWeightFactor(uint256 newFactor) external onlyGovernance {
+        uint256 oldFactor = timeWeightFactor;
+        timeWeightFactor = newFactor;
+        emit TimeWeightFactorUpdated(oldFactor, newFactor);
+    }
+
+    /**
+     * @dev Get proposal state with enhanced logic
+     */
+    function getProposalState(uint256 proposalId) public view returns (string memory) {
+        ProposalState proposalState = super.state(proposalId);
+        
+        if (proposalState == ProposalState.Pending) return "Pending";
+        if (proposalState == ProposalState.Active) return "Active";
+        if (proposalState == ProposalState.Canceled) return "Canceled";
+        if (proposalState == ProposalState.Defeated) return "Defeated";
+        if (proposalState == ProposalState.Succeeded) return "Succeeded";
+        if (proposalState == ProposalState.Queued) return "Queued";
+        if (proposalState == ProposalState.Expired) return "Expired";
+        if (proposalState == ProposalState.Executed) return "Executed";
+        
+        return "Unknown";
+    }
+
+    /**
+     * @dev Get vote reason for a specific voter and proposal
+     */
+    function getVoteReason(uint256 proposalId, address voter) public view returns (string memory) {
+        return voteReasons[proposalId][voter];
+    }
+
+    /**
+     * @dev Get proposal vote count
+     */
+    function getProposalVoteCount(uint256 proposalId) public view returns (uint256) {
+        return proposalVoteCount[proposalId];
+    }
+
+    /**
+     * @dev Check if user has voted on proposal
+     */
+    function hasUserVoted(uint256 proposalId, address user) public view returns (bool) {
+        return userHasVoted[proposalId][user];
     }
 
     /**
@@ -383,5 +472,39 @@ contract HalomGovernor is
         uint256 proposalId
     ) public view override(Governor, GovernorTimelockControl) returns (bool) {
         return super.proposalNeedsQueuing(proposalId);
+    }
+
+    /**
+     * @dev Check for flash loan attack patterns
+     */
+    function _checkFlashLoanAttack(address voter) internal {
+        // Check vote frequency
+        if (block.timestamp < lastVoteTime[voter] + VOTE_COOLDOWN) {
+            revert FlashLoanDetected();
+        }
+        
+        // Check daily vote limit
+        uint256 currentDay = block.timestamp / 1 days;
+        uint256 lastVoteDay = lastVoteTime[voter] / 1 days;
+        
+        if (currentDay == lastVoteDay && voteCount[voter] >= MAX_VOTES_PER_DAY) {
+            revert FlashLoanDetected();
+        }
+        
+        // Check if tokens were locked recently (flash loan detection)
+        if (block.timestamp < lockTime[voter] + minLockDuration) {
+            emit FlashLoanDetectedEvent(voter, lockedTokens[voter]);
+            // Don't revert, but log the attempt
+        }
+    }
+
+    /**
+     * @dev Update root power (only governor)
+     */
+    function setRootPower(uint256 newRootPower) external onlyGovernance {
+        if (newRootPower < MIN_ROOT_POWER || newRootPower > MAX_ROOT_POWER) revert InvalidRootPower();
+        uint256 oldPower = rootPower;
+        rootPower = newRootPower;
+        emit RootPowerUpdated(oldPower, newRootPower);
     }
 } 

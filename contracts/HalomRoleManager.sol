@@ -71,6 +71,7 @@ contract HalomRoleManager is AccessControl, Pausable {
     event RoleGrantApproved(bytes32 indexed role, address indexed account, address indexed approver);
     event RoleGrantDelaySet(bytes32 indexed role, uint256 delay);
     event MultiSigRequiredSet(bytes32 indexed role, bool required);
+    // Note: RoleGranted and RoleRevoked events are already defined in IAccessControl
     
     constructor(address _timelock, address _governor) {
         if (_timelock == address(0)) revert ZeroAddress();
@@ -199,8 +200,8 @@ contract HalomRoleManager is AccessControl, Pausable {
      */
     function freezeRole(bytes32 role) external onlyRole(GOVERNOR_ROLE) {
         if (roleFrozen[role]) revert RoleAlreadyFrozen();
-        roleFrozen[role] = true;
         
+        roleFrozen[role] = true;
         emit RoleFrozenEvent(role, msg.sender);
     }
     
@@ -257,21 +258,106 @@ contract HalomRoleManager is AccessControl, Pausable {
     }
     
     /**
-     * @dev Override grantRole to prevent direct usage
+     * @dev Enhanced grantRole with security checks and audit events
      */
-    function grantRole(bytes32, address) public virtual override {
-        revert(
-            "Use grantRoleToContract for contracts or requestRoleGrant for humans"
-        );
+    function grantRole(bytes32 role, address account) public virtual override onlyRole(getRoleAdmin(role)) {
+        if (account == address(0)) revert ZeroAddress();
+        if (roleFrozen[role]) revert RoleFrozen();
+        
+        // Check role hierarchy for security
+        if (roleHierarchy[role] >= roleHierarchy[GOVERNOR_ROLE] && !hasRole(getRoleAdmin(role), msg.sender)) {
+            revert Unauthorized();
+        }
+        
+        // For human addresses, require multi-sig if configured
+        if (account.code.length == 0 && multiSigRequired[role]) {
+            revert MultiSigRequired();
+        }
+        
+        super.grantRole(role, account);
+        
+        // Track assignment
+        roleAssignments[role].push(account);
+        roleGrantTimestamps[role][account] = block.timestamp;
+        
+        emit RoleGranted(role, account, msg.sender);
+        emit ContractRoleAssigned(role, account, msg.sender);
     }
     
     /**
-     * @dev Override revokeRole to prevent direct usage
+     * @dev Enhanced revokeRole with security checks and audit events
      */
-    function revokeRole(bytes32, address) public virtual override {
-        revert(
-            "Use revokeRoleFromHuman for humans or specific functions for contracts"
-        );
+    function revokeRole(bytes32 role, address account) public virtual override onlyRole(getRoleAdmin(role)) {
+        if (!hasRole(role, account)) revert Unauthorized();
+        
+        // Prevent revoking from self (DEFAULT_ADMIN_ROLE)
+        if (role == DEFAULT_ADMIN_ROLE && account == msg.sender) revert Unauthorized();
+        
+        super.revokeRole(role, account);
+        
+        // Remove from tracking
+        _removeFromRoleAssignments(role, account);
+        
+        emit RoleRevoked(role, account, msg.sender);
+        emit HumanRoleRevoked(role, account, msg.sender);
+    }
+    
+    /**
+     * @dev Fast hasRole wrapper for gas optimization
+     */
+    function hasRole(bytes32 role, address account) public view virtual override returns (bool) {
+        return super.hasRole(role, account);
+    }
+    
+    /**
+     * @dev Get role assignments count
+     */
+    function getRoleAssignmentsCount(bytes32 role) public view returns (uint256) {
+        return roleAssignments[role].length;
+    }
+    
+    /**
+     * @dev Get role assignment at index
+     */
+    function getRoleAssignment(bytes32 role, uint256 index) public view returns (address) {
+        require(index < roleAssignments[role].length, "Index out of bounds");
+        return roleAssignments[role][index];
+    }
+    
+    /**
+     * @dev Get role grant timestamp
+     */
+    function getRoleGrantTimestamp(bytes32 role, address account) public view returns (uint256) {
+        return roleGrantTimestamps[role][account];
+    }
+    
+    /**
+     * @dev Check if role grant is pending
+     */
+    function isRoleGrantPending(bytes32 role, address account) public view returns (bool) {
+        return pendingRoleGrants[role][account] > 0;
+    }
+    
+    /**
+     * @dev Get pending role grant timestamp
+     */
+    function getPendingRoleGrantTimestamp(bytes32 role, address account) public view returns (uint256) {
+        return pendingRoleGrants[role][account];
+    }
+    
+    /**
+     * @dev Get role grant approvals count
+     */
+    function getRoleGrantApprovalsCount(bytes32 role, address account) public view returns (uint256) {
+        return roleGrantApprovals[role][account].length;
+    }
+    
+    /**
+     * @dev Get role grant approval at index
+     */
+    function getRoleGrantApproval(bytes32 role, address account, uint256 index) public view returns (address) {
+        require(index < roleGrantApprovals[role][account].length, "Index out of bounds");
+        return roleGrantApprovals[role][account][index];
     }
     
     /**
@@ -309,5 +395,93 @@ contract HalomRoleManager is AccessControl, Pausable {
                 _revokeRole(allRoles[i], account);
             }
         }
+    }
+    
+    /**
+     * @dev Remove account from role assignments tracking
+     */
+    function _removeFromRoleAssignments(bytes32 role, address account) internal {
+        address[] storage assignments = roleAssignments[role];
+        for (uint256 i = 0; i < assignments.length; i++) {
+            if (assignments[i] == account) {
+                assignments[i] = assignments[assignments.length - 1];
+                assignments.pop();
+                break;
+            }
+        }
+    }
+    
+    /**
+     * @dev Get role hierarchy level
+     */
+    function getRoleHierarchy(bytes32 role) public view returns (uint8) {
+        return roleHierarchy[role];
+    }
+    
+    /**
+     * @dev Check if account has higher privilege than role
+     */
+    function hasHigherPrivilege(address account, bytes32 role) public view returns (bool) {
+        uint8 accountLevel = 0;
+        uint8 roleLevel = roleHierarchy[role];
+        
+        // Find highest role level for account
+        for (uint256 i = 0; i < roleAssignments[DEFAULT_ADMIN_ROLE].length; i++) {
+            if (hasRole(DEFAULT_ADMIN_ROLE, account)) {
+                accountLevel = roleHierarchy[DEFAULT_ADMIN_ROLE];
+                break;
+            }
+        }
+        
+        // Check other roles
+        bytes32[] memory allRoles = new bytes32[](10);
+        allRoles[0] = EMERGENCY_ROLE;
+        allRoles[1] = GOVERNOR_ROLE;
+        allRoles[2] = PAUSER_ROLE;
+        allRoles[3] = MINTER_ROLE;
+        allRoles[4] = REBASE_CALLER;
+        allRoles[5] = TREASURY_CONTROLLER;
+        allRoles[6] = SLASHER_ROLE;
+        allRoles[7] = ORACLE_UPDATER_ROLE;
+        allRoles[8] = REWARDER_ROLE;
+        allRoles[9] = STAKING_CONTRACT_ROLE;
+        
+        for (uint256 i = 0; i < allRoles.length; i++) {
+            if (hasRole(allRoles[i], account)) {
+                uint8 level = roleHierarchy[allRoles[i]];
+                if (level > accountLevel) {
+                    accountLevel = level;
+                }
+            }
+        }
+        
+        return accountLevel > roleLevel;
+    }
+
+    /**
+     * @dev Emergency role management (only EMERGENCY_ROLE)
+     */
+    function emergencyGrantRole(bytes32 role, address account) external onlyRole(EMERGENCY_ROLE) {
+        if (account == address(0)) revert ZeroAddress();
+        
+        super.grantRole(role, account);
+        roleAssignments[role].push(account);
+        roleGrantTimestamps[role][account] = block.timestamp;
+        
+        emit RoleGranted(role, account, msg.sender);
+        emit ContractRoleAssigned(role, account, msg.sender);
+    }
+
+    /**
+     * @dev Emergency role revocation (only EMERGENCY_ROLE)
+     */
+    function emergencyRevokeRole(bytes32 role, address account) external onlyRole(EMERGENCY_ROLE) {
+        if (!hasRole(role, account)) revert Unauthorized();
+        
+        super.revokeRole(role, account);
+        _removeFromRoleAssignments(role, account);
+        
+        emit RoleRevoked(role, account, msg.sender);
+        emit HumanRoleRevoked(role, account, msg.sender);
     }
 } 

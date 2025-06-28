@@ -77,6 +77,10 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
     uint256 public dailyWithdrawalUsed;
     uint256 public lastDailyReset;
     
+    // Time-based reward distribution
+    uint256 public lastDistributionTime;
+    uint256 public daoReserveBalance;
+    
     // Multi-sig withdrawal system
     mapping(bytes32 => WithdrawalRequest) public withdrawalRequests;
     mapping(bytes32 => mapping(address => bool)) public withdrawalApprovals;
@@ -198,10 +202,18 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
         if (_user == address(0)) revert ZeroAddress();
         if (_amount == 0) revert InvalidAmount();
         
-        // Remove transferFrom since HalomToken now mints directly
-        // halomToken.safeTransferFrom(_user, address(this), _amount);
+        // Calculate fourth root of fee contribution
+        uint256 fourthRootValue = fourthRoot(_amount);
         
-        emit FeeCollected(_user, _amount, 0); // fourthRoot is 0 since we're not calculating it here
+        // Update user's fourth root fees
+        fourthRootFees[_user] += fourthRootValue;
+        totalFourthRootFees += fourthRootValue;
+        
+        // Update total fees collected
+        totalFeesCollected += _amount;
+        userFeeContributions[_user] += _amount;
+        
+        emit FeeCollected(_user, _amount, fourthRootValue);
     }
 
     /**
@@ -485,6 +497,167 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
             userFeeContributions[_user],
             fourthRootFees[_user],
             getPendingFeeRewards(_user)
+        );
+    }
+
+    /**
+     * @dev Allocate funds to specific target (stake or LP reward)
+     */
+    function allocateTo(address target, uint256 amount) external onlyRole(TREASURY_CONTROLLER) {
+        if (target == address(0)) revert ZeroAddress();
+        if (amount == 0) revert InvalidAmount();
+        if (emergencyPaused) revert EmergencyPaused();
+        
+        // Check treasury balance
+        uint256 treasuryBalance = halomToken.balanceOf(address(this));
+        if (amount > treasuryBalance) revert InsufficientBalance();
+        
+        // Transfer tokens to target
+        IERC20(address(halomToken)).safeTransfer(target, amount);
+        
+        emit TreasuryWithdrawal(target, amount, msg.sender);
+    }
+
+    /**
+     * @dev Emergency drain treasury (only TREASURY_CONTROLLER)
+     */
+    function drainTreasury(address to) external onlyRole(TREASURY_CONTROLLER) {
+        if (to == address(0)) revert ZeroAddress();
+        if (emergencyPaused) revert EmergencyPaused();
+        
+        uint256 halomBalance = halomToken.balanceOf(address(this));
+        uint256 eurcBalance = eurcToken.balanceOf(address(this));
+        
+        if (halomBalance > 0) {
+            IERC20(address(halomToken)).safeTransfer(to, halomBalance);
+        }
+        
+        if (eurcBalance > 0) {
+            eurcToken.safeTransfer(to, eurcBalance);
+        }
+        
+        emit EmergencyRecovery(address(halomToken), to, halomBalance);
+        emit EmergencyRecovery(address(eurcToken), to, eurcBalance);
+    }
+
+    /**
+     * @dev Time-based reward distribution (called by rebase trigger)
+     */
+    function distributeTimeBasedRewards() external onlyRole(TREASURY_CONTROLLER) {
+        if (emergencyPaused) revert EmergencyPaused();
+        
+        uint256 currentTime = block.timestamp;
+        uint256 timeSinceLastDistribution = currentTime - lastDistributionTime;
+        
+        // Distribute rewards every 24 hours
+        if (timeSinceLastDistribution >= 1 days) {
+            _executeDailyRewardDistribution();
+            lastDistributionTime = currentTime;
+        }
+    }
+
+    /**
+     * @dev Execute daily reward distribution
+     */
+    function _executeDailyRewardDistribution() internal {
+        uint256 treasuryBalance = halomToken.balanceOf(address(this));
+        if (treasuryBalance == 0) return;
+        
+        // Calculate daily distribution amounts
+        uint256 stakingReward = (treasuryBalance * stakingFeePercentage) / 10000;
+        uint256 lpStakingReward = (treasuryBalance * lpStakingFeePercentage) / 10000;
+        uint256 daoReserveAmount = (treasuryBalance * daoReserveFeePercentage) / 10000;
+        
+        // Distribute to staking contract
+        if (stakingAddress != address(0) && stakingReward > 0) {
+            IERC20(address(halomToken)).safeTransfer(stakingAddress, stakingReward);
+            emit FeeDistributed(stakingAddress, stakingReward);
+        }
+        
+        // Distribute to LP staking contract
+        if (lpStakingAddress != address(0) && lpStakingReward > 0) {
+            IERC20(address(halomToken)).safeTransfer(lpStakingAddress, lpStakingReward);
+            emit FeeDistributed(lpStakingAddress, lpStakingReward);
+        }
+        
+        // Keep DAO reserve in treasury
+        if (daoReserveAmount > 0) {
+            // Update DAO reserve tracking
+            daoReserveBalance += daoReserveAmount;
+            emit FeeDistributed(daoReserveAddress, daoReserveAmount);
+        }
+    }
+
+    /**
+     * @dev Set distribution addresses
+     */
+    function setDistributionAddresses(
+        address _stakingAddress,
+        address _lpStakingAddress,
+        address _daoReserveAddress
+    ) external onlyRole(GOVERNOR_ROLE) {
+        stakingAddress = _stakingAddress;
+        lpStakingAddress = _lpStakingAddress;
+        daoReserveAddress = _daoReserveAddress;
+        
+        emit FeeDistributionUpdated(_stakingAddress, _lpStakingAddress, _daoReserveAddress);
+    }
+
+    /**
+     * @dev Set fee distribution percentages
+     */
+    function setFeePercentages(
+        uint256 _stakingPercentage,
+        uint256 _lpStakingPercentage,
+        uint256 _daoReservePercentage
+    ) external onlyRole(GOVERNOR_ROLE) {
+        require(_stakingPercentage + _lpStakingPercentage + _daoReservePercentage == 10000, "Percentages must sum to 100%");
+        
+        stakingFeePercentage = _stakingPercentage;
+        lpStakingFeePercentage = _lpStakingPercentage;
+        daoReserveFeePercentage = _daoReservePercentage;
+        
+        emit FeePercentagesUpdated(_stakingPercentage, _lpStakingPercentage, _daoReservePercentage);
+    }
+
+    /**
+     * @dev Get treasury statistics
+     */
+    function getTreasuryStats() public view returns (
+        uint256 totalFees,
+        uint256 halomBalance,
+        uint256 eurcBalance,
+        uint256 daoReserve,
+        uint256 dailyWithdrawalUsedCount,
+        uint256 dailyWithdrawalLimitValue
+    ) {
+        return (
+            totalFeesCollected,
+            halomToken.balanceOf(address(this)),
+            eurcToken.balanceOf(address(this)),
+            daoReserveBalance,
+            dailyWithdrawalUsed,
+            dailyWithdrawalLimit
+        );
+    }
+
+    /**
+     * @dev Get user fee statistics
+     */
+    function getUserFeeStats(address user) public view returns (
+        uint256 totalContribution,
+        uint256 fourthRootFeesValue,
+        uint256 rewardDebtValue,
+        uint256 pendingRewards
+    ) {
+        uint256 userFourthRoot = fourthRootFees[user];
+        uint256 pending = (userFourthRoot * rewardsPerFourthRoot) - rewardDebt[user];
+        
+        return (
+            userFeeContributions[user],
+            userFourthRoot,
+            rewardDebt[user],
+            pending
         );
     }
 } 
