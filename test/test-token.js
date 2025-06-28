@@ -24,6 +24,9 @@ describe("HalomToken", function () {
         // Grant REBASE_CALLER_ROLE to rebaser
         await token.connect(governor).grantRole(REBASE_CALLER_ROLE, rebaser.address);
         
+        // Grant REBASE_CALLER_ROLE to governor for governance tests
+        await token.connect(governor).grantRole(REBASE_CALLER_ROLE, governor.address);
+        
         // Grant MINTER_ROLE to burner for testing
         await token.connect(governor).grantRole(MINTER_ROLE, burner.address);
         

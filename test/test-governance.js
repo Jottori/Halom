@@ -93,6 +93,9 @@ describe("Halom Governance System", function () {
         await halomToken.connect(deployer).setExcludedFromLimits(user1.address, true);
         await halomToken.connect(deployer).setExcludedFromLimits(user2.address, true);
         await halomToken.connect(deployer).setExcludedFromLimits(user3.address, true);
+
+        // Grant REBASE_CALLER to user1 for setMaxRebaseDelta test
+        await halomToken.grantRole(await halomToken.REBASE_CALLER(), user1.address);
     });
 
     describe("Timelock Configuration", function () {

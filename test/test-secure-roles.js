@@ -140,8 +140,9 @@ describe("Secure Role Structure", function () {
             await halomToken.grantRole(DEFAULT_ADMIN_ROLE, owner.address);
         }
         
+        // Grant REBASE_CALLER to owner for test functions
+        await halomToken.connect(owner).grantRole(REBASE_CALLER, owner.address);
         await halomToken.connect(owner).setStakingContract(await staking.getAddress());
-        await halomToken.connect(owner).grantRole(REBASE_CALLER, await oracle.getAddress());
         await halomToken.connect(owner).grantRole(MINTER_ROLE, await staking.getAddress());
 
         // Grant roles to governor contract

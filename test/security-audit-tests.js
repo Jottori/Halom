@@ -4,7 +4,7 @@ const { ethers } = require("hardhat");
 describe("Halom Protocol Security Audit Tests", function () {
     let halomToken, staking, lpStaking, treasury, governor, deployer, user1, user2, user3;
     let initialSupply, maxTransferAmount, maxWalletAmount;
-    let MINTER_ROLE;
+    let MINTER_ROLE, REBASE_CALLER;
 
     beforeEach(async function () {
         [deployer, user1, user2, user3] = await ethers.getSigners();
@@ -16,6 +16,7 @@ describe("Halom Protocol Security Audit Tests", function () {
 
         // Get MINTER_ROLE for use in tests
         MINTER_ROLE = await halomToken.MINTER_ROLE();
+        REBASE_CALLER = await halomToken.REBASE_CALLER();
 
         const HalomStaking = await ethers.getContractFactory("HalomStaking");
         staking = await HalomStaking.deploy(
@@ -46,6 +47,8 @@ describe("Halom Protocol Security Audit Tests", function () {
 
         // Setup roles
         await halomToken.connect(deployer).setStakingContract(await staking.getAddress());
+        // Grant REBASE_CALLER to deployer for test functions
+        await halomToken.connect(deployer).grantRole(REBASE_CALLER, deployer.address);
         const REWARDER_ROLE = await staking.REWARDER_ROLE();
         await staking.connect(deployer).grantRole(REWARDER_ROLE, await halomToken.getAddress());
 

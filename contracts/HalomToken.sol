@@ -15,6 +15,11 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     // Roles
     bytes32 public constant REBASE_CALLER = keccak256("REBASE_CALLER");
     bytes32 public constant STAKING_CONTRACT_ROLE = keccak256("STAKING_CONTRACT_ROLE");
+    bytes32 public constant ORACLE_UPDATER_ROLE = keccak256("ORACLE_UPDATER_ROLE");
+    bytes32 public constant REWARDER_ROLE = keccak256("REWARDER_ROLE");
+    bytes32 public constant SLASHER_ROLE = keccak256("SLASHER_ROLE");
+    bytes32 public constant TREASURY_CONTROLLER = keccak256("TREASURY_CONTROLLER");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
@@ -75,6 +80,8 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         // Mint initial supply to governance using _update to avoid conflicts
         _update(address(0), _governance, initialSupply);
 
+        // Grant roles
+        _grantRole(DEFAULT_ADMIN_ROLE, _governance);
         _grantRole(REBASE_CALLER, _oracleAddress);
 
         rewardRate = 2000; // Default 20%
