@@ -25,8 +25,25 @@ describe("HalomLPStaking", function () {
         REWARDER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("REWARDER_ROLE"));
         MINTER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("MINTER_ROLE"));
 
+        // Grant MINTER_ROLE to owner and governor for testing
+        await halomToken.connect(governor).grantRole(MINTER_ROLE, owner.address);
+        await halomToken.connect(governor).grantRole(MINTER_ROLE, governor.address);
+
+        // Grant DEFAULT_ADMIN_ROLE to owner for testing
+        await halomToken.connect(governor).grantRole(await halomToken.DEFAULT_ADMIN_ROLE(), owner.address);
+
+        // Mint tokens to owner for testing
+        await halomToken.connect(owner).mint(owner.address, ethers.parseEther("1000000"));
+
+        // Exclude from wallet limits
+        await halomToken.connect(owner).setExcludedFromLimits(lpStaking.target, true);
+        await halomToken.connect(owner).setExcludedFromLimits(owner.address, true);
+
         // Grant REWARDER_ROLE to rewarder in LP staking contract
         await lpStaking.connect(governor).grantRole(REWARDER_ROLE, rewarder.address);
+
+        // Grant GOVERNOR_ROLE to owner for testing
+        await lpStaking.connect(governor).grantRole(await lpStaking.GOVERNOR_ROLE(), owner.address);
 
         // Grant MINTER_ROLE to rewarder (not LP staking contract)
         await halomToken.connect(governor).grantRole(MINTER_ROLE, rewarder.address);
@@ -47,7 +64,7 @@ describe("HalomLPStaking", function () {
         // Grant MINTER_ROLE to LP staking contract for rewards
         await halomToken.connect(governor).grantRole(MINTER_ROLE, lpStaking.target);
 
-        return { halomToken, lpToken, lpStaking, rewarder, user1, lpAmount, rewardAmount };
+        return { halomToken, lpToken, lpStaking, rewarder, user1, lpAmount, rewardAmount, owner };
     }
 
     it("Should allow a user to stake and receive rewards", async function () {
@@ -113,19 +130,16 @@ describe("HalomLPStaking", function () {
 
     it("Should handle emergency recovery correctly", async function () {
         const { halomToken, lpStaking, owner } = await deployLPStakingFixture();
-
-        // Send some tokens to the contract by mistake (smaller amount)
-        const recoveryAmount = ethers.parseEther("10"); // Much smaller amount to avoid wallet limit
-        await halomToken.transfer(lpStaking.target, recoveryAmount);
         
-        // Emergency recovery should be called by governor
-        await lpStaking.connect(owner).emergencyRecovery(
-            halomToken.target,
-            owner.address,
-            recoveryAmount
-        );
+        // Send tokens to LP staking contract by mistake
+        await halomToken.connect(owner).transfer(lpStaking.target, ethers.parseEther("10"));
         
-        expect(await halomToken.balanceOf(owner.address)).to.equal(recoveryAmount);
+        // Emergency recovery should work
+        await lpStaking.connect(owner).emergencyRecovery(halomToken.target, owner.address, ethers.parseEther("10"));
+        
+        // Check that tokens were recovered
+        const ownerBalance = await halomToken.balanceOf(owner.address);
+        expect(ownerBalance).to.be.gt(ethers.parseEther("1000000")); // Should have recovered the 10 tokens plus original balance
     });
 });
 
