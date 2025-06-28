@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Halom Protocol - Fourth root based DeFi system",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "test": "npx hardhat test",
     "compile": "npx hardhat compile",
@@ -20,6 +21,8 @@
     "coverage": "npx hardhat coverage",
     "lint": "npx solhint 'contracts/**/*.sol'",
     "lint:fix": "npx solhint 'contracts/**/*.sol' --fix",
+    "lint:js": "npx eslint scripts/**/*.js test/**/*.js hardhat.config.js --max-warnings=0",
+    "lint:js:fix": "npx eslint scripts/**/*.js test/**/*.js hardhat.config.js --fix",
     "test:security": "npx hardhat test test/security-audit-tests.js",
     "test:oracle": "npx hardhat test test/test-oracle.js",
     "test:staking": "npx hardhat test test/test-staking.js",
@@ -40,8 +43,11 @@
     "web3": "^4.5.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.30.0",
     "@nomicfoundation/hardhat-toolbox": "^6.0.0",
     "@nomicfoundation/hardhat-ethers": "^3.0.0",
+    "eslint": "^9.30.0",
+    "globals": "^15.12.0",
     "hardhat": "^2.22.1",
     "@openzeppelin/hardhat-upgrades": "^3.9.0",
     "hardhat-gas-reporter": "^2.3.0",

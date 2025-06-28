@@ -36,7 +36,7 @@ async function main() {
     throw new Error('Missing required environment variables for roles.');
   }
 
-    const [deployer] = await ethers.getSigners();
+  const [deployer] = await ethers.getSigners();
   console.log('Deploying contracts with deployer:', deployer.address);
 
   // --- 2. Deploy HalomToken ---
@@ -80,7 +80,7 @@ async function main() {
   const STAKING_CONTRACT_ROLE = await halomToken.STAKING_CONTRACT_ROLE();
   await halomToken.setStakingContract(halomStakingAddress);
   await halomToken.grantRole(STAKING_CONTRACT_ROLE, halomStakingAddress);
-  
+
   // --- CRITICAL: Grant MINTER_ROLE to staking contract for rebase rewards ---
   const MINTER_ROLE = await halomToken.MINTER_ROLE();
   await halomToken.grantRole(MINTER_ROLE, halomStakingAddress);
@@ -193,7 +193,7 @@ async function main() {
   console.log('✅ All mock tokens deployed (if needed)');
   console.log('✅ Treasury and LP staking deployed');
   console.log('✅ Deployment info saved to JSON');
-  
+
   console.log('\n=== Critical Security Checks ===');
   console.log('⚠️  IMPORTANT: Verify the following manually:');
   console.log('1. setStakingContract was called with correct address');
@@ -205,5 +205,5 @@ async function main() {
 
 main().catch((error) => {
   console.error(error);
-        process.exit(1);
-    }); 
+  process.exit(1);
+});
