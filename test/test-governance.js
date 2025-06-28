@@ -76,6 +76,23 @@ describe("Halom Governance System", function () {
         await halomToken.grantRole(await halomToken.MINTER_ROLE(), staking.target);
         await halomToken.grantRole(await halomToken.MINTER_ROLE(), lpStaking.target);
         await halomToken.grantRole(await halomToken.STAKING_CONTRACT_ROLE(), staking.target);
+
+        // Ensure all contracts and users have enough tokens
+        await halomToken.connect(governor).mint(treasury.target, ethers.parseEther("1000000"));
+        await halomToken.connect(governor).mint(staking.target, ethers.parseEther("1000000"));
+        await halomToken.connect(governor).mint(lpStaking.target, ethers.parseEther("1000000"));
+        await halomToken.connect(governor).mint(multisig.address, ethers.parseEther("1000000"));
+        await halomToken.connect(governor).mint(user1.address, ethers.parseEther("1000000"));
+        await halomToken.connect(governor).mint(user2.address, ethers.parseEther("1000000"));
+        await halomToken.connect(governor).mint(user3.address, ethers.parseEther("1000000"));
+        // Exclude from wallet limits
+        await halomToken.connect(governor).setExcludedFromLimits(treasury.target, true);
+        await halomToken.connect(governor).setExcludedFromLimits(staking.target, true);
+        await halomToken.connect(governor).setExcludedFromLimits(lpStaking.target, true);
+        await halomToken.connect(governor).setExcludedFromLimits(multisig.address, true);
+        await halomToken.connect(governor).setExcludedFromLimits(user1.address, true);
+        await halomToken.connect(governor).setExcludedFromLimits(user2.address, true);
+        await halomToken.connect(governor).setExcludedFromLimits(user3.address, true);
     });
 
     describe("Timelock Configuration", function () {

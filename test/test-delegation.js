@@ -47,6 +47,19 @@ describe("HalomStaking Delegation System", function () {
         
         // Grant REWARDER_ROLE to rewarder in staking contract
         await staking.grantRole(await staking.REWARDER_ROLE(), rewarder.address);
+
+        // Ensure all contracts and users have enough tokens
+        await halomToken.connect(owner).mint(staking.target, ethers.parseEther("1000000"));
+        await halomToken.connect(owner).mint(rewarder.address, ethers.parseEther("1000000"));
+        await halomToken.connect(owner).mint(user1.address, ethers.parseEther("1000000"));
+        await halomToken.connect(owner).mint(user2.address, ethers.parseEther("1000000"));
+        await halomToken.connect(owner).mint(user3.address, ethers.parseEther("1000000"));
+        // Exclude from wallet limits
+        await halomToken.connect(owner).setExcludedFromLimits(staking.target, true);
+        await halomToken.connect(owner).setExcludedFromLimits(rewarder.address, true);
+        await halomToken.connect(owner).setExcludedFromLimits(user1.address, true);
+        await halomToken.connect(owner).setExcludedFromLimits(user2.address, true);
+        await halomToken.connect(owner).setExcludedFromLimits(user3.address, true);
     });
 
     describe("Delegation Functionality", function () {
