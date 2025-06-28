@@ -15,12 +15,13 @@ interface IHalomToken {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function approve(address spender, uint256 amount) external returns (bool);
     function allowance(address owner, address spender) external view returns (uint256);
-    function rebase(int256 supplyDelta) external;
+    function rebase(uint256 supplyDelta) external;
     function mint(address to, uint256 amount) external;
     function burnFrom(address account, uint256 amount) external;
     function setStakingContract(address _stakingAddress) external;
     function setRewardRate(uint256 _newRate) external;
     function setMaxRebaseDelta(uint256 _newDelta) external;
+    function maxRebaseDelta() external view returns (uint256);
     function MINTER_ROLE() external view returns (bytes32);
     
     // Governance functions

@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
-import "./HalomToken.sol"; // Using local import for interface
 import "./interfaces/IHalomInterfaces.sol";
 
 contract HalomOracle is AccessControl, Pausable {
@@ -61,7 +60,16 @@ contract HalomOracle is AccessControl, Pausable {
         // Handle positive and negative supply deltas
         if (supplyDelta > 0) {
             uint256 positiveDelta = uint256(supplyDelta);
-            halomToken.rebase(positiveDelta);
+            
+            // Check if the delta exceeds the maximum allowed rebase delta
+            uint256 maxRebaseDelta = halomToken.maxRebaseDelta();
+            uint256 maxDelta = (S * maxRebaseDelta) / 10000;
+            
+            // Only rebase if the delta is within limits
+            if (positiveDelta <= maxDelta) {
+                halomToken.rebase(positiveDelta);
+            }
+            // If delta exceeds max, we skip the rebase but still update the HOI
         } else if (supplyDelta < 0) {
             // For negative rebase, we need to handle it differently since rebase only accepts positive values
             // We'll skip negative rebases for now to avoid complexity

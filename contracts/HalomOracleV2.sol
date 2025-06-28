@@ -4,7 +4,6 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./HalomToken.sol";
 import "./interfaces/IHalomInterfaces.sol";
 
 /**
@@ -244,8 +243,21 @@ contract HalomOracleV2 is AccessControl, Pausable, ReentrancyGuard {
         round.finalHOI = _finalHOI;
         round.executed = true;
         
-        // Execute rebase
-        halomToken.rebase(supplyDelta);
+        // Execute rebase only for positive deltas and within limits
+        if (supplyDelta > 0) {
+            uint256 positiveDelta = uint256(supplyDelta);
+            
+            // Check if the delta exceeds the maximum allowed rebase delta
+            uint256 maxRebaseDelta = halomToken.maxRebaseDelta();
+            uint256 maxDelta = (S * maxRebaseDelta) / 10000;
+            
+            // Only rebase if the delta is within limits
+            if (positiveDelta <= maxDelta) {
+                halomToken.rebase(positiveDelta);
+            }
+            // If delta exceeds max, we skip the rebase but still update the HOI
+        }
+        // For negative deltas, skip rebase for now
         
         // Move to next round
         nonce++;

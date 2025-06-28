@@ -70,8 +70,8 @@ describe("HalomToken", function () {
             const initialSupply = await halomToken.totalSupply();
             const maxDelta = await halomToken.maxRebaseDelta();
             
-            // Calculate a very small rebase amount (0.001% of max delta to ensure it's well within limits)
-            const safeRebaseAmount = (initialSupply * BigInt(maxDelta)) / 10000n / 100000n; // 0.001% of max delta
+            // Calculate a very small rebase amount (0.0001% of max delta to ensure it's well within limits)
+            const safeRebaseAmount = (initialSupply * BigInt(maxDelta)) / 10000n / 1000000n; // 0.0001% of max delta
             
             // Ensure the amount is at least 1000 wei to avoid precision issues
             const finalRebaseAmount = safeRebaseAmount > 1000n ? safeRebaseAmount : 1000n;
