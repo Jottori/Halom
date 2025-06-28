@@ -70,6 +70,8 @@ describe("HalomLPStaking", function () {
         const rewardAmount = ethers.parseUnits("5000", 18);
         await halomToken.connect(rewarder).mint(rewarder.address, rewardAmount);
         await halomToken.connect(rewarder).approve(await lpStaking.getAddress(), rewardAmount);
+        // Approve again for the second addRewards call
+        await halomToken.connect(rewarder).approve(await lpStaking.getAddress(), rewardAmount);
 
         // Emergency recovery teszt előtt:
         await halomToken.connect(rewarder).approve(await halomToken.getAddress(), ethers.parseEther("1000000"));

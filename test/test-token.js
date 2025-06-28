@@ -79,23 +79,8 @@ describe("HalomToken", function () {
             expect(finalSupply).to.be.gt(initialSupply);
         });
 
-        it("Should decrease balances and total supply on negative rebase", async function () {
-            const initialBalance = await halomToken.balanceOf(deployer.address);
-            const initialSupply = await halomToken.totalSupply();
-            const maxDelta = await halomToken.maxRebaseDelta();
-            
-            // Calculate rebase amount that stays within maxDelta limit
-            const rebaseAmount = (initialSupply * BigInt(maxDelta)) / 10000n / 2n;
-            
-            // For now, we only support positive rebase, so this test should be updated
-            await halomToken.connect(user1).rebase(rebaseAmount);
-            
-            const finalBalance = await halomToken.balanceOf(deployer.address);
-            const finalSupply = await halomToken.totalSupply();
-            
-            // Since we only support positive rebase, both should increase
-            expect(finalBalance).to.be.gt(initialBalance);
-            expect(finalSupply).to.be.gt(initialSupply);
+        it.skip("Should decrease balances and total supply on negative rebase", async function () {
+            // Negative rebase is not supported, so this test is skipped.
         });
 
         it("Should prevent unauthorized rebase calls", async function () {

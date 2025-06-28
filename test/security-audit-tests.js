@@ -48,6 +48,23 @@ describe("Halom Protocol Security Audit Tests", function () {
             await halomToken.getAddress(), deployer.address
         );
 
+        // Deploy HalomRoleManager
+        const HalomRoleManager = await ethers.getContractFactory("HalomRoleManager");
+        roleManager = await HalomRoleManager.deploy();
+
+        // Deploy TimelockController
+        const TimelockController = await ethers.getContractFactory("TimelockController");
+        timelock = await TimelockController.deploy(
+            60, [deployer.address], [deployer.address], deployer.address
+        );
+
+        // Deploy HalomGovernor with new constructor parameters
+        const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
+        governor = await HalomGovernor.deploy(
+            await halomToken.getAddress(), await timelock.getAddress(),
+            1, 45818, ethers.parseEther("1000"), 4
+        );
+
         // Setup roles
         await halomToken.connect(deployer).setStakingContract(await staking.getAddress());
         const REWARDER_ROLE = await staking.REWARDER_ROLE();

@@ -167,7 +167,7 @@ describe("Halom Governance System", function () {
     describe("Token Locking and Voting Power", function () {
         it("Should allow users to lock tokens", async function () {
             await halomToken.approve(governor.target, lockAmount);
-            await governor.lockTokens(lockAmount);
+            await governor.lockTokens(lockAmount, 5 * 365 * 24 * 60 * 60);
             
             expect(await governor.lockedTokens(deployer.address)).to.equal(lockAmount);
             expect(await governor.lockTime(deployer.address)).to.be.gt(0);
@@ -175,7 +175,7 @@ describe("Halom Governance System", function () {
 
         it("Should calculate voting power using fourth root", async function () {
             await halomToken.approve(governor.target, lockAmount);
-            await governor.lockTokens(lockAmount);
+            await governor.lockTokens(lockAmount, 5 * 365 * 24 * 60 * 60);
             
             const votingPower = await governor.getVotePower(deployer.address);
             expect(votingPower).to.be.gt(ethers.parseEther("0"));
@@ -184,7 +184,7 @@ describe("Halom Governance System", function () {
 
         it("Should not allow voting after lock expires", async function () {
             await halomToken.approve(governor.target, lockAmount);
-            await governor.lockTokens(lockAmount);
+            await governor.lockTokens(lockAmount, 5 * 365 * 24 * 60 * 60);
             
             // Fast forward 5 years + 1 day
             await ethers.provider.send("evm_increaseTime", [5 * 365 * 24 * 60 * 60 + 86400]);
@@ -195,7 +195,7 @@ describe("Halom Governance System", function () {
 
         it("Should allow token unlocking after lock period", async function () {
             await halomToken.approve(governor.target, lockAmount);
-            await governor.lockTokens(lockAmount);
+            await governor.lockTokens(lockAmount, 5 * 365 * 24 * 60 * 60);
             
             // Fast forward 5 years + 1 day
             await ethers.provider.send("evm_increaseTime", [5 * 365 * 24 * 60 * 60 + 86400]);
@@ -219,7 +219,7 @@ describe("Halom Governance System", function () {
             expect(await governor.lockedTokens(deployer.address)).to.equal(lockAmount);
             
             // Check voting power
-            const votingPower = await governor.getVotingPower(deployer.address);
+            const votingPower = await governor.getVotePower(deployer.address);
             expect(votingPower).to.be.gte(lockAmount);
         });
     });

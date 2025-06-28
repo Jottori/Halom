@@ -34,6 +34,9 @@ describe("HalomOracle", function () {
 
         // Grant REBASER_ROLE to the oracle contract
         await halomToken.connect(deployer).grantRole(await halomToken.REBASER_ROLE(), await oracle.getAddress());
+
+        // Grant DEFAULT_ADMIN_ROLE to deployer for privileged actions
+        await oracle.grantRole(await oracle.DEFAULT_ADMIN_ROLE(), deployer.address);
     });
 
     describe("Deployment and Role Setup", function () {
