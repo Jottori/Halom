@@ -399,6 +399,7 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
         uint256 _lpStakingPercentage,
         uint256 _daoReservePercentage
     ) external onlyRole(GOVERNOR_ROLE) {
+        require(_stakingPercentage > 0, "Staking percentage must be greater than 0");
         uint256 totalPercentage = _stakingPercentage + _lpStakingPercentage + _daoReservePercentage;
         require(totalPercentage == 10000, "Percentages must sum to 100%");
         
