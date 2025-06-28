@@ -1,13 +1,13 @@
-require('@nomicfoundation/hardhat-toolbox');
-require('@openzeppelin/hardhat-upgrades');
-require('solidity-coverage');
-require('dotenv').config();
+import '@nomicfoundation/hardhat-toolbox';
+import '@openzeppelin/hardhat-upgrades';
+import 'solidity-coverage';
+import 'dotenv/config';
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY || '';
 const ZKSYNC_PRIVATE_KEY = process.env.ZKSYNC_PRIVATE_KEY || PRIVATE_KEY;
 
 /** @type import('hardhat/config').HardhatUserConfig */
-module.exports = {
+const config = {
   solidity: {
     version: '0.8.24',
     settings: {
@@ -92,3 +92,5 @@ module.exports = {
     currency: 'USD'
   }
 };
+
+export default config;
