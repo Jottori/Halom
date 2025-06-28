@@ -4,6 +4,17 @@ import globals from 'globals';
 export default [
   js.configs.recommended,
   {
+    ignores: [
+      'coverage/**/*',
+      'node_modules/**/*',
+      'artifacts/**/*',
+      'cache/**/*',
+      '.venv/**/*',
+      '**/*.min.js',
+      '**/*.bundle.js'
+    ]
+  },
+  {
     languageOptions: {
       globals: {
         ...globals.node,
@@ -17,19 +28,19 @@ export default [
       // Error handling
       'no-console': 'warn',
       'no-debugger': 'error',
-      
+
       // Code quality
       'no-unused-vars': ['error', { 'argsIgnorePattern': '^_' }],
       'no-undef': 'error',
       'no-redeclare': 'error',
-      
+
       // Best practices
       'eqeqeq': ['error', 'always'],
       'curly': ['error', 'all'],
       'no-eval': 'error',
       'no-implied-eval': 'error',
       'no-new-func': 'error',
-      
+
       // Styling
       'indent': ['error', 2],
       'quotes': ['error', 'single'],
@@ -37,7 +48,7 @@ export default [
       'comma-dangle': ['error', 'never'],
       'no-trailing-spaces': 'error',
       'eol-last': 'error',
-      
+
       // Hardhat specific
       'no-var': 'error',
       'prefer-const': 'error',
@@ -46,7 +57,7 @@ export default [
     }
   },
   {
-    files: ['test/**/*.js'],
+    files: ['test/**/*.cjs'],
     rules: {
       'no-console': 'off', // Allow console in tests
       'no-unused-vars': 'off' // Allow unused variables in tests
@@ -58,4 +69,4 @@ export default [
       'no-console': 'off' // Allow console in scripts
     }
   }
-]; 
+];
