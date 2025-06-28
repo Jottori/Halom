@@ -63,7 +63,7 @@ describe("Secure Role Structure", function () {
             await halomToken.getAddress(), owner.address
         );
 
-        // Deploy TimelockController
+        // Deploy TimelockController with correct constructor parameters
         const TimelockController = await ethers.getContractFactory("TimelockController");
         timelock = await TimelockController.deploy(
             60, [owner.address], [owner.address], owner.address

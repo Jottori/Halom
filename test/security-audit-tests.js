@@ -58,7 +58,7 @@ describe("Halom Protocol Security Audit Tests", function () {
             await halomToken.getAddress(), deployer.address
         );
 
-        // Deploy TimelockController
+        // Deploy TimelockController with correct constructor parameters
         const TimelockController = await ethers.getContractFactory("TimelockController");
         timelock = await TimelockController.deploy(
             60, [deployer.address], [deployer.address], deployer.address
