@@ -267,13 +267,14 @@ describe('Halom Governance System', function () {
       const feeAmount = ethers.parseEther('100');
       const initialFees = await treasury.totalFeesCollected();
 
-      // Note: collectFees doesn't actually transfer tokens or update totalFeesCollected in current implementation
-      // It only emits an event
-      await halomToken.approve(treasury.target, feeAmount);
+      // Transfer tokens to treasury first
+      await halomToken.transfer(await treasury.getAddress(), feeAmount);
+      
+      // Collect fees
       await treasury.collectFees(deployer.address, feeAmount);
 
-      // totalFeesCollected remains unchanged in current implementation
-      expect(await treasury.totalFeesCollected()).to.equal(initialFees);
+      // totalFeesCollected should be updated
+      expect(await treasury.totalFeesCollected()).to.equal(initialFees + feeAmount);
     });
   });
 
@@ -358,13 +359,14 @@ describe('Halom Governance System', function () {
       const feeAmount = ethers.parseEther('100');
       const initialFees = await treasury.totalFeesCollected();
 
-      // Note: collectFees doesn't actually transfer tokens or update totalFeesCollected in current implementation
-      // It only emits an event
-      await halomToken.approve(treasury.target, feeAmount);
+      // Transfer tokens to treasury first
+      await halomToken.transfer(await treasury.getAddress(), feeAmount);
+      
+      // Collect fees
       await treasury.collectFees(deployer.address, feeAmount);
 
-      // totalFeesCollected remains unchanged in current implementation
-      expect(await treasury.totalFeesCollected()).to.equal(initialFees);
+      // totalFeesCollected should be updated
+      expect(await treasury.totalFeesCollected()).to.equal(initialFees + feeAmount);
     });
 
     it('Should allow staking with lock periods', async function () {

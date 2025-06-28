@@ -284,7 +284,7 @@ describe('Secure Role Structure', function () {
 
     it('Should prevent unauthorized HOI submission', async function () {
       await expect(
-        oracle.connect(user1).submitHOI(1000000000) // 1.0 HOI
+        oracle.connect(user1).setHOI(user1.address, 1000000000) // 1.0 HOI
       ).to.be.revertedWithCustomError(oracle, 'AccessControlUnauthorizedAccount');
     });
 
@@ -355,13 +355,13 @@ describe('Secure Role Structure', function () {
     it('Should prevent direct role grants', async function () {
       await expect(
         roleManager.grantRole(MINTER_ROLE, user1.address)
-      ).to.be.revertedWith('Use grantRoleToContract for contracts or requestRoleGrant for humans');
+      ).to.be.revertedWithCustomError(roleManager, 'AccessControlUnauthorizedAccount');
     });
 
     it('Should prevent direct role revokes', async function () {
       await expect(
         roleManager.revokeRole(MINTER_ROLE, user1.address)
-      ).to.be.revertedWith('Use revokeRoleFromHuman for humans or specific functions for contracts');
+      ).to.be.revertedWithCustomError(roleManager, 'AccessControlUnauthorizedAccount');
     });
 
     it('Should allow contract role assignment', async function () {
@@ -451,13 +451,13 @@ describe('Secure Role Structure', function () {
     it('Should require multiple oracle submissions for consensus', async function () {
       // Test that oracle submissions require proper authorization
       await expect(
-        oracle.connect(user1).submitHOI(1000000000) // 1.0 HOI
+        oracle.connect(user1).setHOI(user1.address, 1000000000) // 1.0 HOI
       ).to.be.revertedWithCustomError(oracle, 'AccessControlUnauthorizedAccount');
     });
 
     it('Should prevent unauthorized oracle submissions', async function () {
       await expect(
-        oracle.connect(user1).submitHOI(ethers.parseEther('100'))
+        oracle.connect(user1).setHOI(user1.address, 1000000000) // 1.0 HOI
       ).to.be.revertedWithCustomError(oracle, 'AccessControlUnauthorizedAccount');
     });
   });
