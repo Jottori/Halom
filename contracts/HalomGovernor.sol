@@ -247,7 +247,7 @@ contract HalomGovernor is
      */
     function _getVotes(
         address account,
-        uint256 blockNumber,
+        uint256,
         bytes memory /*params*/
     ) internal view virtual override(Governor, GovernorVotes) returns (uint256) {
         return getVotePower(account);

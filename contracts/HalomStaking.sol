@@ -244,7 +244,7 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
     /**
      * @dev Adjust rewards for rebase changes
      */
-    function _adjustRewardsForRebase(address _account, uint256 _pendingRewards) internal view returns (uint256) {
+    function _adjustRewardsForRebase(address, uint256 _pendingRewards) internal view returns (uint256) {
         // Get current token balance in contract
         uint256 contractBalance = halomToken.balanceOf(address(this));
         
@@ -261,7 +261,7 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
     /**
      * @dev Check for stake manipulation
      */
-    function _checkStakeManipulation(address user) internal {
+    function _checkStakeManipulation(address user) internal view {
         // Check stake frequency
         if (block.timestamp < lastStakeTime[user] + STAKE_COOLDOWN) {
             revert InvalidAmount();
@@ -688,9 +688,9 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         // Calculate rewards based on validator's performance and commission
         // This is a simplified calculation - in practice, you'd track validator performance
         uint256 timeSinceLastClaim = block.timestamp - delegatorLastClaimTime[_delegator];
-        uint256 rewardRate = 1000; // 10% annual rate (simplified)
+        uint256 localRewardRate = 1000; // 10% annual rate (simplified)
         
-        uint256 rewards = (userDelegatedAmount * rewardRate * timeSinceLastClaim) / (365 days * 10000);
+        uint256 rewards = (userDelegatedAmount * localRewardRate * timeSinceLastClaim) / (365 days * 10000);
         
         // Apply commission
         uint256 commission = (rewards * userValidatorCommission) / COMMISSION_DENOMINATOR;
@@ -728,9 +728,9 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
     function calculateRewards(address _user) public view returns (uint256) {
         if (stakedBalance[_user] == 0) return 0;
         
-        uint256 userRewardRate = 1000; // 10% annual rate (simplified)
+        uint256 localRewardRate = 1000; // 10% annual rate (simplified)
         uint256 timeStaked = block.timestamp - stakeTime[_user];
-        uint256 reward = (stakedBalance[_user] * userRewardRate * timeStaked) / (365 days * 10000);
+        uint256 reward = (stakedBalance[_user] * localRewardRate * timeStaked) / (365 days * 10000);
         
         return reward;
     }

@@ -356,7 +356,7 @@ contract HalomOracleV2 is AccessControl, Pausable, ReentrancyGuard {
     /**
      * @dev Calculate supply delta based on HOI
      */
-    function _calculateSupplyDelta(uint256 hoi) internal view returns (int256) {
+    function _calculateSupplyDelta(uint256 hoi) internal pure returns (int256) {
         // Simple linear relationship: HOI 100 = no change, HOI 200 = +10% supply
         if (hoi == 100) return 0;
         if (hoi > 100) {

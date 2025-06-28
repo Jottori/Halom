@@ -259,7 +259,7 @@ contract HalomRoleManager is AccessControl, Pausable {
     /**
      * @dev Override grantRole to prevent direct usage
      */
-    function grantRole(bytes32 role, address account) public virtual override {
+    function grantRole(bytes32, address) public virtual override {
         revert(
             "Use grantRoleToContract for contracts or requestRoleGrant for humans"
         );
@@ -268,7 +268,7 @@ contract HalomRoleManager is AccessControl, Pausable {
     /**
      * @dev Override revokeRole to prevent direct usage
      */
-    function revokeRole(bytes32 role, address account) public virtual override {
+    function revokeRole(bytes32, address) public virtual override {
         revert(
             "Use revokeRoleFromHuman for humans or specific functions for contracts"
         );

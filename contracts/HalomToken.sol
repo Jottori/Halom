@@ -347,7 +347,7 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     function _moveDelegateVotes(address src, address dst, uint256 amount) private {
         if (src != dst && amount > 0) {
             if (src != address(0)) {
-                (uint256 oldWeight, uint256 newWeight) = _writeCheckpoint(
+                (uint256 _oldWeight, uint256 _newWeight) = _writeCheckpoint(
                     _delegateCheckpoints[src],
                     _delegateCheckpointCounts[src],
                     _delegateCheckpoints[src][_delegateCheckpointCounts[src] - 1],
@@ -356,7 +356,7 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
             }
 
             if (dst != address(0)) {
-                (uint256 oldWeight, uint256 newWeight) = _writeCheckpoint(
+                (uint256 _oldWeight, uint256 _newWeight) = _writeCheckpoint(
                     _delegateCheckpoints[dst],
                     _delegateCheckpointCounts[dst],
                     _delegateCheckpoints[dst][_delegateCheckpointCounts[dst] - 1],

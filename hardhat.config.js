@@ -9,7 +9,7 @@ const ZKSYNC_PRIVATE_KEY = process.env.ZKSYNC_PRIVATE_KEY || PRIVATE_KEY;
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
-    version: "0.8.20",
+    version: "0.8.24",
     settings: {
       optimizer: {
         enabled: true,
