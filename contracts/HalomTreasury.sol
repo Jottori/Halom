@@ -399,13 +399,8 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
         uint256 _lpStakingPercentage,
         uint256 _daoReservePercentage
     ) external onlyRole(GOVERNOR_ROLE) {
-        require(
-            _stakingPercentage + _lpStakingPercentage + _daoReservePercentage == 10000,
-            "Percentages must sum to 100%"
-        );
-        require(_stakingPercentage > 0, "Staking percentage must be greater than 0");
-        require(_lpStakingPercentage > 0, "LP staking percentage must be greater than 0");
-        require(_daoReservePercentage > 0, "DAO reserve percentage must be greater than 0");
+        uint256 totalPercentage = _stakingPercentage + _lpStakingPercentage + _daoReservePercentage;
+        require(totalPercentage == 10000, "Percentages must sum to 100%");
         
         stakingFeePercentage = _stakingPercentage;
         lpStakingFeePercentage = _lpStakingPercentage;
@@ -601,23 +596,6 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
         daoReserveAddress = _daoReserveAddress;
         
         emit FeeDistributionUpdated(_stakingAddress, _lpStakingAddress, _daoReserveAddress);
-    }
-
-    /**
-     * @dev Set fee distribution percentages
-     */
-    function setFeePercentages(
-        uint256 _stakingPercentage,
-        uint256 _lpStakingPercentage,
-        uint256 _daoReservePercentage
-    ) external onlyRole(GOVERNOR_ROLE) {
-        require(_stakingPercentage + _lpStakingPercentage + _daoReservePercentage == 10000, "Percentages must sum to 100%");
-        
-        stakingFeePercentage = _stakingPercentage;
-        lpStakingFeePercentage = _lpStakingPercentage;
-        daoReserveFeePercentage = _daoReservePercentage;
-        
-        emit FeePercentagesUpdated(_stakingPercentage, _lpStakingPercentage, _daoReservePercentage);
     }
 
     /**
