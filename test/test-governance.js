@@ -343,10 +343,10 @@ describe("Halom Governance System", function () {
         });
 
         it("Should prevent unauthorized emergency recovery", async function () {
-            // Test that unauthorized users cannot perform emergency actions
+            // Test that unauthorized users cannot perform emergency recovery on treasury
             await expect(
-                halomToken.connect(user1).setMaxRebaseDelta(500)
-            ).to.be.revertedWithCustomError(halomToken, "AccessControlUnauthorizedAccount");
+                treasury.connect(user1).emergencyRecovery(await halomToken.getAddress(), user1.address, ethers.parseEther("1000"))
+            ).to.be.revertedWithCustomError(treasury, "AccessControlUnauthorizedAccount");
         });
     });
 

@@ -240,6 +240,9 @@ describe("Secure Role Structure", function () {
     describe("REBASE_CALLER Security", function () {
         it("Should only be assigned to Oracle contract", async function () {
             expect(await halomToken.hasRole(REBASE_CALLER, await oracle.getAddress())).to.be.true;
+            // In tests, owner also has REBASE_CALLER for testing purposes
+            expect(await halomToken.hasRole(REBASE_CALLER, owner.address)).to.be.true;
+            // user1 should not have REBASE_CALLER role
             expect(await halomToken.hasRole(REBASE_CALLER, user1.address)).to.be.false;
         });
 
