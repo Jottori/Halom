@@ -160,6 +160,9 @@ describe("Secure Role Structure", function () {
         await halomToken.connect(owner).setExcludedFromLimits(await governor.getAddress(), true);
         await halomToken.connect(owner).setExcludedFromLimits(owner.address, true);
 
+        // Grant MINTER_ROLE to LP staking contract for rewards
+        await halomToken.connect(owner).grantRole(MINTER_ROLE, await lpStaking.getAddress());
+
         return { halomToken, staking, lpStaking, oracle, treasury, roleManager, timelock, governor };
     }
 

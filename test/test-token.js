@@ -68,9 +68,10 @@ describe("HalomToken", function () {
     describe("Rebase Functionality", function () {
         it("Should allow authorized rebase caller to trigger rebase", async function () {
             const initialSupply = await halomToken.totalSupply();
+            const maxDelta = await halomToken.maxRebaseDelta();
             
-            // Use a concrete small value for rebase
-            const rebaseAmount = ethers.parseEther("1000"); // 1000 tokens
+            // Calculate rebase amount that stays within maxDelta limit
+            const rebaseAmount = (initialSupply * BigInt(maxDelta)) / 10000n - 1n;
             
             await halomToken.connect(user1).rebase(rebaseAmount);
             
@@ -81,9 +82,10 @@ describe("HalomToken", function () {
         it("Should decrease balances and total supply on negative rebase", async function () {
             const initialBalance = await halomToken.balanceOf(deployer.address);
             const initialSupply = await halomToken.totalSupply();
+            const maxDelta = await halomToken.maxRebaseDelta();
             
-            // Use a concrete small value for rebase
-            const rebaseAmount = ethers.parseEther("500"); // 500 tokens
+            // Calculate rebase amount that stays within maxDelta limit
+            const rebaseAmount = (initialSupply * BigInt(maxDelta)) / 10000n / 2n;
             
             // For now, we only support positive rebase, so this test should be updated
             await halomToken.connect(user1).rebase(rebaseAmount);

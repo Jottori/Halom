@@ -240,6 +240,9 @@ describe("HalomStaking Delegation System", function () {
             await ethers.provider.send("evm_increaseTime", [7 * 24 * 3600]);
             await ethers.provider.send("evm_mine");
             
+            // Add more rewards to ensure commission is available
+            await staking.connect(rewarder).addRewards(ethers.parseEther("500"));
+            
             // Commission claiming will fail because validatorEarnedCommission is never set in current implementation
             await expect(staking.connect(user2).claimCommission())
                 .to.be.revertedWith("No commission to claim");

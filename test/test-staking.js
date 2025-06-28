@@ -153,6 +153,9 @@ describe("HalomStaking", function () {
       // Add rewards (only governor can do this)
       await staking.connect(governor).addRewards(ethers.parseEther("100"));
       
+      // Add more rewards to ensure sufficient rewards are available
+      await staking.connect(governor).addRewards(ethers.parseEther("50"));
+      
       const pendingRewards = await staking.getPendingRewardsForUser(user1.address);
       expect(pendingRewards).to.be.gt(0);
     });

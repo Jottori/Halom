@@ -2,12 +2,13 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
 describe("Halom Governance System", function () {
-    let halomToken, timelock, governor, treasury, oracle, staking, lpStaking;
+    let HalomToken, halomToken, HalomStaking, staking, HalomLPStaking, lpStaking;
+    let HalomTreasury, treasury, HalomGovernor, governor, HalomTimelock, timelock;
     let deployer, user1, user2, user3, multisig;
     let initialSupply, lockAmount;
 
     beforeEach(async function () {
-        [deployer, user1, user2, user3] = await ethers.getSigners();
+        [deployer, user1, user2, user3, multisig] = await ethers.getSigners();
         
         // Deploy HalomToken first
         const HalomToken = await ethers.getContractFactory("HalomToken");
@@ -206,6 +207,20 @@ describe("Halom Governance System", function () {
             
             expect(balanceAfter - balanceBefore).to.equal(lockAmount);
             expect(await governor.lockedTokens(deployer.address)).to.equal(0);
+        });
+
+        it("Should allow token locking for voting power", async function () {
+            const lockAmount = ethers.parseEther("10000");
+            
+            // Lock tokens for voting power
+            await halomToken.approve(governor.target, lockAmount);
+            await governor.lockTokens(lockAmount, 5 * 365 * 24 * 60 * 60); // 5 years
+            
+            expect(await governor.lockedTokens(deployer.address)).to.equal(lockAmount);
+            
+            // Check voting power
+            const votingPower = await governor.getVotingPower(deployer.address);
+            expect(votingPower).to.be.gte(lockAmount);
         });
     });
 
