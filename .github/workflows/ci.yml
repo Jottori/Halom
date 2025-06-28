@@ -37,7 +37,7 @@ jobs:
       run: npx eslint '**/*.{js,ts}' --max-warnings=0 || true
 
     - name: Run Solidity Coverage
-      run: npx hardhat coverage --temp ./coverage
+      run: npx hardhat coverage
 
     - name: Upload Solidity Coverage Report
       uses: actions/upload-artifact@v4

@@ -1,0 +1,1169 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>Code coverage report for contracts\HalomOracleV2.sol</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../prettify.css" />
+    <link rel="stylesheet" href="../base.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+<body>
+<div class='wrapper'>
+  <div class='pad1'>
+    <h1>
+      <a href="../index.html">all files</a> / <a href="index.html">contracts/</a> HalomOracleV2.sol
+    </h1>
+    <div class='clearfix'>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">17.44% </span>
+        <span class="quiet">Statements</span>
+        <span class='fraction'>15/86</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">12.79% </span>
+        <span class="quiet">Branches</span>
+        <span class='fraction'>11/86</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">17.65% </span>
+        <span class="quiet">Functions</span>
+        <span class='fraction'>3/17</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">16.67% </span>
+        <span class="quiet">Lines</span>
+        <span class='fraction'>18/108</span>
+      </div>
+    </div>
+  </div>
+  <div class='status-line low'></div>
+<pre><table class="coverage">
+<tr><td class="line-count quiet">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+77
+78
+79
+80
+81
+82
+83
+84
+85
+86
+87
+88
+89
+90
+91
+92
+93
+94
+95
+96
+97
+98
+99
+100
+101
+102
+103
+104
+105
+106
+107
+108
+109
+110
+111
+112
+113
+114
+115
+116
+117
+118
+119
+120
+121
+122
+123
+124
+125
+126
+127
+128
+129
+130
+131
+132
+133
+134
+135
+136
+137
+138
+139
+140
+141
+142
+143
+144
+145
+146
+147
+148
+149
+150
+151
+152
+153
+154
+155
+156
+157
+158
+159
+160
+161
+162
+163
+164
+165
+166
+167
+168
+169
+170
+171
+172
+173
+174
+175
+176
+177
+178
+179
+180
+181
+182
+183
+184
+185
+186
+187
+188
+189
+190
+191
+192
+193
+194
+195
+196
+197
+198
+199
+200
+201
+202
+203
+204
+205
+206
+207
+208
+209
+210
+211
+212
+213
+214
+215
+216
+217
+218
+219
+220
+221
+222
+223
+224
+225
+226
+227
+228
+229
+230
+231
+232
+233
+234
+235
+236
+237
+238
+239
+240
+241
+242
+243
+244
+245
+246
+247
+248
+249
+250
+251
+252
+253
+254
+255
+256
+257
+258
+259
+260
+261
+262
+263
+264
+265
+266
+267
+268
+269
+270
+271
+272
+273
+274
+275
+276
+277
+278
+279
+280
+281
+282
+283
+284
+285
+286
+287
+288
+289
+290
+291
+292
+293
+294
+295
+296
+297
+298
+299
+300
+301
+302
+303
+304
+305
+306
+307
+308
+309
+310
+311
+312
+313
+314
+315
+316
+317
+318
+319
+320
+321
+322
+323
+324
+325
+326
+327
+328
+329
+330
+331
+332
+333
+334
+335
+336
+337
+338
+339
+340
+341
+342
+343
+344
+345
+346
+347
+348
+349
+350
+351
+352
+353
+354
+355
+356
+357
+358
+359
+360
+361
+362
+363
+364
+365
+366
+367
+368
+369</td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">69×</span>
+<span class="cline-any cline-yes">69×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">69×</span>
+<span class="cline-any cline-yes">69×</span>
+<span class="cline-any cline-yes">69×</span>
+<span class="cline-any cline-yes">69×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+&nbsp;
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "./HalomToken.sol";
+import "./interfaces/IHalomInterfaces.sol";
+&nbsp;
+/**
+ * @title HalomOracleV2
+ * @dev Enhanced oracle with multiple nodes and consensus mechanism
+ * Implements secure role structure with ORACLE_UPDATER_ROLE for authorized nodes only
+ */
+contract HalomOracleV2 is AccessControl, Pausable, ReentrancyGuard {
+    bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
+    bytes32 public constant ORACLE_UPDATER_ROLE = keccak256("ORACLE_UPDATER_ROLE");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+&nbsp;
+    IHalomToken public halomToken;
+    
+    uint256 public latestHOI;
+    uint256 public lastUpdateTime;
+    uint256 public nonce;
+    uint256 public immutable chainId;
+    
+    // Consensus parameters
+    uint256 public constant MIN_ORACLE_NODES = 3;
+    uint256 public constant CONSENSUS_THRESHOLD = 2; // Minimum 2 nodes must agree
+    uint256 public constant MAX_DEVIATION = 500; // 5% max deviation between submissions
+    uint256 public constant SUBMISSION_WINDOW = 300; // 5 minutes window for submissions
+    
+    struct OracleSubmission {
+        uint256 hoi;
+        uint256 timestamp;
+        bool submitted;
+    }
+    
+    struct ConsensusRound {
+        uint256 nonce;
+        uint256 startTime;
+        uint256 endTime;
+        uint256[] submissions;
+        address[] submitters;
+        bool executed;
+        uint256 finalHOI;
+    }
+    
+    mapping(uint256 =&gt; mapping(address =&gt; OracleSubmission)) public submissions; // nonce =&gt; oracle =&gt; submission
+    mapping(uint256 =&gt; ConsensusRound) public consensusRounds; // nonce =&gt; round
+    mapping(address =&gt; bool) public authorizedOracles;
+    address[] public oracleNodes;
+    
+    // Oracle node management
+    uint256 public maxOracleNodes = 10;
+    uint256 public minOracleNodes = 3;
+    
+    event OracleSubmissionReceived(
+        uint256 indexed nonce,
+        address indexed oracle,
+        uint256 hoi,
+        uint256 timestamp
+    );
+    
+    event ConsensusReached(
+        uint256 indexed nonce,
+        uint256 finalHOI,
+        int256 supplyDelta,
+        address[] participants
+    );
+    
+    event OracleAuthorized(address indexed oracle, bool authorized);
+    event ConsensusParametersUpdated(uint256 minNodes, uint256 threshold, uint256 maxDeviation);
+    event OracleNodeAdded(address indexed oracle, address indexed addedBy);
+    event OracleNodeRemoved(address indexed oracle, address indexed removedBy);
+&nbsp;
+    constructor(address _governance, uint256 _chainId) {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_governance != address(0), "Governance cannot be zero");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_chainId &gt; 0, "Chain ID must be positive");
+        
+        chainId = _chainId;
+        _grantRole(DEFAULT_ADMIN_ROLE, _governance);
+        _grantRole(GOVERNOR_ROLE, _governance);
+        _grantRole(PAUSER_ROLE, _governance);
+    }
+&nbsp;
+    /**
+     * @dev Set HalomToken address (only governor)
+     */
+    function setHalomToken(address _halomToken) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyRole(GOVERNOR_ROLE) {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_halomToken != address(0), "Token address cannot be zero");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_halomToken.code.length &gt; 0, "Must be a contract");
+        halomToken = IHalomToken(_halomToken);
+    }
+&nbsp;
+    /**
+     * @dev Add oracle node (only governor)
+     */
+    function addOracleNode(address _oracle) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyRole(GOVERNOR_ROLE) {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_oracle != address(0), "Oracle address cannot be zero");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_oracle.code.length &gt; 0, "Oracle must be a contract");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(!authorizedOracles[_oracle], "Oracle already authorized");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(oracleNodes.length &lt; maxOracleNodes, "Too many oracle nodes");
+        
+        authorizedOracles[_oracle] = true;
+        oracleNodes.push(_oracle);
+        _grantRole(ORACLE_UPDATER_ROLE, _oracle);
+        
+        emit OracleAuthorized(_oracle, true);
+        emit OracleNodeAdded(_oracle, msg.sender);
+    }
+&nbsp;
+    /**
+     * @dev Remove oracle node (only governor)
+     */
+<span class="fstat-no" title="function not covered" >    function removeOracleNode(address _oracle) external onlyRole(GOVERNOR_ROLE) {</span>
+<span class="cstat-no" title="statement not covered" >        require(authorizedOracles[_oracle], "Oracle not authorized")</span>;
+<span class="cstat-no" title="statement not covered" >        require(oracleNodes.length &gt; minOracleNodes, "Too few oracle nodes")</span>;
+        
+        authorizedOracles[_oracle] = false;
+<span class="cstat-no" title="statement not covered" >        _revokeRole(ORACLE_UPDATER_ROLE, _oracle)</span>;
+        
+        // Remove from oracleNodes array
+<span class="cstat-no" title="statement not covered" >        for (uint256 i = 0; i &lt; oracleNodes.length; i++) {</span>
+<span class="cstat-no" title="statement not covered" >            if (oracleNodes[i] == _oracle) {</span>
+                oracleNodes[i] = oracleNodes[oracleNodes.length - 1];
+<span class="cstat-no" title="statement not covered" >                oracleNodes.pop()</span>;
+                break;
+            }
+        }
+        
+<span class="cstat-no" title="statement not covered" >        emit OracleAuthorized(_oracle, false);</span>
+<span class="cstat-no" title="statement not covered" >        emit OracleNodeRemoved(_oracle, msg.sender);</span>
+    }
+&nbsp;
+    /**
+     * @dev Update consensus parameters (only governor)
+     */
+<span class="fstat-no" title="function not covered" >    function updateConsensusParameters(</span>
+        uint256 _minNodes,
+        uint256 _threshold,
+        uint256 _maxDeviation
+    ) external onlyRole(GOVERNOR_ROLE) {
+<span class="cstat-no" title="statement not covered" >        require(_minNodes &gt;= 2, "Min nodes must be at least 2")</span>;
+<span class="cstat-no" title="statement not covered" >        require(_threshold &gt;= 2, "Threshold must be at least 2")</span>;
+<span class="cstat-no" title="statement not covered" >        require(_maxDeviation &lt;= 1000, "Max deviation cannot exceed 10%")</span>;
+<span class="cstat-no" title="statement not covered" >        require(_minNodes &lt;= oracleNodes.length, "Min nodes cannot exceed current oracle count")</span>;
+        
+        // Update constants (this would require contract upgrade in production)
+        // For now, we'll use storage variables
+<span class="cstat-no" title="statement not covered" >        emit ConsensusParametersUpdated(_minNodes, _threshold, _maxDeviation);</span>
+    }
+&nbsp;
+    /**
+     * @dev Submit HOI value for consensus round (only authorized oracle nodes)
+     */
+<span class="fstat-no" title="function not covered" >    function submitHOI(uint256 _hoi) external <span class="missing-if-branch" title="if path not taken" >I</span>onlyRole(ORACLE_UPDATER_ROLE) nonReentrant whenNotPaused {</span>
+<span class="cstat-no" title="statement not covered" >        require(authorizedOracles[msg.sender], "Oracle: not authorized")</span>;
+<span class="cstat-no" title="statement not covered" >        require(_hoi &gt; 0, "Oracle: invalid HOI value")</span>;
+<span class="cstat-no" title="statement not covered" >        require(_hoi &lt;= 1e12, "Oracle: HOI value too high")</span>; // Max 1000 (scaled by 1e9)
+        
+<span class="cstat-no" title="statement not covered" >        ConsensusRound storage round = consensusRounds[nonce];</span>
+        
+        // Initialize round if first submission
+<span class="cstat-no" title="statement not covered" >        if (round.startTime == 0) {</span>
+            round.nonce = nonce;
+            round.startTime = block.timestamp;
+            round.endTime = block.timestamp + SUBMISSION_WINDOW;
+        }
+        
+<span class="cstat-no" title="statement not covered" >        require(block.timestamp &lt;= round.endTime, "Oracle: submission window closed")</span>;
+<span class="cstat-no" title="statement not covered" >        require(!submissions[nonce][msg.sender].submitted, "Oracle: already submitted")</span>;
+        
+        // Record submission
+        submissions[nonce][msg.sender] = OracleSubmission({
+            hoi: _hoi,
+            timestamp: block.timestamp,
+            submitted: true
+        });
+        
+<span class="cstat-no" title="statement not covered" >        round.submissions.push(_hoi)</span>;
+<span class="cstat-no" title="statement not covered" >        round.submitters.push(msg.sender)</span>;
+        
+<span class="cstat-no" title="statement not covered" >        emit OracleSubmissionReceived(nonce, msg.sender, _hoi, block.timestamp);</span>
+        
+        // Check if consensus can be reached
+<span class="cstat-no" title="statement not covered" >        if (round.submissions.length &gt;= CONSENSUS_THRESHOLD) {</span>
+<span class="cstat-no" title="statement not covered" >            _tryReachConsensus()</span>;
+        }
+    }
+&nbsp;
+    /**
+     * @dev Try to reach consensus and execute rebase
+     */
+<span class="fstat-no" title="function not covered" >    function _tryReachConsensus() internal {</span>
+<span class="cstat-no" title="statement not covered" >        ConsensusRound storage round = consensusRounds[nonce];</span>
+<span class="cstat-no" title="statement not covered" >        require(!round.executed, "Oracle: already executed")</span>;
+        
+        // Sort submissions to find median
+<span class="cstat-no" title="statement not covered" >        uint256[] memory sortedSubmissions = new uint256[](round.submissions.length);</span>
+<span class="cstat-no" title="statement not covered" >        for (uint256 i = 0; i &lt; round.submissions.length; i++) {</span>
+            sortedSubmissions[i] = round.submissions[i];
+        }
+<span class="cstat-no" title="statement not covered" >        _quickSort(sortedSubmissions, 0, int256(sortedSubmissions.length - 1))</span>;
+        
+<span class="cstat-no" title="statement not covered" >        uint256 medianHOI = sortedSubmissions[sortedSubmissions.length / 2];</span>
+        
+        // Check if submissions are within acceptable deviation
+<span class="cstat-no" title="statement not covered" >        bool consensusReached = true;</span>
+<span class="cstat-no" title="statement not covered" >        for (uint256 i = 0; i &lt; round.submissions.length; i++) {</span>
+<span class="cstat-no" title="statement not covered" >            uint256 deviation = _calculateDeviation(round.submissions[i], medianHOI);</span>
+<span class="cstat-no" title="statement not covered" >            if (deviation &gt; MAX_DEVIATION) {</span>
+                consensusReached = false;
+                break;
+            }
+        }
+        
+<span class="cstat-no" title="statement not covered" >        if (consensusReached &amp;&amp; round.submissions.length &gt;= CONSENSUS_THRESHOLD) {</span>
+<span class="cstat-no" title="statement not covered" >            _executeConsensus(medianHOI)</span>;
+        }
+    }
+&nbsp;
+    /**
+     * @dev Execute consensus and trigger rebase
+     */
+<span class="fstat-no" title="function not covered" >    function _executeConsensus(uint256 _finalHOI) internal {</span>
+<span class="cstat-no" title="statement not covered" >        ConsensusRound storage round = consensusRounds[nonce];</span>
+        
+        // Calculate supply delta
+<span class="cstat-no" title="statement not covered" >        uint256 S = halomToken.totalSupply();</span>
+<span class="cstat-no" title="statement not covered" >        int256 supplyDelta;</span>
+        
+<span class="cstat-no" title="statement not covered" >        if (lastUpdateTime == 0) {</span>
+            // First rebase
+<span class="cstat-no" title="statement not covered" >            uint256 initialPeg = 1e9;</span>
+            supplyDelta = int256((_finalHOI * S) / initialPeg) - int256(S);
+        } else {
+            supplyDelta = int256((_finalHOI * S) / latestHOI) - int256(S);
+        }
+        
+        // Update state
+        latestHOI = _finalHOI;
+        lastUpdateTime = block.timestamp;
+        round.finalHOI = _finalHOI;
+        round.executed = true;
+        
+        // Execute rebase
+<span class="cstat-no" title="statement not covered" >        halomToken.rebase(supplyDelta)</span>;
+        
+        // Move to next round
+        nonce++;
+        
+<span class="cstat-no" title="statement not covered" >        emit ConsensusReached(nonce - 1, _finalHOI, supplyDelta, round.submitters);</span>
+    }
+&nbsp;
+    /**
+     * @dev Calculate percentage deviation between two values
+     */
+<span class="fstat-no" title="function not covered" >    function _calculateDeviation(uint256 a, uint256 b) internal pure returns (uint256) {</span>
+<span class="cstat-no" title="statement not covered" >        if (a == b) <span class="cstat-no" title="statement not covered" >return 0;</span></span>
+<span class="cstat-no" title="statement not covered" >        uint256 diff = a &gt; b ? a - b : b - a;</span>
+<span class="cstat-no" title="statement not covered" >        return (diff * 10000) / b;</span> // Return in basis points
+    }
+&nbsp;
+    /**
+     * @dev Quick sort implementation for finding median
+     */
+<span class="fstat-no" title="function not covered" >    function _quickSort(uint256[] memory arr, int256 left, int256 right) internal pure {</span>
+<span class="cstat-no" title="statement not covered" >        if (left &gt;= right) <span class="cstat-no" title="statement not covered" >return;</span></span>
+        
+<span class="cstat-no" title="statement not covered" >        uint256 pivot = arr[uint256(left + (right - left) / 2)];</span>
+<span class="cstat-no" title="statement not covered" >        int256 i = left - 1;</span>
+<span class="cstat-no" title="statement not covered" >        int256 j = right + 1;</span>
+        
+<span class="cstat-no" title="statement not covered" >        while (true) {</span>
+            do {
+                i++;
+            } while (arr[uint256(i)] &lt; pivot);
+            
+            do {
+                j--;
+            } while (arr[uint256(j)] &gt; pivot);
+            
+<span class="cstat-no" title="statement not covered" >            if (i &gt;= j) break;</span>
+            
+<span class="cstat-no" title="statement not covered" >            uint256 temp = arr[uint256(i)];</span>
+            arr[uint256(i)] = arr[uint256(j)];
+            arr[uint256(j)] = temp;
+        }
+        
+<span class="cstat-no" title="statement not covered" >        _quickSort(arr, left, j)</span>;
+<span class="cstat-no" title="statement not covered" >        _quickSort(arr, j + 1, right)</span>;
+    }
+&nbsp;
+    /**
+     * @dev Get current consensus round info
+     */
+<span class="fstat-no" title="function not covered" >    function getCurrentRound() external view returns (</span>
+        uint256 _nonce,
+        uint256 _startTime,
+        uint256 _endTime,
+        uint256 _submissionCount,
+        bool _executed,
+        uint256 _finalHOI
+    ) {
+<span class="cstat-no" title="statement not covered" >        ConsensusRound storage round = consensusRounds[nonce];</span>
+<span class="cstat-no" title="statement not covered" >        return (</span>
+            round.nonce,
+            round.startTime,
+            round.endTime,
+            round.submissions.length,
+            round.executed,
+            round.finalHOI
+        );
+    }
+&nbsp;
+    /**
+     * @dev Get oracle submission for current round
+     */
+<span class="fstat-no" title="function not covered" >    function getOracleSubmission(address _oracle) external view returns (</span>
+        uint256 _hoi,
+        uint256 _timestamp,
+        bool _submitted
+    ) {
+<span class="cstat-no" title="statement not covered" >        OracleSubmission storage submission = submissions[nonce][_oracle];</span>
+<span class="cstat-no" title="statement not covered" >        return (submission.hoi, submission.timestamp, submission.submitted);</span>
+    }
+&nbsp;
+    /**
+     * @dev Get all authorized oracle nodes
+     */
+<span class="fstat-no" title="function not covered" >    function getOracleNodes() external view returns (address[] memory) {</span>
+<span class="cstat-no" title="statement not covered" >        return oracleNodes;</span>
+    }
+&nbsp;
+    /**
+     * @dev Check if address is authorized oracle
+     */
+<span class="fstat-no" title="function not covered" >    function isAuthorizedOracle(address _oracle) external view returns (bool) {</span>
+<span class="cstat-no" title="statement not covered" >        return authorizedOracles[_oracle];</span>
+    }
+&nbsp;
+    /**
+     * @dev Pause oracle operations (emergency)
+     */
+<span class="fstat-no" title="function not covered" >    function pause() external onlyRole(PAUSER_ROLE) {</span>
+<span class="cstat-no" title="statement not covered" >        _pause()</span>;
+    }
+&nbsp;
+    /**
+     * @dev Unpause oracle operations
+     */
+<span class="fstat-no" title="function not covered" >    function unpause() external onlyRole(GOVERNOR_ROLE) {</span>
+<span class="cstat-no" title="statement not covered" >        _unpause()</span>;
+    }
+&nbsp;
+    /**
+     * @dev Emergency function to force consensus (only governor)
+     */
+<span class="fstat-no" title="function not covered" >    function emergencyForceConsensus(uint256 _hoi) external onlyRole(GOVERNOR_ROLE) {</span>
+<span class="cstat-no" title="statement not covered" >        require(_hoi &gt; 0, "Invalid HOI value")</span>;
+<span class="cstat-no" title="statement not covered" >        require(_hoi &lt;= 1e12, "HOI value too high")</span>;
+        
+<span class="cstat-no" title="statement not covered" >        ConsensusRound storage round = consensusRounds[nonce];</span>
+<span class="cstat-no" title="statement not covered" >        require(!round.executed, "Round already executed")</span>;
+        
+<span class="cstat-no" title="statement not covered" >        _executeConsensus(_hoi)</span>;
+    }
+} </pre></td></tr>
+</table></pre>
+<div class='push'></div><!-- for sticky footer -->
+</div><!-- /wrapper -->
+<div class='footer quiet pad2 space-top1 center small'>
+  Code coverage
+  generated by <a href="http://istanbul-js.org/" target="_blank">istanbul</a> at Sat Jun 28 2025 13:18:46 GMT+0200 (közép-európai nyári idő)
+</div>
+</div>
+<script src="../prettify.js"></script>
+<script>
+window.onload = function () {
+        if (typeof prettyPrint === 'function') {
+            prettyPrint();
+        }
+};
+</script>
+<script src="../sorter.js"></script>
+</body>
+</html>

@@ -1,0 +1,1985 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>Code coverage report for contracts\HalomStaking.sol</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../prettify.css" />
+    <link rel="stylesheet" href="../base.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+<body>
+<div class='wrapper'>
+  <div class='pad1'>
+    <h1>
+      <a href="../index.html">all files</a> / <a href="index.html">contracts/</a> HalomStaking.sol
+    </h1>
+    <div class='clearfix'>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">83.33% </span>
+        <span class="quiet">Statements</span>
+        <span class='fraction'>120/144</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">56.96% </span>
+        <span class="quiet">Branches</span>
+        <span class='fraction'>90/158</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">83.78% </span>
+        <span class="quiet">Functions</span>
+        <span class='fraction'>31/37</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">85.07% </span>
+        <span class="quiet">Lines</span>
+        <span class='fraction'>171/201</span>
+      </div>
+    </div>
+  </div>
+  <div class='status-line high'></div>
+<pre><table class="coverage">
+<tr><td class="line-count quiet">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+77
+78
+79
+80
+81
+82
+83
+84
+85
+86
+87
+88
+89
+90
+91
+92
+93
+94
+95
+96
+97
+98
+99
+100
+101
+102
+103
+104
+105
+106
+107
+108
+109
+110
+111
+112
+113
+114
+115
+116
+117
+118
+119
+120
+121
+122
+123
+124
+125
+126
+127
+128
+129
+130
+131
+132
+133
+134
+135
+136
+137
+138
+139
+140
+141
+142
+143
+144
+145
+146
+147
+148
+149
+150
+151
+152
+153
+154
+155
+156
+157
+158
+159
+160
+161
+162
+163
+164
+165
+166
+167
+168
+169
+170
+171
+172
+173
+174
+175
+176
+177
+178
+179
+180
+181
+182
+183
+184
+185
+186
+187
+188
+189
+190
+191
+192
+193
+194
+195
+196
+197
+198
+199
+200
+201
+202
+203
+204
+205
+206
+207
+208
+209
+210
+211
+212
+213
+214
+215
+216
+217
+218
+219
+220
+221
+222
+223
+224
+225
+226
+227
+228
+229
+230
+231
+232
+233
+234
+235
+236
+237
+238
+239
+240
+241
+242
+243
+244
+245
+246
+247
+248
+249
+250
+251
+252
+253
+254
+255
+256
+257
+258
+259
+260
+261
+262
+263
+264
+265
+266
+267
+268
+269
+270
+271
+272
+273
+274
+275
+276
+277
+278
+279
+280
+281
+282
+283
+284
+285
+286
+287
+288
+289
+290
+291
+292
+293
+294
+295
+296
+297
+298
+299
+300
+301
+302
+303
+304
+305
+306
+307
+308
+309
+310
+311
+312
+313
+314
+315
+316
+317
+318
+319
+320
+321
+322
+323
+324
+325
+326
+327
+328
+329
+330
+331
+332
+333
+334
+335
+336
+337
+338
+339
+340
+341
+342
+343
+344
+345
+346
+347
+348
+349
+350
+351
+352
+353
+354
+355
+356
+357
+358
+359
+360
+361
+362
+363
+364
+365
+366
+367
+368
+369
+370
+371
+372
+373
+374
+375
+376
+377
+378
+379
+380
+381
+382
+383
+384
+385
+386
+387
+388
+389
+390
+391
+392
+393
+394
+395
+396
+397
+398
+399
+400
+401
+402
+403
+404
+405
+406
+407
+408
+409
+410
+411
+412
+413
+414
+415
+416
+417
+418
+419
+420
+421
+422
+423
+424
+425
+426
+427
+428
+429
+430
+431
+432
+433
+434
+435
+436
+437
+438
+439
+440
+441
+442
+443
+444
+445
+446
+447
+448
+449
+450
+451
+452
+453
+454
+455
+456
+457
+458
+459
+460
+461
+462
+463
+464
+465
+466
+467
+468
+469
+470
+471
+472
+473
+474
+475
+476
+477
+478
+479
+480
+481
+482
+483
+484
+485
+486
+487
+488
+489
+490
+491
+492
+493
+494
+495
+496
+497
+498
+499
+500
+501
+502
+503
+504
+505
+506
+507
+508
+509
+510
+511
+512
+513
+514
+515
+516
+517
+518
+519
+520
+521
+522
+523
+524
+525
+526
+527
+528
+529
+530
+531
+532
+533
+534
+535
+536
+537
+538
+539
+540
+541
+542
+543
+544
+545
+546
+547
+548
+549
+550
+551
+552
+553
+554
+555
+556
+557
+558
+559
+560
+561
+562
+563
+564
+565
+566
+567
+568
+569
+570
+571
+572
+573
+574
+575
+576
+577
+578
+579
+580
+581
+582
+583
+584
+585
+586
+587
+588
+589
+590
+591
+592
+593
+594
+595
+596
+597
+598
+599
+600
+601
+602
+603
+604
+605
+606
+607
+608
+609
+610
+611
+612
+613
+614
+615
+616
+617
+618
+619
+620
+621
+622
+623
+624
+625
+626
+627
+628
+629
+630
+631
+632
+633
+634
+635
+636
+637
+638
+639
+640
+641</td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">121×</span>
+<span class="cline-any cline-yes">121×</span>
+<span class="cline-any cline-yes">121×</span>
+<span class="cline-any cline-yes">121×</span>
+<span class="cline-any cline-yes">121×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">121×</span>
+<span class="cline-any cline-yes">121×</span>
+<span class="cline-any cline-yes">121×</span>
+<span class="cline-any cline-yes">121×</span>
+<span class="cline-any cline-yes">121×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">121×</span>
+<span class="cline-any cline-yes">121×</span>
+<span class="cline-any cline-yes">121×</span>
+<span class="cline-any cline-yes">121×</span>
+<span class="cline-any cline-yes">121×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">52×</span>
+<span class="cline-any cline-yes">52×</span>
+<span class="cline-any cline-yes">52×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">52×</span>
+<span class="cline-any cline-yes">6500×</span>
+<span class="cline-any cline-yes">6500×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">52×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">52×</span>
+<span class="cline-any cline-yes">52×</span>
+<span class="cline-any cline-yes">45×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">52×</span>
+<span class="cline-any cline-yes">52×</span>
+<span class="cline-any cline-yes">52×</span>
+<span class="cline-any cline-yes">52×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">46×</span>
+<span class="cline-any cline-yes">44×</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">42×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">10×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">10×</span>
+<span class="cline-any cline-yes">9×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">10×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-yes">43×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">11×</span>
+<span class="cline-any cline-yes">11×</span>
+<span class="cline-any cline-yes">10×</span>
+<span class="cline-any cline-yes">10×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">10×</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">10×</span>
+<span class="cline-any cline-yes">10×</span>
+<span class="cline-any cline-yes">10×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">10×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-yes">2×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">8×</span>
+<span class="cline-any cline-yes">7×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-yes">6×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">5×</span>
+<span class="cline-any cline-yes">5×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">8×</span>
+<span class="cline-any cline-yes">8×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7×</span>
+<span class="cline-any cline-yes">7×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7×</span>
+<span class="cline-any cline-yes">7×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7×</span>
+<span class="cline-any cline-yes">7×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-yes">4×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-yes">3×</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+&nbsp;
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
+import "./interfaces/IHalomInterfaces.sol";
+&nbsp;
+contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
+    using SafeERC20 for IERC20;
+&nbsp;
+    bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
+    bytes32 public constant REWARDER_ROLE = keccak256("REWARDER_ROLE");
+    bytes32 public constant SLASHER_ROLE = keccak256("SLASHER_ROLE");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+&nbsp;
+    IHalomToken public halomToken;
+    IHalomRoleManager public roleManager;
+    uint256 public rewardRate;
+&nbsp;
+    uint256 public totalStaked;
+    mapping(address =&gt; uint256) public stakedBalance;
+    mapping(address =&gt; uint256) public lastClaimTime;
+&nbsp;
+    // Fourth root based reward system
+    uint256 public totalFourthRootStake; // Sum of fourth roots of all stakes
+    mapping(address =&gt; uint256) public fourthRootStake; // Fourth root of user's stake
+    uint256 public rewardsPerFourthRoot; // Rewards per fourth root unit
+    mapping(address =&gt; uint256) public rewardDebt;
+&nbsp;
+    // Emergency recovery
+    uint256 public pendingRewards; // Rewards waiting for first staker
+&nbsp;
+    // Staking parameters
+    uint256 public minStakeAmount = 100e18; // 100 HLM minimum
+    uint256 public maxStakeAmount = 1000000e18; // 1M HLM maximum
+    uint256 public lockPeriod = 30 days; // 30 day lock period
+    mapping(address =&gt; uint256) public stakeTime;
+&nbsp;
+    // Slashing parameters
+    uint256 public slashPercentage = 5000; // 50% slash (in basis points)
+    uint256 public constant MAX_SLASH_PERCENTAGE = 10000; // 100%
+&nbsp;
+    // Lock period tracking per user
+    mapping(address =&gt; uint256) public userLockPeriod;
+    mapping(address =&gt; uint256) public lockUntil;
+    mapping(address =&gt; bool) public hasLockedStake;
+&nbsp;
+    // Lock boost parameters
+    uint256 public constant MIN_LOCK_PERIOD = 30 days;
+    uint256 public constant MAX_LOCK_PERIOD = 5 * 365 days; // 5 years
+    uint256 public constant BOOST_BASE = 1000; // 10% base boost
+    uint256 public constant BOOST_PER_MONTH = 10; // 0.1% per month
+&nbsp;
+    // Delegation system
+    mapping(address =&gt; address) public delegators; // delegator =&gt; validator
+    mapping(address =&gt; uint256) public delegatedAmount; // delegator =&gt; amount delegated
+    mapping(address =&gt; uint256) public validatorCommission; // validator =&gt; commission rate (basis points)
+    mapping(address =&gt; uint256) public validatorTotalDelegated; // validator =&gt; total delegated to them
+    mapping(address =&gt; uint256) public validatorEarnedCommission; // validator =&gt; earned commission
+    mapping(address =&gt; uint256) public delegatorLastClaimTime; // delegator =&gt; last commission claim time
+    
+    uint256 public constant MAX_COMMISSION_RATE = 2000; // 20% maximum commission
+    uint256 public constant COMMISSION_DENOMINATOR = 10000; // 100% in basis points
+&nbsp;
+    // Rebase-aware reward tracking
+    uint256 public lastRebaseIndex; // Last rebase index when rewards were calculated
+    mapping(address =&gt; uint256) public userLastRebaseIndex; // User's last rebase index
+&nbsp;
+    event Staked(address indexed user, uint256 amount, uint256 lockTime);
+    event Unstaked(address indexed user, uint256 amount);
+    event RewardAdded(address indexed rewarder, uint256 amount);
+    event RewardClaimed(address indexed user, uint256 amount);
+    event Slashed(address indexed user, uint256 amount, string reason);
+    event EmergencyRecovery(address indexed token, address indexed to, uint256 amount);
+    event PendingRewardsClaimed(address indexed user, uint256 amount);
+    event StakingParametersUpdated(uint256 minStake, uint256 maxStake, uint256 lockPeriod);
+    event SlashPercentageUpdated(uint256 oldPercentage, uint256 newPercentage);
+    event StakeWithLock(address indexed user, uint256 amount, uint256 lockPeriod, uint256 lockUntil);
+    event LockPeriodSet(address indexed user, uint256 lockPeriod, uint256 lockUntil);
+    
+    // Delegation events
+    event Delegated(address indexed delegator, address indexed validator, uint256 amount);
+    event Undelegated(address indexed delegator, address indexed validator, uint256 amount);
+    event CommissionRateSet(address indexed validator, uint256 commissionRate);
+    event CommissionClaimed(address indexed validator, uint256 amount);
+    event DelegatorRewardClaimed(address indexed delegator, uint256 amount);
+&nbsp;
+    constructor(
+        address _halomToken,
+        address _roleManager,
+        uint256 _rewardRate,
+        uint256 _lockPeriod,
+        uint256 _slashPercentage
+    ) {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_halomToken != address(0), "Halom token is zero address");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_roleManager != address(0), "Role manager is zero address");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_rewardRate &gt; 0, "Reward rate must be greater than 0");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_lockPeriod &gt; 0, "Lock period must be greater than 0");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_slashPercentage &gt; 0 &amp;&amp; _slashPercentage &lt;= MAX_SLASH_PERCENTAGE, "Invalid slash percentage");
+&nbsp;
+        halomToken = IHalomToken(_halomToken);
+        roleManager = IHalomRoleManager(_roleManager);
+        rewardRate = _rewardRate;
+        lockPeriod = _lockPeriod;
+        slashPercentage = _slashPercentage;
+        
+        // Roles will be granted by deployment script, not in constructor
+        _grantRole(DEFAULT_ADMIN_ROLE, _roleManager);
+        _grantRole(GOVERNOR_ROLE, _roleManager);
+        _grantRole(REWARDER_ROLE, _roleManager);
+        _grantRole(SLASHER_ROLE, _roleManager); // Governor can slash
+        _grantRole(PAUSER_ROLE, _roleManager);
+    }
+&nbsp;
+    /**
+     * @dev Calculate fourth root using Babylonian method
+     */
+    function fourthRoot(uint256 x) public pure returns (uint256) {
+        <span class="missing-if-branch" title="if path not taken" >I</span>if (x == 0) <span class="cstat-no" title="statement not covered" >return 0;</span>
+        uint256 z = x;
+        uint256 y = (z + 3) / 4;
+        
+        while (y &lt; z) {
+            z = y;
+            y = (3 * z + x / (z * z * z)) / 4;
+        }
+        return z;
+    }
+&nbsp;
+    /**
+     * @dev Get governance power (fourth root of stake)
+     */
+    function getGovernancePower(address user) public view returns (uint256) {
+        return fourthRoot(stakedBalance[user]);
+    }
+&nbsp;
+    /**
+     * @dev Update rewards with rebase awareness
+     */
+    modifier updateRewards(address _account) {
+        _updateRewards(_account);
+        _;
+        rewardDebt[_account] = (fourthRootStake[_account] * rewardsPerFourthRoot) / 1e18;
+    }
+&nbsp;
+    /**
+     * @dev Internal function to update rewards with rebase awareness
+     */
+    function _updateRewards(address _account) internal {
+        uint256 pending = (fourthRootStake[_account] * rewardsPerFourthRoot) / 1e18 - rewardDebt[_account];
+        uint256 mask = pending &gt; 0 ? 1 : 0;
+        uint256 reward = pending * mask;
+        if (reward &gt; 0) {
+            SafeERC20.safeTransfer(IERC20(address(halomToken)), _account, reward);
+            emit RewardClaimed(_account, reward);
+        }
+    }
+&nbsp;
+    /**
+     * @dev Get current rebase index from token
+     */
+    function _getRebaseIndex() internal view returns (uint256) {
+        // This would need to be implemented based on your token's rebase mechanism
+        // For now, we'll use a simple timestamp-based approach
+        return block.timestamp / 1 days; // Daily rebase index
+    }
+&nbsp;
+    /**
+     * @dev Adjust rewards for rebase changes
+     */
+<span class="fstat-no" title="function not covered" >    function _adjustRewardsForRebase(address _account, uint256 _pendingRewards) internal view returns (uint256) {</span>
+        // Get current token balance in contract
+<span class="cstat-no" title="statement not covered" >        uint256 contractBalance = halomToken.balanceOf(address(this));</span>
+        
+        // If contract balance is less than total staked, rebase occurred
+<span class="cstat-no" title="statement not covered" >        if (contractBalance &lt; totalStaked) {</span>
+            // Calculate rebase factor
+<span class="cstat-no" title="statement not covered" >            uint256 rebaseFactor = (contractBalance * 1e18) / totalStaked;</span>
+<span class="cstat-no" title="statement not covered" >            return (_pendingRewards * rebaseFactor) / 1e18;</span>
+        }
+        
+<span class="cstat-no" title="statement not covered" >        return _pendingRewards;</span>
+    }
+&nbsp;
+    /**
+     * @dev Stake tokens with a specific lock period
+     */
+    function stakeWithLock(
+        uint256 _amount,
+        uint256 _lockPeriod
+    ) external <span class="missing-if-branch" title="else path not taken" >E</span>nonReentrant <span class="missing-if-branch" title="else path not taken" >E</span>whenNotPaused <span class="missing-if-branch" title="else path not taken" >E</span>updateRewards(msg.sender) {
+        require(_amount &gt;= minStakeAmount, "Amount below minimum");
+        require(_amount &lt;= maxStakeAmount, "Amount above maximum");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_lockPeriod &gt;= MIN_LOCK_PERIOD &amp;&amp; _lockPeriod &lt;= MAX_LOCK_PERIOD, "Invalid lock period");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(stakedBalance[msg.sender] + _amount &lt;= maxStakeAmount, "Total stake would exceed maximum");
+        
+        SafeERC20.safeTransferFrom(IERC20(address(halomToken)), msg.sender, address(this), _amount);
+        
+        uint256 oldFourthRoot = fourthRootStake[msg.sender];
+        stakedBalance[msg.sender] += _amount;
+        totalStaked += _amount;
+        
+        // Calculate fourth root with boost
+        uint256 newFourthRoot = fourthRootWithBoost(stakedBalance[msg.sender], msg.sender);
+        fourthRootStake[msg.sender] = newFourthRoot;
+        totalFourthRootStake = totalFourthRootStake - oldFourthRoot + newFourthRoot;
+        
+        stakeTime[msg.sender] = block.timestamp;
+        userLockPeriod[msg.sender] = _lockPeriod;
+        lockUntil[msg.sender] = block.timestamp + _lockPeriod;
+        hasLockedStake[msg.sender] = true;
+        
+        // Update rebase index
+        userLastRebaseIndex[msg.sender] = _getRebaseIndex();
+        
+        emit StakeWithLock(msg.sender, _amount, _lockPeriod, lockUntil[msg.sender]);
+    }
+&nbsp;
+    /**
+     * @dev Stake tokens with fourth root based rewards
+     * Note: This function preserves existing lock periods and cannot override them
+     */
+    function stake(uint256 _amount) external <span class="missing-if-branch" title="else path not taken" >E</span>nonReentrant <span class="missing-if-branch" title="else path not taken" >E</span>whenNotPaused <span class="missing-if-branch" title="else path not taken" >E</span>updateRewards(msg.sender) {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_amount &gt;= minStakeAmount, "Amount below minimum");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_amount &lt;= maxStakeAmount, "Amount above maximum");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(stakedBalance[msg.sender] + _amount &lt;= maxStakeAmount, "Total stake would exceed maximum");
+        
+        // If user has no existing stake, require them to use stakeWithLock
+        if (stakedBalance[msg.sender] == 0) {
+            revert("Use stakeWithLock for initial stake");
+        }
+        
+        // If user has locked stake, preserve the existing lock period
+        <span class="missing-if-branch" title="else path not taken" >E</span>if (hasLockedStake[msg.sender]) {
+            <span class="missing-if-branch" title="else path not taken" >E</span>require(block.timestamp &lt; lockUntil[msg.sender], "Lock period expired");
+        }
+        
+        SafeERC20.safeTransferFrom(IERC20(address(halomToken)), msg.sender, address(this), _amount);
+        
+        uint256 oldFourthRoot = fourthRootStake[msg.sender];
+        stakedBalance[msg.sender] += _amount;
+        totalStaked += _amount;
+        
+        // Calculate fourth root with boost
+        uint256 newFourthRoot = fourthRootWithBoost(stakedBalance[msg.sender], msg.sender);
+        fourthRootStake[msg.sender] = newFourthRoot;
+        totalFourthRootStake = totalFourthRootStake - oldFourthRoot + newFourthRoot;
+        
+        // Preserve existing lock period and stake time
+        <span class="missing-if-branch" title="if path not taken" >I</span>if (!hasLockedStake[msg.sender]) {
+            stakeTime[msg.sender] = block.timestamp;
+        }
+        
+        emit Staked(msg.sender, _amount, block.timestamp);
+    }
+&nbsp;
+    /**
+     * @dev Unstake tokens (with lock period)
+     */
+    function unstake(uint256 _amount) external <span class="missing-if-branch" title="else path not taken" >E</span>nonReentrant <span class="missing-if-branch" title="else path not taken" >E</span>whenNotPaused <span class="missing-if-branch" title="else path not taken" >E</span>updateRewards(msg.sender) {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_amount &gt; 0, "Cannot unstake 0");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(stakedBalance[msg.sender] &gt;= _amount, "Insufficient staked balance");
+        
+        // Check lock period if user has locked stake
+        <span class="missing-if-branch" title="else path not taken" >E</span>if (hasLockedStake[msg.sender]) {
+            require(block.timestamp &gt;= lockUntil[msg.sender], "Lock period not met");
+        } else {
+<span class="cstat-no" title="statement not covered" >            require(block.timestamp &gt;= stakeTime[msg.sender] + lockPeriod, "Lock period not met")</span>;
+        }
+        
+        uint256 oldFourthRoot = fourthRootStake[msg.sender];
+        stakedBalance[msg.sender] -= _amount;
+        totalStaked -= _amount;
+        
+        uint256 newFourthRoot = fourthRoot(stakedBalance[msg.sender]);
+        fourthRootStake[msg.sender] = newFourthRoot;
+        totalFourthRootStake = totalFourthRootStake - oldFourthRoot + newFourthRoot;
+        
+        // Reset lock period if all tokens are unstaked
+        <span class="missing-if-branch" title="if path not taken" >I</span>if (stakedBalance[msg.sender] == 0) {
+            hasLockedStake[msg.sender] = false;
+            userLockPeriod[msg.sender] = 0;
+            lockUntil[msg.sender] = 0;
+        }
+        
+        SafeERC20.safeTransfer(IERC20(address(halomToken)), msg.sender, _amount);
+        
+        emit Unstaked(msg.sender, _amount);
+    }
+&nbsp;
+    /**
+     * @dev Add rewards to the pool (only rewarder)
+     */
+    function addRewards(uint256 _amount) external onlyRole(REWARDER_ROLE) {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_amount &gt; 0, "Cannot add 0 rewards");
+        
+        if (totalFourthRootStake &gt; 0) {
+            rewardsPerFourthRoot += (_amount * 1e18) / totalFourthRootStake;
+        } else {
+            pendingRewards += _amount;
+        }
+        
+        emit RewardAdded(msg.sender, _amount);
+    }
+&nbsp;
+    /**
+     * @dev Claim pending rewards for first staker
+     */
+<span class="fstat-no" title="function not covered" >    function claimPendingRewards() external nonReentrant {</span>
+<span class="cstat-no" title="statement not covered" >        require(pendingRewards &gt; 0, "No pending rewards")</span>;
+<span class="cstat-no" title="statement not covered" >        require(totalFourthRootStake &gt; 0, "No stakers yet")</span>;
+        
+<span class="cstat-no" title="statement not covered" >        uint256 amount = pendingRewards;</span>
+        pendingRewards = 0;
+        
+        rewardsPerFourthRoot += (amount * 1e18) / totalFourthRootStake;
+        
+<span class="cstat-no" title="statement not covered" >        emit PendingRewardsClaimed(msg.sender, amount);</span>
+    }
+&nbsp;
+    /**
+     * @dev Claim rewards for a user
+     */
+    function claimRewards() external <span class="missing-if-branch" title="else path not taken" >E</span>nonReentrant <span class="missing-if-branch" title="else path not taken" >E</span>whenNotPaused <span class="missing-if-branch" title="else path not taken" >E</span>updateRewards(msg.sender) {
+        // The updateRewards modifier handles the logic
+    }
+&nbsp;
+    /**
+     * @dev Slash user's stake (only slasher)
+     */
+    function slash(address _user, string memory _reason) external onlyRole(SLASHER_ROLE) {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_user != address(0), "Cannot slash zero address");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(stakedBalance[_user] &gt; 0, "User has no stake to slash");
+        
+        uint256 slashAmount = (stakedBalance[_user] * slashPercentage) / 10000;
+        uint256 remainingAmount = stakedBalance[_user] - slashAmount;
+        
+        // Update fourth root calculations
+        uint256 oldFourthRoot = fourthRootStake[_user];
+        stakedBalance[_user] = remainingAmount;
+        totalStaked -= slashAmount;
+        
+        uint256 newFourthRoot = fourthRoot(remainingAmount);
+        fourthRootStake[_user] = newFourthRoot;
+        totalFourthRootStake = totalFourthRootStake - oldFourthRoot + newFourthRoot;
+        
+        // Burn slashed tokens using the token's burnFrom function
+        IHalomToken(address(halomToken)).burnFrom(address(this), slashAmount);
+        
+        emit Slashed(_user, slashAmount, _reason);
+    }
+&nbsp;
+    /**
+     * @dev Update staking parameters (only governor)
+     */
+    function updateStakingParameters(
+        uint256 _minStakeAmount,
+        uint256 _maxStakeAmount,
+        uint256 _lockPeriod
+    ) external onlyRole(GOVERNOR_ROLE) {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_minStakeAmount &lt;= _maxStakeAmount, "Min stake cannot exceed max stake");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_lockPeriod &lt;= 365 days, "Lock period too long");
+        
+        minStakeAmount = _minStakeAmount;
+        maxStakeAmount = _maxStakeAmount;
+        lockPeriod = _lockPeriod;
+        
+        emit StakingParametersUpdated(_minStakeAmount, _maxStakeAmount, _lockPeriod);
+    }
+&nbsp;
+    /**
+     * @dev Update slash percentage (only governor)
+     */
+<span class="fstat-no" title="function not covered" >    function updateSlashPercentage(uint256 _newPercentage) external onlyRole(GOVERNOR_ROLE) {</span>
+<span class="cstat-no" title="statement not covered" >        require(_newPercentage &lt;= MAX_SLASH_PERCENTAGE, "Slash percentage too high")</span>;
+        
+<span class="cstat-no" title="statement not covered" >        uint256 oldPercentage = slashPercentage;</span>
+        slashPercentage = _newPercentage;
+        
+<span class="cstat-no" title="statement not covered" >        emit SlashPercentageUpdated(oldPercentage, _newPercentage);</span>
+    }
+&nbsp;
+    /**
+     * @dev Emergency recovery function to withdraw tokens sent by mistake
+     * @param _token Token address to recover
+     * @param _to Address to send tokens to
+     * @param _amount Amount to recover
+     */
+    function emergencyRecovery(
+        address _token,
+        address _to,
+        uint256 _amount
+    ) external <span class="missing-if-branch" title="else path not taken" >E</span>onlyRole(GOVERNOR_ROLE) {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_to != address(0), "Cannot recover to zero address");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_amount &gt; 0, "Cannot recover 0 amount");
+        
+        // Prevent recovery of staked tokens
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_token != address(halomToken), "Cannot recover staked tokens");
+        
+        IERC20(_token).safeTransfer(_to, _amount);
+        emit EmergencyRecovery(_token, _to, _amount);
+    }
+&nbsp;
+    /**
+     * @dev Pause staking (only pauser)
+     */
+    function pause() external <span class="missing-if-branch" title="else path not taken" >E</span>onlyRole(PAUSER_ROLE) {
+        _pause();
+    }
+&nbsp;
+    /**
+     * @dev Unpause staking (only governor)
+     */
+    function unpause() external <span class="missing-if-branch" title="else path not taken" >E</span>onlyRole(GOVERNOR_ROLE) {
+        _unpause();
+    }
+&nbsp;
+    /**
+     * @dev Get pending rewards for first staker
+     */
+<span class="fstat-no" title="function not covered" >    function getPendingRewards() external view returns (uint256) {</span>
+<span class="cstat-no" title="statement not covered" >        return pendingRewards;</span>
+    }
+&nbsp;
+    /**
+     * @dev Get user's pending rewards
+     */
+    function getPendingRewardsForUser(address _user) public view returns (uint256) {
+        return (fourthRootStake[_user] * rewardsPerFourthRoot) / 1e18 - rewardDebt[_user];
+    }
+&nbsp;
+    /**
+     * @dev Get staking info for a user
+     */
+<span class="fstat-no" title="function not covered" >    function getStakingInfo(address _user) external view returns (</span>
+        uint256 _stakedBalance,
+        uint256 _fourthRootStake,
+        uint256 _governancePower,
+        uint256 _stakeTime,
+        uint256 _pendingRewards
+    ) {
+<span class="cstat-no" title="statement not covered" >        return (</span>
+            stakedBalance[_user],
+            fourthRootStake[_user],
+            getGovernancePower(_user),
+            stakeTime[_user],
+            getPendingRewardsForUser(_user)
+        );
+    }
+&nbsp;
+    // Branchless min/max utility
+    function min(uint256 a, uint256 b) internal pure returns (uint256) {
+        // Branchless min: b ^ ((a ^ b) &amp; ((a - b) &gt;&gt; 255))
+        unchecked {
+            return b ^ ((a ^ b) &amp; ((a - b) &gt;&gt; 255));
+        }
+    }
+    function max(uint256 a, uint256 b) internal pure returns (uint256) {
+        // Branchless max: a ^ ((a ^ b) &amp; ((a - b) &gt;&gt; 255))
+        unchecked {
+            return a ^ ((a ^ b) &amp; ((a - b) &gt;&gt; 255));
+        }
+    }
+&nbsp;
+    /**
+     * @dev Calculate boost multiplier based on lock period (branchless)
+     */
+    function calculateBoostMultiplier(uint256 _lockPeriod) public pure returns (uint256) {
+        // Clamp lock period to [MIN_LOCK_PERIOD, MAX_LOCK_PERIOD] branchless
+        uint256 clamped = max(MIN_LOCK_PERIOD, min(_lockPeriod, MAX_LOCK_PERIOD));
+        uint256 months = clamped / 30 days;
+        uint256 boost = BOOST_BASE + (months * BOOST_PER_MONTH);
+        return boost; // Returns basis points (e.g., 1000 = 10%, 5000 = 50%)
+    }
+&nbsp;
+    /**
+     * @dev Get user's boost multiplier (branchless)
+     */
+    function getUserBoostMultiplier(address _user) public view returns (uint256) {
+        // Branchless: if hasLockedStake[_user] then calculateBoostMultiplier, else BOOST_BASE
+        uint256 locked = hasLockedStake[_user] ? 1 : 0;
+        uint256 boost = calculateBoostMultiplier(userLockPeriod[_user]);
+        return (locked * boost) + ((1 - locked) * BOOST_BASE);
+    }
+&nbsp;
+    /**
+     * @dev Calculate fourth root with boost applied (branchless)
+     */
+    function fourthRootWithBoost(uint256 _amount, address _user) public view returns (uint256) {
+        uint256 boostMultiplier = getUserBoostMultiplier(_user);
+        uint256 boostedAmount = (_amount * boostMultiplier) / 1000; // Apply boost
+        return fourthRoot(boostedAmount);
+    }
+&nbsp;
+    /**
+     * @dev Delegate tokens to a validator
+     */
+    function delegateToValidator(address _validator, uint256 _amount) external <span class="missing-if-branch" title="else path not taken" >E</span>nonReentrant <span class="missing-if-branch" title="else path not taken" >E</span>whenNotPaused {
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_validator != address(0), "Cannot delegate to zero address");
+        require(_validator != msg.sender, "Cannot delegate to self");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(_amount &gt; 0, "Cannot delegate 0");
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(stakedBalance[msg.sender] &gt;= _amount, "Insufficient staked balance");
+        
+        // Remove previous delegation if exists
+        if (delegators[msg.sender] != address(0)) {
+            _undelegate(msg.sender, delegators[msg.sender], delegatedAmount[msg.sender]);
+        }
+        
+        // Set new delegation
+        delegators[msg.sender] = _validator;
+        delegatedAmount[msg.sender] = _amount;
+        validatorTotalDelegated[_validator] += _amount;
+        
+        emit Delegated(msg.sender, _validator, _amount);
+    }
+&nbsp;
+    /**
+     * @dev Undelegate tokens from validator
+     */
+    function undelegateFromValidator() external <span class="missing-if-branch" title="else path not taken" >E</span>nonReentrant <span class="missing-if-branch" title="else path not taken" >E</span>whenNotPaused {
+        address validator = delegators[msg.sender];
+        require(validator != address(0), "No delegation found");
+        
+        uint256 amount = delegatedAmount[msg.sender];
+        _undelegate(msg.sender, validator, amount);
+        
+        emit Undelegated(msg.sender, validator, amount);
+    }
+&nbsp;
+    /**
+     * @dev Internal function to handle undelegation
+     */
+    function _undelegate(address _delegator, address _validator, uint256 _amount) internal {
+        delegators[_delegator] = address(0);
+        delegatedAmount[_delegator] = 0;
+        validatorTotalDelegated[_validator] -= _amount;
+    }
+&nbsp;
+    /**
+     * @dev Set commission rate for validator (only governor or validator)
+     */
+    function setCommissionRate(uint256 _commissionRate) external {
+        require(_commissionRate &lt;= MAX_COMMISSION_RATE, "Commission rate too high");
+        require(stakedBalance[msg.sender] &gt; 0, "Only validators can set commission");
+        
+        validatorCommission[msg.sender] = _commissionRate;
+        emit CommissionRateSet(msg.sender, _commissionRate);
+    }
+&nbsp;
+    /**
+     * @dev Claim earned commission (only validators)
+     */
+    function claimCommission() external <span class="missing-if-branch" title="else path not taken" >E</span>nonReentrant {
+        uint256 earnedCommission = validatorEarnedCommission[msg.sender];
+        <span class="missing-if-branch" title="if path not taken" >I</span>require(earnedCommission &gt; 0, "No commission to claim");
+        
+        validatorEarnedCommission[msg.sender] = 0;
+<span class="cstat-no" title="statement not covered" >        SafeERC20.safeTransfer(IERC20(address(halomToken)), msg.sender, earnedCommission)</span>;
+        
+<span class="cstat-no" title="statement not covered" >        emit CommissionClaimed(msg.sender, earnedCommission);</span>
+    }
+&nbsp;
+    /**
+     * @dev Claim delegator rewards
+     */
+    function claimDelegatorRewards() external <span class="missing-if-branch" title="else path not taken" >E</span>nonReentrant {
+        address validator = delegators[msg.sender];
+        require(validator != address(0), "No delegation found");
+        
+        uint256 pendingDelegatorRewards = _calculateDelegatorRewards(msg.sender);
+        <span class="missing-if-branch" title="else path not taken" >E</span>require(pendingDelegatorRewards &gt; 0, "No rewards to claim");
+        
+        delegatorLastClaimTime[msg.sender] = block.timestamp;
+        SafeERC20.safeTransfer(IERC20(address(halomToken)), msg.sender, pendingDelegatorRewards);
+        
+        emit DelegatorRewardClaimed(msg.sender, pendingDelegatorRewards);
+    }
+&nbsp;
+    /**
+     * @dev Calculate delegator rewards
+     */
+    function _calculateDelegatorRewards(address _delegator) internal view returns (uint256) {
+        address validator = delegators[_delegator];
+        if (validator == address(0)) return 0;
+        
+        uint256 userDelegatedAmount = delegatedAmount[_delegator];
+        uint256 userValidatorCommission = validatorCommission[validator];
+        
+        // Calculate rewards based on validator's performance and commission
+        // This is a simplified calculation - in practice, you'd track validator performance
+        uint256 timeSinceLastClaim = block.timestamp - delegatorLastClaimTime[_delegator];
+        uint256 rewardRate = 1000; // 10% annual rate (simplified)
+        
+        uint256 rewards = (userDelegatedAmount * rewardRate * timeSinceLastClaim) / (365 days * 10000);
+        
+        // Apply commission
+        uint256 commission = (rewards * userValidatorCommission) / COMMISSION_DENOMINATOR;
+        return rewards - commission;
+    }
+&nbsp;
+    /**
+     * @dev Get delegation info for a user
+     */
+    function getDelegationInfo(address _user) external view returns (
+        address validator,
+        uint256 userDelegatedAmount,
+        uint256 userPendingRewards,
+        uint256 commissionRate
+    ) {
+        validator = delegators[_user];
+        userDelegatedAmount = delegatedAmount[_user];
+        userPendingRewards = _calculateDelegatorRewards(_user);
+        commissionRate = validator != address(0) ? validatorCommission[validator] : 0;
+    }
+&nbsp;
+    /**
+     * @dev Get validator info
+     */
+    function getValidatorInfo(address _validator) external view returns (
+        uint256 totalDelegated,
+        uint256 commissionRate,
+        uint256 earnedCommission
+    ) {
+        totalDelegated = validatorTotalDelegated[_validator];
+        commissionRate = validatorCommission[_validator];
+        earnedCommission = validatorEarnedCommission[_validator];
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function calculateRewards(address _user) public view returns (uint256) {</span>
+<span class="cstat-no" title="statement not covered" >        if (stakedBalance[_user] == 0) <span class="cstat-no" title="statement not covered" >return 0;</span></span>
+        
+<span class="cstat-no" title="statement not covered" >        uint256 userRewardRate = 1000;</span> // 10% annual rate (simplified)
+<span class="cstat-no" title="statement not covered" >        uint256 timeStaked = block.timestamp - stakeTime[_user];</span>
+<span class="cstat-no" title="statement not covered" >        uint256 reward = (stakedBalance[_user] * userRewardRate * timeStaked) / (365 days * 10000);</span>
+        
+<span class="cstat-no" title="statement not covered" >        return reward;</span>
+    }
+} </pre></td></tr>
+</table></pre>
+<div class='push'></div><!-- for sticky footer -->
+</div><!-- /wrapper -->
+<div class='footer quiet pad2 space-top1 center small'>
+  Code coverage
+  generated by <a href="http://istanbul-js.org/" target="_blank">istanbul</a> at Sat Jun 28 2025 13:18:46 GMT+0200 (közép-európai nyári idő)
+</div>
+</div>
+<script src="../prettify.js"></script>
+<script>
+window.onload = function () {
+        if (typeof prettyPrint === 'function') {
+            prettyPrint();
+        }
+};
+</script>
+<script src="../sorter.js"></script>
+</body>
+</html>

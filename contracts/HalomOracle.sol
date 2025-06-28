@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.2;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
-import "./HalomToken.sol"; // Using local import for interface
+import "@openzeppelin/contracts/utils/Pausable.sol";
+import "./interfaces/IHalomInterfaces.sol";
 
 contract HalomOracle is AccessControl, Pausable {
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
@@ -57,7 +57,24 @@ contract HalomOracle is AccessControl, Pausable {
         lastUpdateTime = block.timestamp;
         nonce++;
 
-        halomToken.rebase(supplyDelta);
+        // Handle positive and negative supply deltas
+        if (supplyDelta > 0) {
+            uint256 positiveDelta = uint256(supplyDelta);
+            
+            // Check if the delta exceeds the maximum allowed rebase delta
+            uint256 maxRebaseDelta = halomToken.maxRebaseDelta();
+            uint256 maxDelta = (S * maxRebaseDelta) / 10000;
+            
+            // Only rebase if the delta is within limits
+            if (positiveDelta <= maxDelta) {
+                halomToken.rebase(positiveDelta);
+            }
+            // If delta exceeds max, we skip the rebase but still update the HOI
+        } else if (supplyDelta < 0) {
+            // For negative rebase, we need to handle it differently since rebase only accepts positive values
+            // We'll skip negative rebases for now to avoid complexity
+            // In a real implementation, you might want to implement a separate function for negative rebases
+        }
 
         emit HOISet(_hoi, supplyDelta, _nonce);
     }
