@@ -17,6 +17,10 @@ error EmergencyPaused();
 error MultiSigRequired();
 error WithdrawalLimitExceeded();
 error NoRewardsToClaim();
+error ZeroAddress();
+error InvalidAmount();
+error InsufficientBalance();
+error Unauthorized();
 
 /**
  * @title HalomTreasury
