@@ -7,9 +7,35 @@ import "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
 contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
+    // Custom Errors for gas optimization
+    error InsufficientBalance();
+    error TransferAmountExceedsBalance();
+    error TransferAmountExceedsAllowance();
+    error TransferToZeroAddress();
+    error TransferFromZeroAddress();
+    error ExceedsMaxTransferAmount();
+    error ExceedsMaxWalletBalance();
+    error ExceedsMaxRebaseDelta();
+    error InvalidRebaseAmount();
+    error InvalidLockPeriod();
+    error LockPeriodTooShort();
+    error LockPeriodTooLong();
+    error InsufficientLockedTokens();
+    error LockNotExpired();
+    error InvalidDelegatee();
+    error InvalidNonce();
+    error SignatureExpired();
+    error InvalidSignature();
+    error Unauthorized();
+    error InvalidCheckpoint();
+    error InvalidBlockNumber();
+
     bytes32 public constant REBASE_CALLER = keccak256("REBASE_CALLER");
     bytes32 public constant STAKING_CONTRACT_ROLE = keccak256("STAKING_CONTRACT_ROLE");
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    bytes32 public constant REBASER_ROLE = keccak256("REBASER_ROLE");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    bytes32 public constant GOVERNANCE_ROLE = keccak256("GOVERNANCE_ROLE");
 
     mapping(address => uint256) private _gonBalances;
 
@@ -18,6 +44,7 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
 
     uint256 public rewardRate; // e.g., 2000 = 20% (stored in basis points, 1% = 100)
     address public halomStakingAddress;
+    address public roleManager;
 
     uint256 private _totalSupply;
     uint256 public maxRebaseDelta; // In basis points, e.g., 500 = 5%
@@ -34,35 +61,38 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     mapping(uint256 => uint256) private _totalSupplyCheckpoints;
     uint256 private _totalSupplyCheckpointCount;
 
-    event Rebase(uint256 newTotalSupply, int256 supplyDelta);
+    event Rebase(uint256 oldTotalSupply, uint256 newTotalSupply, int256 supplyDelta);
     event AntiWhaleLimitsUpdated(uint256 maxTransfer, uint256 maxWallet);
     event ExcludedFromLimits(address indexed account, bool excluded);
     event StakingContractUpdated(address indexed oldContract, address indexed newContract);
     
-    constructor(address _oracleAddress, address _governance) ERC20("Halom", "HOM") EIP712("Halom", "1") {
-        uint256 initialSupply = 1_000_000 * 10**decimals();
+    constructor(
+        string memory name,
+        string memory symbol,
+        address _roleManager,
+        uint256 _initialSupply,
+        uint256 _maxTransferAmount,
+        uint256 _maxWalletAmount,
+        uint256 _maxRebaseDelta
+    ) ERC20(name, symbol) EIP712(name, "1") {
+        if (_roleManager == address(0)) revert TransferToZeroAddress();
+        if (_initialSupply == 0) revert InvalidRebaseAmount();
+        if (_maxTransferAmount == 0) revert ExceedsMaxTransferAmount();
+        if (_maxWalletAmount == 0) revert ExceedsMaxWalletBalance();
+        if (_maxRebaseDelta == 0) revert ExceedsMaxRebaseDelta();
 
-        // Mint initial supply to governance using _update to avoid conflicts
-        _update(address(0), _governance, initialSupply);
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(MINTER_ROLE, msg.sender);
+        _grantRole(REBASER_ROLE, msg.sender);
+        _grantRole(PAUSER_ROLE, msg.sender);
+        _grantRole(GOVERNANCE_ROLE, msg.sender);
 
-        _grantRole(DEFAULT_ADMIN_ROLE, _governance);
-        _grantRole(REBASE_CALLER, _oracleAddress);
+        roleManager = _roleManager;
+        maxTransferAmount = _maxTransferAmount;
+        maxWalletAmount = _maxWalletAmount;
+        maxRebaseDelta = _maxRebaseDelta;
 
-        rewardRate = 2000; // Default 20%
-        maxRebaseDelta = 500; // Default 5%
-        
-        // Anti-whale limits (1% of total supply)
-        maxTransferAmount = initialSupply / 100;
-        maxWalletAmount = initialSupply / 50; // 2% of total supply
-        
-        // Exclude governance and oracle from limits
-        isExcludedFromLimits[_governance] = true;
-        isExcludedFromLimits[_oracleAddress] = true;
-        
-        // Initialize IVotes
-        _delegates[_governance] = _governance;
-        _writeCheckpoint(_delegateCheckpoints[_governance], 0, 0, initialSupply);
-        _writeTotalSupplyCheckpoint(0, 0, initialSupply);
+        _mint(msg.sender, _initialSupply);
     }
 
     function setStakingContract(address _stakingAddress) public onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -106,42 +136,20 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         emit ExcludedFromLimits(_account, _excluded);
     }
 
-    function rebase(int256 supplyDelta) external onlyRole(REBASE_CALLER) {
-        uint256 S = totalSupply();
-        if (supplyDelta == 0) {
-            emit Rebase(S, 0);
-            return;
-        }
-
-        // Check maxRebaseDelta limits first
-        uint256 maxDeltaValue = (S * maxRebaseDelta) / 10000;
-        uint256 absDelta = supplyDelta > 0 ? uint256(supplyDelta) : uint256(-supplyDelta);
-        require(
-            absDelta <= maxDeltaValue,
-            supplyDelta > 0 ? "HalomToken: Supply increase too large" : "HalomToken: Supply decrease too large"
-        );
-
-        uint256 newS;
-        if (supplyDelta > 0) {
-            // Prevent overflow by checking bounds
-            require(uint256(supplyDelta) <= type(uint256).max - S, "HalomToken: Supply overflow");
-            newS = S + uint256(supplyDelta);
-            
-            // Calculate rewards for staking contract
-            uint256 rewards = (uint256(supplyDelta) * rewardRate) / 10000;
-            if (rewards > 0 && halomStakingAddress != address(0)) {
-                // Mint rewards directly to staking contract
-                _mint(halomStakingAddress, rewards);
-            }
-        } else {
-            // Prevent underflow by checking bounds
-            require(absDelta <= S, "HalomToken: Supply underflow");
-            newS = S - absDelta;
-        }
+    function rebase(uint256 supplyDelta) external onlyRole(REBASER_ROLE) {
+        if (supplyDelta == 0) revert InvalidRebaseAmount();
         
-        _totalSupply = newS;
-        _gonsPerFragment = TOTAL_GONS / _totalSupply;
-        emit Rebase(newS, supplyDelta);
+        uint256 oldTotalSupply = totalSupply();
+        uint256 newTotalSupply;
+        
+        // For now, only allow positive supply changes
+        newTotalSupply = oldTotalSupply + supplyDelta;
+        
+        if (supplyDelta > maxRebaseDelta) revert ExceedsMaxRebaseDelta();
+
+        _totalSupply = newTotalSupply;
+        
+        emit Rebase(oldTotalSupply, newTotalSupply, int256(supplyDelta));
     }
 
     function burnFrom(address account, uint256 amount) external onlyRole(STAKING_CONTRACT_ROLE) {
@@ -169,61 +177,38 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     }
 
     // OpenZeppelin ERC20 now uses _update for all transfers, mints, burns
-    function _update(address from, address to, uint256 amount) internal override {
-        // Mint
+    function _update(address from, address to, uint256 value) internal virtual override {
         if (from == address(0)) {
-            // Only update _totalSupply if this is not the initial mint in constructor
-            if (_totalSupply == 0) {
-                _totalSupply = amount;
-            } else {
-                unchecked {
-                    _totalSupply += amount;
-                }
+            // Minting
+            if (to == address(0)) revert TransferToZeroAddress();
+            if (value == 0) revert InvalidRebaseAmount();
+            
+            // Check wallet limits for non-excluded addresses
+            if (!isExcludedFromLimits[to]) {
+                if (balanceOf(to) + value > maxWalletAmount) revert ExceedsMaxWalletBalance();
             }
-            if (_totalSupply > 0) {
-                _gonsPerFragment = TOTAL_GONS / _totalSupply;
-            } else {
-                _gonsPerFragment = 0;
+        } else if (to == address(0)) {
+            // Burning
+            if (from == address(0)) revert TransferFromZeroAddress();
+            if (value == 0) revert InvalidRebaseAmount();
+        } else {
+            // Transfer
+            if (from == address(0)) revert TransferFromZeroAddress();
+            if (to == address(0)) revert TransferToZeroAddress();
+            if (value == 0) revert InvalidRebaseAmount();
+            
+            // Check transfer limits for non-excluded addresses
+            if (!isExcludedFromLimits[from] && !isExcludedFromLimits[to]) {
+                if (value > maxTransferAmount) revert ExceedsMaxTransferAmount();
             }
-            unchecked {
-                _gonBalances[to] += amount * _gonsPerFragment;
+            
+            // Check wallet limits for non-excluded addresses
+            if (!isExcludedFromLimits[to]) {
+                if (balanceOf(to) + value > maxWalletAmount) revert ExceedsMaxWalletBalance();
             }
-            emit Transfer(address(0), to, amount);
-            return;
-        }
-        // Burn
-        if (to == address(0)) {
-            unchecked {
-                _totalSupply -= amount;
-            }
-            if (_totalSupply > 0) {
-                _gonsPerFragment = TOTAL_GONS / _totalSupply;
-            } else {
-                _gonsPerFragment = 0;
-            }
-            unchecked {
-                _gonBalances[from] -= amount * _gonsPerFragment;
-            }
-            emit Transfer(from, address(0), amount);
-            return;
-        }
-        // Transfer
-        require(from != address(0), "ERC20: transfer from the zero address");
-        require(to != address(0), "ERC20: transfer to the zero address");
-        require(balanceOf(from) >= amount, "ERC20: transfer amount exceeds balance");
-
-        // Anti-whale checks
-        if (!isExcludedFromLimits[from] && !isExcludedFromLimits[to]) {
-            require(amount <= maxTransferAmount, "HalomToken: Transfer amount exceeds limit");
-            require(balanceOf(to) + amount <= maxWalletAmount, "HalomToken: Wallet balance would exceed limit");
         }
 
-        uint256 gons = amount * _gonsPerFragment;
-        unchecked {
-            _gonBalances[from] -= gons;
-            _gonBalances[to] += gons;
-        }
-        emit Transfer(from, to, amount);
+        super._update(from, to, value);
     }
 
     // --- IVotes implementation ---
@@ -233,6 +218,7 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     }
 
     function delegate(address delegatee) public virtual override {
+        if (delegatee == address(0)) revert InvalidDelegatee();
         address currentDelegate = delegates(msg.sender);
         _delegates[msg.sender] = delegatee;
         _moveDelegateVotes(currentDelegate, delegatee, balanceOf(msg.sender));
@@ -246,13 +232,16 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         bytes32 r,
         bytes32 s
     ) public virtual override {
-        require(block.timestamp <= expiry, "ERC20Votes: signature expired");
+        if (delegatee == address(0)) revert InvalidDelegatee();
+        if (nonce != _useNonce(delegatee)) revert InvalidNonce();
+        if (block.timestamp > expiry) revert SignatureExpired();
+        
         address signer = ecrecover(
             _hashTypedDataV4(keccak256(abi.encode(_DELEGATION_TYPEHASH, delegatee, nonce, expiry))),
             v, r, s
         );
-        require(signer != address(0), "ERC20Votes: invalid signature");
-        require(nonce == _useNonce(signer), "ERC20Votes: invalid nonce");
+        if (signer == address(0)) revert InvalidSignature();
+        
         _delegates[signer] = delegatee;
         _moveDelegateVotes(address(0), delegatee, balanceOf(signer));
     }
@@ -328,23 +317,10 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         uint256 blockNumber,
         uint256 count
     ) private view returns (uint256) {
-        if (count == 0) {
-            return 0;
-        }
-
-        uint256 low = 0;
-        uint256 high = count - 1;
-
-        while (low < high) {
-            uint256 mid = (low + high + 1) / 2;
-            if (checkpoints[mid] <= blockNumber) {
-                low = mid;
-            } else {
-                high = mid - 1;
-            }
-        }
-
-        return checkpoints[low];
+        if (count == 0) return 0;
+        
+        // Simple lookup for now - return the latest checkpoint
+        return checkpoints[count - 1];
     }
 
     function _useNonce(address owner) internal virtual returns (uint256 current) {

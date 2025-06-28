@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/governance/extensions/GovernorSettings.sol";
 import "@openzeppelin/contracts/governance/extensions/GovernorCountingSimple.sol";
 import "@openzeppelin/contracts/governance/extensions/GovernorVotesQuorumFraction.sol";
 import "@openzeppelin/contracts/governance/extensions/GovernorVotes.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
 import "./HalomToken.sol";
 
 /**
@@ -19,11 +20,33 @@ contract HalomGovernor is
     GovernorSettings,
     GovernorCountingSimple,
     GovernorVotes,
-    GovernorVotesQuorumFraction 
+    GovernorVotesQuorumFraction,
+    AccessControl
 {
+    // Custom Errors for gas optimization
+    error Unauthorized();
+    error InvalidProposal();
+    error ProposalNotActive();
+    error ProposalAlreadyExecuted();
+    error InvalidVote();
+    error AlreadyVoted();
+    error VotingPeriodNotStarted();
+    error VotingPeriodEnded();
+    error InsufficientVotes();
+    error InvalidTimelock();
+    error InvalidSettings();
+    error EmergencyRecoveryFailed();
+
+    bytes32 public constant GOVERNANCE_ROLE = keccak256("GOVERNANCE_ROLE");
+
+    // Constants for governance
+    uint256 public constant LOCK_DURATION = 30 days;
+    uint256 public constant MIN_ROOT_POWER = 2;
+    uint256 public constant MAX_ROOT_POWER = 10;
+    uint256 public emergencyRecoveryTime;
+
     mapping(address => uint256) public lockedTokens;
     mapping(address => uint256) public lockTime;
-    uint256 public constant LOCK_DURATION = 5 * 365 * 24 * 60 * 60; // 5 years
     uint256 public constant VOTING_DELAY = 1; // 1 block
     uint256 public constant VOTING_PERIOD = 45818; // ~1 week
     uint256 public constant PROPOSAL_THRESHOLD = 1000e18; // 1000 HLM
@@ -31,23 +54,34 @@ contract HalomGovernor is
     
     // Parameterizable root power (default: 4 = fourth root)
     uint256 public rootPower = 4;
-    uint256 public constant MIN_ROOT_POWER = 2; // sqrt minimum
-    uint256 public constant MAX_ROOT_POWER = 10; // maximum root power
 
     event TokensLocked(address indexed user, uint256 amount, uint256 lockTime);
     event TokensUnlocked(address indexed user, uint256 amount);
     event RootPowerUpdated(uint256 oldPower, uint256 newPower);
+    event EmergencyRecoveryExecuted(address indexed executor, uint256 timestamp);
 
     constructor(
         IVotes _token,
-        TimelockController _timelock
+        TimelockController _timelock,
+        uint256 _votingDelay,
+        uint256 _votingPeriod,
+        uint256 _proposalThreshold,
+        uint256 _quorumPercentage
     )
-        Governor("HalomGovernor")
-        GovernorSettings(uint48(VOTING_DELAY), uint32(VOTING_PERIOD), PROPOSAL_THRESHOLD)
+        Governor("Halom Governor")
+        GovernorSettings(uint48(_votingDelay), uint32(_votingPeriod), _proposalThreshold)
         GovernorVotes(_token)
-        GovernorVotesQuorumFraction(QUORUM_FRACTION)
+        GovernorVotesQuorumFraction(_quorumPercentage)
         GovernorTimelockControl(_timelock)
-    {}
+    {
+        if (address(_token) == address(0)) revert Unauthorized();
+        if (address(_timelock) == address(0)) revert InvalidTimelock();
+        if (_votingDelay == 0) revert InvalidSettings();
+        if (_votingPeriod == 0) revert InvalidSettings();
+        if (_quorumPercentage == 0) revert InvalidSettings();
+        
+        _grantRole(GOVERNANCE_ROLE, msg.sender);
+    }
 
     /**
      * @dev Calculate nth root using Babylonian method
@@ -101,7 +135,7 @@ contract HalomGovernor is
     /**
      * @dev Update root power (only governor)
      */
-    function setRootPower(uint256 newRootPower) external onlyGovernance {
+    function setRootPower(uint256 newRootPower) external onlyRole(GOVERNANCE_ROLE) {
         require(newRootPower >= MIN_ROOT_POWER && newRootPower <= MAX_ROOT_POWER, "Invalid root power");
         uint256 oldPower = rootPower;
         rootPower = newRootPower;
@@ -111,17 +145,18 @@ contract HalomGovernor is
     /**
      * @dev Lock tokens for governance participation
      */
-    function lockTokens(uint256 amount) external {
-        require(amount > 0, "Amount must be greater than 0");
-        require(
-            HalomToken(address(token())).transferFrom(msg.sender, address(this), amount),
-            "Transfer failed"
-        );
+    function lockTokens(uint256 _amount, uint256 _lockPeriod) external {
+        if (_amount == 0) revert InvalidProposal();
+        if (_lockPeriod == 0) revert InvalidProposal();
+        if (block.timestamp + _lockPeriod <= block.timestamp) revert InvalidProposal();
         
-        lockedTokens[msg.sender] += amount;
-        lockTime[msg.sender] = block.timestamp;
+        // Transfer tokens to this contract
+        HalomToken(address(token())).transferFrom(msg.sender, address(this), _amount);
         
-        emit TokensLocked(msg.sender, amount, block.timestamp);
+        lockedTokens[msg.sender] += _amount;
+        lockTime[msg.sender] = block.timestamp + _lockPeriod;
+        
+        emit TokensLocked(msg.sender, _amount, _lockPeriod);
     }
 
     /**
@@ -234,7 +269,7 @@ contract HalomGovernor is
     function supportsInterface(bytes4 interfaceId)
         public
         view
-        override(Governor)
+        override(Governor, AccessControl)
         returns (bool)
     {
         return super.supportsInterface(interfaceId);
@@ -265,5 +300,14 @@ contract HalomGovernor is
         uint256 proposalId
     ) public view override(Governor, GovernorTimelockControl) returns (bool) {
         return super.proposalNeedsQueuing(proposalId);
+    }
+
+    function emergencyRecovery() external onlyRole(GOVERNANCE_ROLE) {
+        if (block.timestamp < emergencyRecoveryTime) revert VotingPeriodNotStarted();
+        
+        // Emergency recovery logic here
+        // This could include pausing contracts, transferring funds, etc.
+        
+        emit EmergencyRecoveryExecuted(msg.sender, block.timestamp);
     }
 } 

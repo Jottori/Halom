@@ -9,6 +9,24 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "./interfaces/IHalomInterfaces.sol";
 
 contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
+    // Custom Errors for gas optimization
+    error ZeroAddress();
+    error ZeroAmount();
+    error InsufficientBalance();
+    error InsufficientStakedAmount();
+    error LockPeriodTooShort();
+    error LockPeriodTooLong();
+    error LockNotExpired();
+    error NoRewardsToClaim();
+    error InvalidStakingContract();
+    error InvalidRewardRate();
+    error Unauthorized();
+    error TransferFailed();
+    error InvalidLockPeriod();
+    error InvalidAccount();
+    error InvalidBlockNumber();
+    error InvalidCheckpoint();
+
     using SafeERC20 for IERC20;
 
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
@@ -19,6 +37,9 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
     IHalomToken public halomToken;
     IHalomRoleManager public roleManager;
     uint256 public rewardRate;
+    uint256 public minLockPeriod;
+    uint256 public maxLockPeriod;
+    uint256 public totalRewardsClaimed;
 
     uint256 public totalStaked;
     mapping(address => uint256) public stakedBalance;
@@ -92,27 +113,23 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         address _halomToken,
         address _roleManager,
         uint256 _rewardRate,
-        uint256 _lockPeriod,
-        uint256 _slashPercentage
+        uint256 _minLockPeriod,
+        uint256 _maxLockPeriod
     ) {
-        require(_halomToken != address(0), "Halom token is zero address");
-        require(_roleManager != address(0), "Role manager is zero address");
-        require(_rewardRate > 0, "Reward rate must be greater than 0");
-        require(_lockPeriod > 0, "Lock period must be greater than 0");
-        require(_slashPercentage > 0 && _slashPercentage <= MAX_SLASH_PERCENTAGE, "Invalid slash percentage");
+        if (_halomToken == address(0)) revert ZeroAddress();
+        if (_roleManager == address(0)) revert ZeroAddress();
+        if (_rewardRate == 0) revert InvalidRewardRate();
+        if (_minLockPeriod == 0) revert InvalidLockPeriod();
+        if (_maxLockPeriod <= _minLockPeriod) revert InvalidLockPeriod();
 
         halomToken = IHalomToken(_halomToken);
         roleManager = IHalomRoleManager(_roleManager);
         rewardRate = _rewardRate;
-        lockPeriod = _lockPeriod;
-        slashPercentage = _slashPercentage;
-        
-        // Roles will be granted by deployment script, not in constructor
-        _grantRole(DEFAULT_ADMIN_ROLE, _roleManager);
-        _grantRole(GOVERNOR_ROLE, _roleManager);
-        _grantRole(REWARDER_ROLE, _roleManager);
-        _grantRole(SLASHER_ROLE, _roleManager); // Governor can slash
-        _grantRole(PAUSER_ROLE, _roleManager);
+        minLockPeriod = _minLockPeriod;
+        maxLockPeriod = _maxLockPeriod;
+
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(PAUSER_ROLE, msg.sender);
     }
 
     /**
@@ -192,10 +209,10 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         uint256 _amount,
         uint256 _lockPeriod
     ) external nonReentrant whenNotPaused updateRewards(msg.sender) {
-        require(_amount >= minStakeAmount, "Amount below minimum");
-        require(_amount <= maxStakeAmount, "Amount above maximum");
-        require(_lockPeriod >= MIN_LOCK_PERIOD && _lockPeriod <= MAX_LOCK_PERIOD, "Invalid lock period");
-        require(stakedBalance[msg.sender] + _amount <= maxStakeAmount, "Total stake would exceed maximum");
+        if (_amount == 0) revert ZeroAmount();
+        if (_lockPeriod < minLockPeriod) revert LockPeriodTooShort();
+        if (_lockPeriod > maxLockPeriod) revert LockPeriodTooLong();
+        if (stakedBalance[msg.sender] + _amount > maxStakeAmount) revert InsufficientBalance();
         
         SafeERC20.safeTransferFrom(IERC20(address(halomToken)), msg.sender, address(this), _amount);
         
@@ -224,9 +241,8 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
      * Note: This function preserves existing lock periods and cannot override them
      */
     function stake(uint256 _amount) external nonReentrant whenNotPaused updateRewards(msg.sender) {
-        require(_amount >= minStakeAmount, "Amount below minimum");
-        require(_amount <= maxStakeAmount, "Amount above maximum");
-        require(stakedBalance[msg.sender] + _amount <= maxStakeAmount, "Total stake would exceed maximum");
+        if (_amount == 0) revert ZeroAmount();
+        if (stakedBalance[msg.sender] + _amount > maxStakeAmount) revert InsufficientBalance();
         
         // If user has no existing stake, require them to use stakeWithLock
         if (stakedBalance[msg.sender] == 0) {
@@ -261,16 +277,14 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
      * @dev Unstake tokens (with lock period)
      */
     function unstake(uint256 _amount) external nonReentrant whenNotPaused updateRewards(msg.sender) {
-        require(_amount > 0, "Cannot unstake 0");
-        require(stakedBalance[msg.sender] >= _amount, "Insufficient staked balance");
+        if (_amount == 0) revert ZeroAmount();
+        if (stakedBalance[msg.sender] < _amount) revert InsufficientStakedAmount();
         
-        // Check lock period if user has locked stake
-        if (hasLockedStake[msg.sender]) {
-            require(block.timestamp >= lockUntil[msg.sender], "Lock period not met");
-        } else {
-            require(block.timestamp >= stakeTime[msg.sender] + lockPeriod, "Lock period not met");
+        // Check if lock period has expired
+        if (lockUntil[msg.sender] > 0 && block.timestamp < lockUntil[msg.sender]) {
+            revert LockNotExpired();
         }
-        
+
         uint256 oldFourthRoot = fourthRootStake[msg.sender];
         stakedBalance[msg.sender] -= _amount;
         totalStaked -= _amount;
@@ -325,7 +339,13 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
      * @dev Claim rewards for a user
      */
     function claimRewards() external nonReentrant whenNotPaused updateRewards(msg.sender) {
-        // The updateRewards modifier handles the logic
+        uint256 rewardAmount = pendingRewards;
+        if (rewardAmount == 0) revert NoRewardsToClaim();
+
+        pendingRewards = 0;
+        totalRewardsClaimed += rewardAmount;
+
+        emit RewardClaimed(msg.sender, rewardAmount);
     }
 
     /**
@@ -592,9 +612,9 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         // Calculate rewards based on validator's performance and commission
         // This is a simplified calculation - in practice, you'd track validator performance
         uint256 timeSinceLastClaim = block.timestamp - delegatorLastClaimTime[_delegator];
-        uint256 rewardRate = 1000; // 10% annual rate (simplified)
+        uint256 localRewardRate = 1000; // 10% annual rate (simplified)
         
-        uint256 rewards = (userDelegatedAmount * rewardRate * timeSinceLastClaim) / (365 days * 10000);
+        uint256 rewards = (userDelegatedAmount * localRewardRate * timeSinceLastClaim) / (365 days * 10000);
         
         // Apply commission
         uint256 commission = (rewards * userValidatorCommission) / COMMISSION_DENOMINATOR;

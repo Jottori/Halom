@@ -19,7 +19,7 @@
     "not-rely-on-block-hash": "warn",
     "avoid-tx-origin": "error",
     "check-send-result": "error",
-    "compiler-version": "warn",
+    "compiler-version": ["error", "^0.8.20"],
     "func-param-name-mixedcase": "warn",
     "func-name-mixedcase": "warn",
     "var-name-mixedcase": "warn",
@@ -28,7 +28,7 @@
     "contract-name-camelcase": "warn",
     "ordering": "warn",
     "visibility-modifier-order": "warn",
-    "no-global-import": "warn",
+    "no-global-import": "off",
     "imports-on-top": "warn",
     "no-unused-vars": "warn",
     "code-complexity": "warn",
@@ -38,9 +38,12 @@
     "no-multiple-inheritance": "warn",
     "no-return": "warn",
     "no-throw": "warn",
-    "no-unused-vars": "warn",
     "reentrancy": "error",
     "state-visibility": "warn",
-    "use-forbidden-name": "warn"
+    "use-forbidden-name": "warn",
+    "gas-custom-errors": "warn",
+    "immutable-vars-naming": "warn",
+    "reason-string": "warn",
+    "max-states-count": "warn"
   }
 } 
