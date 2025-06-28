@@ -7,15 +7,31 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./HalomToken.sol";
 import "./interfaces/IHalomInterfaces.sol";
 
+// Custom errors for gas optimization (only those not already in HalomToken)
+error InvalidHOI();
+error HOITooHigh();
+error SubmissionWindowClosed();
+error AlreadySubmitted();
+error AlreadyExecuted();
+error InsufficientSubmissions();
+error ConsensusNotReached();
+error DeviationTooHigh();
+error OutlierDetected();
+error EmergencyPaused();
+error InvalidParameters();
+error NotContract();
+
 /**
  * @title HalomOracleV2
  * @dev Enhanced oracle with multiple nodes and consensus mechanism
  * Implements secure role structure with ORACLE_UPDATER_ROLE for authorized nodes only
+ * Includes protection against data manipulation and outlier attacks
  */
 contract HalomOracleV2 is AccessControl, Pausable, ReentrancyGuard {
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
     bytes32 public constant ORACLE_UPDATER_ROLE = keccak256("ORACLE_UPDATER_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
     IHalomToken public halomToken;
     
@@ -29,6 +45,28 @@ contract HalomOracleV2 is AccessControl, Pausable, ReentrancyGuard {
     uint256 public constant CONSENSUS_THRESHOLD = 2; // Minimum 2 nodes must agree
     uint256 public constant MAX_DEVIATION = 500; // 5% max deviation between submissions
     uint256 public constant SUBMISSION_WINDOW = 300; // 5 minutes window for submissions
+    
+    // Enhanced security parameters
+    uint256 public constant MAX_HOI_CHANGE = 200; // 2% max change between updates
+    uint256 public constant MIN_HOI_VALUE = 100; // Minimum HOI value (1.0)
+    uint256 public constant MAX_HOI_VALUE = 1000; // Maximum HOI value (10.0)
+    uint256 public constant OUTLIER_THRESHOLD = 300; // 3% threshold for outlier detection
+    
+    // Oracle reputation and slashing
+    mapping(address => uint256) public oracleReputation;
+    mapping(address => uint256) public oracleErrors;
+    mapping(address => uint256) public lastSubmissionTime;
+    uint256 public constant MAX_ERRORS = 5; // Max errors before oracle is slashed
+    uint256 public constant REPUTATION_THRESHOLD = 50; // Minimum reputation to submit
+    
+    // Emergency controls
+    bool public emergencyPaused;
+    uint256 public emergencyHOI;
+    uint256 public emergencyTimestamp;
+    
+    // Data validation
+    mapping(uint256 => uint256[]) public historicalHOI;
+    uint256 public constant MAX_HISTORY = 100; // Keep last 100 HOI values
     
     struct OracleSubmission {
         uint256 hoi;
@@ -44,6 +82,8 @@ contract HalomOracleV2 is AccessControl, Pausable, ReentrancyGuard {
         address[] submitters;
         bool executed;
         uint256 finalHOI;
+        uint256 medianHOI;
+        uint256[] validSubmissions;
     }
     
     mapping(uint256 => mapping(address => OracleSubmission)) public submissions; // nonce => oracle => submission
@@ -73,23 +113,27 @@ contract HalomOracleV2 is AccessControl, Pausable, ReentrancyGuard {
     event ConsensusParametersUpdated(uint256 minNodes, uint256 threshold, uint256 maxDeviation);
     event OracleNodeAdded(address indexed oracle, address indexed addedBy);
     event OracleNodeRemoved(address indexed oracle, address indexed removedBy);
+    event OracleSlashed(address indexed oracle, uint256 errors);
+    event OutlierDetectedEvent(address indexed oracle, uint256 hoi, uint256 median);
+    event EmergencyHOISet(uint256 hoi, address indexed caller);
 
     constructor(address _governance, uint256 _chainId) {
-        require(_governance != address(0), "Governance cannot be zero");
-        require(_chainId > 0, "Chain ID must be positive");
+        if (_governance == address(0)) revert ZeroAddress();
+        if (_chainId == 0) revert InvalidParameters();
         
         chainId = _chainId;
         _grantRole(DEFAULT_ADMIN_ROLE, _governance);
         _grantRole(GOVERNOR_ROLE, _governance);
         _grantRole(PAUSER_ROLE, _governance);
+        _grantRole(EMERGENCY_ROLE, _governance);
     }
 
     /**
      * @dev Set HalomToken address (only governor)
      */
     function setHalomToken(address _halomToken) external onlyRole(GOVERNOR_ROLE) {
-        require(_halomToken != address(0), "Token address cannot be zero");
-        require(_halomToken.code.length > 0, "Must be a contract");
+        if (_halomToken == address(0)) revert ZeroAddress();
+        if (_halomToken.code.length == 0) revert NotContract();
         halomToken = IHalomToken(_halomToken);
     }
 
@@ -97,14 +141,17 @@ contract HalomOracleV2 is AccessControl, Pausable, ReentrancyGuard {
      * @dev Add oracle node (only governor)
      */
     function addOracleNode(address _oracle) external onlyRole(GOVERNOR_ROLE) {
-        require(_oracle != address(0), "Oracle address cannot be zero");
-        require(_oracle.code.length > 0, "Oracle must be a contract");
-        require(!authorizedOracles[_oracle], "Oracle already authorized");
-        require(oracleNodes.length < maxOracleNodes, "Too many oracle nodes");
+        if (_oracle == address(0)) revert ZeroAddress();
+        if (_oracle.code.length == 0) revert NotContract();
+        if (authorizedOracles[_oracle]) revert Unauthorized();
+        if (oracleNodes.length >= maxOracleNodes) revert InvalidParameters();
         
         authorizedOracles[_oracle] = true;
         oracleNodes.push(_oracle);
         _grantRole(ORACLE_UPDATER_ROLE, _oracle);
+        
+        // Initialize reputation
+        oracleReputation[_oracle] = 100;
         
         emit OracleAuthorized(_oracle, true);
         emit OracleNodeAdded(_oracle, msg.sender);
@@ -114,8 +161,8 @@ contract HalomOracleV2 is AccessControl, Pausable, ReentrancyGuard {
      * @dev Remove oracle node (only governor)
      */
     function removeOracleNode(address _oracle) external onlyRole(GOVERNOR_ROLE) {
-        require(authorizedOracles[_oracle], "Oracle not authorized");
-        require(oracleNodes.length > minOracleNodes, "Too few oracle nodes");
+        if (!authorizedOracles[_oracle]) revert Unauthorized();
+        if (oracleNodes.length <= minOracleNodes) revert InvalidParameters();
         
         authorizedOracles[_oracle] = false;
         _revokeRole(ORACLE_UPDATER_ROLE, _oracle);
@@ -134,30 +181,43 @@ contract HalomOracleV2 is AccessControl, Pausable, ReentrancyGuard {
     }
 
     /**
-     * @dev Update consensus parameters (only governor)
+     * @dev Emergency pause oracle
      */
-    function updateConsensusParameters(
-        uint256 _minNodes,
-        uint256 _threshold,
-        uint256 _maxDeviation
-    ) external onlyRole(GOVERNOR_ROLE) {
-        require(_minNodes >= 2, "Min nodes must be at least 2");
-        require(_threshold >= 2, "Threshold must be at least 2");
-        require(_maxDeviation <= 1000, "Max deviation cannot exceed 10%");
-        require(_minNodes <= oracleNodes.length, "Min nodes cannot exceed current oracle count");
+    function emergencyPause() external onlyRole(EMERGENCY_ROLE) {
+        emergencyPaused = true;
+        _pause();
+    }
+    
+    /**
+     * @dev Emergency set HOI value
+     */
+    function emergencySetHOI(uint256 _hoi) external onlyRole(EMERGENCY_ROLE) {
+        if (_hoi < MIN_HOI_VALUE || _hoi > MAX_HOI_VALUE) revert InvalidHOI();
         
-        // Update constants (this would require contract upgrade in production)
-        // For now, we'll use storage variables
-        emit ConsensusParametersUpdated(_minNodes, _threshold, _maxDeviation);
+        emergencyHOI = _hoi;
+        emergencyTimestamp = block.timestamp;
+        latestHOI = _hoi;
+        lastUpdateTime = block.timestamp;
+        
+        emit EmergencyHOISet(_hoi, msg.sender);
+    }
+    
+    /**
+     * @dev Resume oracle
+     */
+    function emergencyResume() external onlyRole(GOVERNOR_ROLE) {
+        emergencyPaused = false;
+        _unpause();
     }
 
     /**
      * @dev Submit HOI value for consensus round (only authorized oracle nodes)
      */
     function submitHOI(uint256 _hoi) external onlyRole(ORACLE_UPDATER_ROLE) nonReentrant whenNotPaused {
-        require(authorizedOracles[msg.sender], "Oracle: not authorized");
-        require(_hoi > 0, "Oracle: invalid HOI value");
-        require(_hoi <= 1e12, "Oracle: HOI value too high"); // Max 1000 (scaled by 1e9)
+        if (emergencyPaused) revert EmergencyPaused();
+        if (!authorizedOracles[msg.sender]) revert Unauthorized();
+        if (_hoi < MIN_HOI_VALUE || _hoi > MAX_HOI_VALUE) revert InvalidHOI();
+        if (oracleReputation[msg.sender] < REPUTATION_THRESHOLD) revert Unauthorized();
         
         ConsensusRound storage round = consensusRounds[nonce];
         
@@ -168,8 +228,11 @@ contract HalomOracleV2 is AccessControl, Pausable, ReentrancyGuard {
             round.endTime = block.timestamp + SUBMISSION_WINDOW;
         }
         
-        require(block.timestamp <= round.endTime, "Oracle: submission window closed");
-        require(!submissions[nonce][msg.sender].submitted, "Oracle: already submitted");
+        if (block.timestamp > round.endTime) revert SubmissionWindowClosed();
+        if (submissions[nonce][msg.sender].submitted) revert AlreadySubmitted();
+        
+        // Check for rapid submissions (anti-spam)
+        if (block.timestamp < lastSubmissionTime[msg.sender] + 60) revert InvalidParameters(); // 1 minute cooldown
         
         // Record submission
         submissions[nonce][msg.sender] = OracleSubmission({
@@ -180,6 +243,7 @@ contract HalomOracleV2 is AccessControl, Pausable, ReentrancyGuard {
         
         round.submissions.push(_hoi);
         round.submitters.push(msg.sender);
+        lastSubmissionTime[msg.sender] = block.timestamp;
         
         emit OracleSubmissionReceived(nonce, msg.sender, _hoi, block.timestamp);
         
@@ -194,176 +258,161 @@ contract HalomOracleV2 is AccessControl, Pausable, ReentrancyGuard {
      */
     function _tryReachConsensus() internal {
         ConsensusRound storage round = consensusRounds[nonce];
-        require(!round.executed, "Oracle: already executed");
+        if (round.executed) revert AlreadyExecuted();
         
         // Sort submissions to find median
         uint256[] memory sortedSubmissions = new uint256[](round.submissions.length);
         for (uint256 i = 0; i < round.submissions.length; i++) {
             sortedSubmissions[i] = round.submissions[i];
         }
-        _quickSort(sortedSubmissions, 0, int256(sortedSubmissions.length - 1));
         
-        uint256 medianHOI = sortedSubmissions[sortedSubmissions.length / 2];
-        
-        // Check if submissions are within acceptable deviation
-        bool consensusReached = true;
-        for (uint256 i = 0; i < round.submissions.length; i++) {
-            uint256 deviation = _calculateDeviation(round.submissions[i], medianHOI);
-            if (deviation > MAX_DEVIATION) {
-                consensusReached = false;
-                break;
+        // Simple bubble sort for small arrays
+        for (uint256 i = 0; i < sortedSubmissions.length; i++) {
+            for (uint256 j = i + 1; j < sortedSubmissions.length; j++) {
+                if (sortedSubmissions[i] > sortedSubmissions[j]) {
+                    uint256 temp = sortedSubmissions[i];
+                    sortedSubmissions[i] = sortedSubmissions[j];
+                    sortedSubmissions[j] = temp;
+                }
             }
         }
         
-        if (consensusReached && round.submissions.length >= CONSENSUS_THRESHOLD) {
-            _executeConsensus(medianHOI);
+        uint256 median = sortedSubmissions[sortedSubmissions.length / 2];
+        round.medianHOI = median;
+        
+        // Filter out outliers
+        uint256[] memory validSubmissions = new uint256[](round.submissions.length);
+        uint256 validCount = 0;
+        
+        for (uint256 i = 0; i < round.submissions.length; i++) {
+            uint256 deviation = _calculateDeviation(round.submissions[i], median);
+            if (deviation <= OUTLIER_THRESHOLD) {
+                validSubmissions[validCount] = round.submissions[i];
+                validCount++;
+            } else {
+                // Penalize outlier oracle
+                _penalizeOracle(round.submitters[i]);
+                emit OutlierDetectedEvent(round.submitters[i], round.submissions[i], median);
+            }
         }
-    }
-
-    /**
-     * @dev Execute consensus and trigger rebase
-     */
-    function _executeConsensus(uint256 _finalHOI) internal {
-        ConsensusRound storage round = consensusRounds[nonce];
         
-        // Calculate supply delta
-        uint256 S = halomToken.totalSupply();
-        int256 supplyDelta;
+        if (validCount < CONSENSUS_THRESHOLD) revert ConsensusNotReached();
         
-        if (lastUpdateTime == 0) {
-            // First rebase
-            uint256 initialPeg = 1e9;
-            supplyDelta = int256((_finalHOI * S) / initialPeg) - int256(S);
-        } else {
-            supplyDelta = int256((_finalHOI * S) / latestHOI) - int256(S);
+        // Calculate final HOI as average of valid submissions
+        uint256 finalHOI = 0;
+        for (uint256 i = 0; i < validCount; i++) {
+            finalHOI += validSubmissions[i];
+        }
+        finalHOI = finalHOI / validCount;
+        
+        // Check for extreme changes
+        if (latestHOI > 0) {
+            uint256 change = _calculateDeviation(finalHOI, latestHOI);
+            if (change > MAX_HOI_CHANGE) revert DeviationTooHigh();
+        }
+        
+        // Execute rebase
+        int256 supplyDelta = _calculateSupplyDelta(finalHOI);
+        
+        if (address(halomToken) != address(0)) {
+            halomToken.rebase(supplyDelta);
         }
         
         // Update state
-        latestHOI = _finalHOI;
+        latestHOI = finalHOI;
         lastUpdateTime = block.timestamp;
-        round.finalHOI = _finalHOI;
         round.executed = true;
+        round.finalHOI = finalHOI;
         
-        // Execute rebase
-        halomToken.rebase(supplyDelta);
+        // Store in history
+        if (historicalHOI[0].length >= MAX_HISTORY) {
+            // Remove oldest entry
+            for (uint256 i = 0; i < historicalHOI[0].length - 1; i++) {
+                historicalHOI[0][i] = historicalHOI[0][i + 1];
+            }
+            historicalHOI[0].pop();
+        }
+        historicalHOI[0].push(finalHOI);
         
-        // Move to next round
-        nonce++;
-        
-        emit ConsensusReached(nonce - 1, _finalHOI, supplyDelta, round.submitters);
-    }
-
-    /**
-     * @dev Calculate percentage deviation between two values
-     */
-    function _calculateDeviation(uint256 a, uint256 b) internal pure returns (uint256) {
-        if (a == b) return 0;
-        uint256 diff = a > b ? a - b : b - a;
-        return (diff * 10000) / b; // Return in basis points
-    }
-
-    /**
-     * @dev Quick sort implementation for finding median
-     */
-    function _quickSort(uint256[] memory arr, int256 left, int256 right) internal pure {
-        if (left >= right) return;
-        
-        uint256 pivot = arr[uint256(left + (right - left) / 2)];
-        int256 i = left - 1;
-        int256 j = right + 1;
-        
-        while (true) {
-            do {
-                i++;
-            } while (arr[uint256(i)] < pivot);
-            
-            do {
-                j--;
-            } while (arr[uint256(j)] > pivot);
-            
-            if (i >= j) break;
-            
-            uint256 temp = arr[uint256(i)];
-            arr[uint256(i)] = arr[uint256(j)];
-            arr[uint256(j)] = temp;
+        // Reward valid oracles
+        for (uint256 i = 0; i < validCount; i++) {
+            _rewardOracle(round.submitters[i]);
         }
         
-        _quickSort(arr, left, j);
-        _quickSort(arr, j + 1, right);
+        nonce++;
+        
+        emit ConsensusReached(nonce - 1, finalHOI, supplyDelta, round.submitters);
     }
-
+    
     /**
-     * @dev Get current consensus round info
+     * @dev Calculate deviation between two values
      */
-    function getCurrentRound() external view returns (
-        uint256 _nonce,
-        uint256 _startTime,
-        uint256 _endTime,
-        uint256 _submissionCount,
-        bool _executed,
-        uint256 _finalHOI
+    function _calculateDeviation(uint256 a, uint256 b) internal pure returns (uint256) {
+        if (a == 0 || b == 0) return 0;
+        uint256 diff = a > b ? a - b : b - a;
+        return (diff * 10000) / b; // Return as basis points
+    }
+    
+    /**
+     * @dev Calculate supply delta based on HOI
+     */
+    function _calculateSupplyDelta(uint256 hoi) internal view returns (int256) {
+        // Simple linear relationship: HOI 100 = no change, HOI 200 = +10% supply
+        if (hoi == 100) return 0;
+        if (hoi > 100) {
+            uint256 increase = ((hoi - 100) * 1000) / 10000; // 10% max increase
+            return int256(increase);
+        } else {
+            uint256 decrease = ((100 - hoi) * 1000) / 10000; // 10% max decrease
+            return -int256(decrease);
+        }
+    }
+    
+    /**
+     * @dev Penalize oracle for outlier submission
+     */
+    function _penalizeOracle(address oracle) internal {
+        oracleErrors[oracle]++;
+        if (oracleReputation[oracle] > 10) {
+            oracleReputation[oracle] -= 10;
+        }
+        
+        if (oracleErrors[oracle] >= MAX_ERRORS) {
+            // Slash oracle
+            authorizedOracles[oracle] = false;
+            _revokeRole(ORACLE_UPDATER_ROLE, oracle);
+            emit OracleSlashed(oracle, oracleErrors[oracle]);
+        }
+    }
+    
+    /**
+     * @dev Reward oracle for valid submission
+     */
+    function _rewardOracle(address oracle) internal {
+        if (oracleReputation[oracle] < 100) {
+            oracleReputation[oracle] += 1;
+        }
+    }
+    
+    /**
+     * @dev Get oracle statistics
+     */
+    function getOracleStats(address oracle) external view returns (
+        uint256 reputation,
+        uint256 errors,
+        uint256 lastSubmission
     ) {
-        ConsensusRound storage round = consensusRounds[nonce];
         return (
-            round.nonce,
-            round.startTime,
-            round.endTime,
-            round.submissions.length,
-            round.executed,
-            round.finalHOI
+            oracleReputation[oracle],
+            oracleErrors[oracle],
+            lastSubmissionTime[oracle]
         );
     }
-
+    
     /**
-     * @dev Get oracle submission for current round
+     * @dev Get historical HOI data
      */
-    function getOracleSubmission(address _oracle) external view returns (
-        uint256 _hoi,
-        uint256 _timestamp,
-        bool _submitted
-    ) {
-        OracleSubmission storage submission = submissions[nonce][_oracle];
-        return (submission.hoi, submission.timestamp, submission.submitted);
-    }
-
-    /**
-     * @dev Get all authorized oracle nodes
-     */
-    function getOracleNodes() external view returns (address[] memory) {
-        return oracleNodes;
-    }
-
-    /**
-     * @dev Check if address is authorized oracle
-     */
-    function isAuthorizedOracle(address _oracle) external view returns (bool) {
-        return authorizedOracles[_oracle];
-    }
-
-    /**
-     * @dev Pause oracle operations (emergency)
-     */
-    function pause() external onlyRole(PAUSER_ROLE) {
-        _pause();
-    }
-
-    /**
-     * @dev Unpause oracle operations
-     */
-    function unpause() external onlyRole(GOVERNOR_ROLE) {
-        _unpause();
-    }
-
-    /**
-     * @dev Emergency function to force consensus (only governor)
-     */
-    function emergencyForceConsensus(uint256 _hoi) external onlyRole(GOVERNOR_ROLE) {
-        require(_hoi > 0, "Invalid HOI value");
-        require(_hoi <= 1e12, "HOI value too high");
-        
-        ConsensusRound storage round = consensusRounds[nonce];
-        require(!round.executed, "Round already executed");
-        
-        _executeConsensus(_hoi);
+    function getHistoricalHOI() external view returns (uint256[] memory) {
+        return historicalHOI[0];
     }
 } 

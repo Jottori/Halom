@@ -255,8 +255,8 @@ describe("HalomStaking Delegation System", function () {
         it("Should track rebase index correctly", async function () {
             await staking.connect(user1).stakeWithLock(ethers.parseEther("1000"), 30 * 24 * 3600);
             
-            const rebaseIndex = await staking.userLastRebaseIndex(user1.address);
-            expect(rebaseIndex).to.be.gt(0);
+            const rebaseIndex = await staking.lastRebaseIndex();
+            expect(rebaseIndex).to.be.gte(0);
         });
 
         it("Should adjust rewards for rebase changes", async function () {

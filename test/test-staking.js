@@ -59,13 +59,13 @@ describe("HalomStaking", function () {
     it("Should revert with amount below minimum", async function () {
       await expect(
         staking.connect(user1).stakeWithLock(ethers.parseEther("50"), 30 * 24 * 60 * 60)
-      ).to.be.revertedWith("Amount below minimum");
+      ).to.be.revertedWithCustomError(staking, "AmountBelowMinimum");
     });
 
     it("Should revert with amount above maximum", async function () {
       await expect(
         staking.connect(user1).stakeWithLock(ethers.parseEther("2000000"), 30 * 24 * 60 * 60)
-      ).to.be.revertedWith("Amount above maximum");
+      ).to.be.revertedWithCustomError(staking, "AmountAboveMaximum");
     });
   });
 
@@ -89,11 +89,10 @@ describe("HalomStaking", function () {
     });
 
     it("Should revert unstaking before lock period", async function () {
-      await staking.connect(user1).stakeWithLock(ethers.parseEther("100"), 30 * 24 * 60 * 60);
-      
+      await staking.connect(user1).stakeWithLock(ethers.parseEther("1000"), 30 * 24 * 60 * 60);
       await expect(
-        staking.connect(user1).unstake(ethers.parseEther("50"))
-      ).to.be.revertedWith("Lock period not met");
+        staking.connect(user1).unstake(ethers.parseEther("1000"))
+      ).to.be.revertedWithCustomError(staking, "LockPeriodNotExpired");
     });
 
     it("Should allow additional staking after initial stake", async function () {

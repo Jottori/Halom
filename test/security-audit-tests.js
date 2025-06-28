@@ -118,7 +118,7 @@ describe("Halom Protocol Security Audit Tests", function () {
             const overBalance = (await halomToken.balanceOf(user1.address)) + 1n;
             await expect(
                 halomToken.connect(user1).transfer(user2.address, overBalance)
-            ).to.be.revertedWith("ERC20: transfer amount exceeds balance");
+            ).to.be.revertedWithCustomError(halomToken, "InsufficientBalance");
         });
 
         it("Should enforce wallet balance limits", async function () {
@@ -186,7 +186,7 @@ describe("Halom Protocol Security Audit Tests", function () {
             const excessiveDelta = maxDeltaValue + ethers.parseEther("1");
             await expect(
                 halomToken.connect(deployer).rebase(excessiveDelta)
-            ).to.be.revertedWith("HalomToken: Supply increase too large");
+            ).to.be.revertedWithCustomError(halomToken, "RebaseDeltaTooHigh");
         });
 
         it("Should handle negative supply delta correctly", async function () {
@@ -198,7 +198,7 @@ describe("Halom Protocol Security Audit Tests", function () {
             const excessiveNegativeDelta = maxDeltaValue + ethers.parseEther("1");
             await expect(
                 halomToken.rebase(-excessiveNegativeDelta)
-            ).to.be.revertedWith("HalomToken: Supply decrease too large");
+            ).to.be.revertedWithCustomError(halomToken, "RebaseDeltaTooHigh");
         });
 
         it("Should only allow REBASE_CALLER to call rebase", async function () {
@@ -218,7 +218,7 @@ describe("Halom Protocol Security Audit Tests", function () {
             // Try to unstake immediately
             await expect(
                 staking.connect(user1).unstake(stakeAmount)
-            ).to.be.revertedWith("Lock period not met");
+            ).to.be.revertedWithCustomError(staking, "LockPeriodNotExpired");
         });
 
         it("Should enforce minimum and maximum stake amounts", async function () {
@@ -230,14 +230,14 @@ describe("Halom Protocol Security Audit Tests", function () {
             await halomToken.connect(user1).approve(staking.target, minStake - 1n);
             await expect(
                 staking.connect(user1).stakeWithLock(minStake - 1n, 30 * 24 * 3600)
-            ).to.be.revertedWith("Amount below minimum");
+            ).to.be.revertedWithCustomError(staking, "AmountBelowMinimum");
             
             // Try to stake above maximum
             await halomToken.transfer(user1.address, maxStake + 1n);
             await halomToken.connect(user1).approve(staking.target, maxStake + 1n);
             await expect(
                 staking.connect(user1).stakeWithLock(maxStake + 1n, 30 * 24 * 3600)
-            ).to.be.revertedWith("Amount above maximum");
+            ).to.be.revertedWithCustomError(staking, "AmountAboveMaximum");
         });
     });
 

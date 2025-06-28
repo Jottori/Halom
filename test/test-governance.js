@@ -211,7 +211,7 @@ describe("Halom Governance System", function () {
                     lpStaking.target,
                     multisig.address
                 )
-            ).to.be.revertedWith("Staking address cannot be zero");
+            ).to.be.revertedWithCustomError(treasury, "ZeroAddress");
         });
 
         it("Should validate fee percentage updates", async function () {

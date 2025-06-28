@@ -6,10 +6,27 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
+// Custom errors for gas optimization
+error ZeroAddress();
+error InvalidAmount();
+error InsufficientBalance();
+error Unauthorized();
+error InvalidNonce();
+error Paused();
+error TransferAmountExceedsLimit();
+error WalletBalanceExceedsLimit();
+error SupplyOverflow();
+error SupplyUnderflow();
+error RateExceedsMaximum();
+error InvalidRebaseDelta();
+error RebaseDeltaTooHigh();
+error TimeNotElapsed();
+
 contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     bytes32 public constant REBASE_CALLER = keccak256("REBASE_CALLER");
     bytes32 public constant STAKING_CONTRACT_ROLE = keccak256("STAKING_CONTRACT_ROLE");
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
     mapping(address => uint256) private _gonBalances;
 
@@ -34,10 +51,31 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     mapping(uint256 => uint256) private _totalSupplyCheckpoints;
     uint256 private _totalSupplyCheckpointCount;
 
+    // Rebase protection variables
+    uint256 public lastRebaseTime;
+    uint256 public rebaseCooldown = 1 hours; // Minimum time between rebases
+    uint256 public maxRebasePerDay = 5; // Maximum rebases per day
+    uint256 public dailyRebaseCount;
+    uint256 public lastRebaseDay;
+    
+    // Rebase history for monitoring
+    struct RebaseInfo {
+        int256 supplyDelta;
+        uint256 timestamp;
+        uint256 newSupply;
+        address caller;
+    }
+    
+    RebaseInfo[] public rebaseHistory;
+    uint256 public maxRebaseHistory = 100; // Keep last 100 rebases
+
     event Rebase(uint256 newTotalSupply, int256 supplyDelta);
     event AntiWhaleLimitsUpdated(uint256 maxTransfer, uint256 maxWallet);
     event ExcludedFromLimits(address indexed account, bool excluded);
     event StakingContractUpdated(address indexed oldContract, address indexed newContract);
+    event RebaseProtectionUpdated(uint256 cooldown, uint256 maxPerDay);
+    event RebaseEmergencyPaused(address indexed caller);
+    event RebaseResumed(uint256 cooldown);
     
     constructor(address _oracleAddress, address _governance) ERC20("Halom", "HOM") EIP712("Halom", "1") {
         uint256 initialSupply = 1_000_000 * 10**decimals();
@@ -66,8 +104,8 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     }
 
     function setStakingContract(address _stakingAddress) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(_stakingAddress != address(0), "HalomToken: Zero address");
-        require(_stakingAddress.code.length > 0, "HalomToken: Must be a contract");
+        if (_stakingAddress == address(0)) revert ZeroAddress();
+        if (_stakingAddress.code.length == 0) revert InvalidAmount();
         
         address oldContract = halomStakingAddress;
         if (halomStakingAddress != address(0)) {
@@ -81,12 +119,13 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     }
 
     function setRewardRate(uint256 _newRate) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(_newRate <= 10000, "HalomToken: Rate cannot exceed 100%");
+        if (_newRate > 10000) revert RateExceedsMaximum();
         rewardRate = _newRate;
     }
 
     function setMaxRebaseDelta(uint256 _newDelta) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(_newDelta > 0 && _newDelta <= 1000, "HalomToken: Delta must be between 0.01% and 10%");
+        if (_newDelta == 0) revert InvalidRebaseDelta();
+        if (_newDelta > 1000) revert RebaseDeltaTooHigh(); // Max 10%
         maxRebaseDelta = _newDelta;
     }
     
@@ -106,25 +145,44 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         emit ExcludedFromLimits(_account, _excluded);
     }
 
+    function setRebaseProtection(
+        uint256 _cooldown, 
+        uint256 _maxPerDay
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (_cooldown > 24 hours) revert InvalidRebaseDelta(); // Max 24h cooldown
+        if (_maxPerDay == 0 || _maxPerDay > 10) revert RebaseDeltaTooHigh(); // Max 10 per day
+        
+        rebaseCooldown = _cooldown;
+        maxRebasePerDay = _maxPerDay;
+        
+        emit RebaseProtectionUpdated(_cooldown, _maxPerDay);
+    }
+
     function rebase(int256 supplyDelta) external onlyRole(REBASE_CALLER) {
-        uint256 S = totalSupply();
-        if (supplyDelta == 0) {
-            emit Rebase(S, 0);
-            return;
+        // Cooldown check
+        if (block.timestamp < lastRebaseTime + rebaseCooldown) revert TimeNotElapsed();
+        
+        // Daily limit check
+        uint256 currentDay = block.timestamp / 1 days;
+        if (currentDay != lastRebaseDay) {
+            dailyRebaseCount = 0;
+            lastRebaseDay = currentDay;
         }
-
-        // Check maxRebaseDelta limits first
-        uint256 maxDeltaValue = (S * maxRebaseDelta) / 10000;
-        uint256 absDelta = supplyDelta > 0 ? uint256(supplyDelta) : uint256(-supplyDelta);
-        require(
-            absDelta <= maxDeltaValue,
-            supplyDelta > 0 ? "HalomToken: Supply increase too large" : "HalomToken: Supply decrease too large"
-        );
-
+        if (dailyRebaseCount >= maxRebasePerDay) revert RebaseDeltaTooHigh();
+        
+        uint256 S = _totalSupply;
+        uint256 absDelta = supplyDelta < 0 ? uint256(-supplyDelta) : uint256(supplyDelta);
+        
+        // Check max rebase delta
+        if (absDelta > (S * maxRebaseDelta) / 10000) revert RebaseDeltaTooHigh();
+        
+        // Additional safety: prevent extreme supply changes
+        if (absDelta > S / 2) revert RebaseDeltaTooHigh(); // Max 50% change in one rebase
+        
         uint256 newS;
         if (supplyDelta > 0) {
             // Prevent overflow by checking bounds
-            require(uint256(supplyDelta) <= type(uint256).max - S, "HalomToken: Supply overflow");
+            if (uint256(supplyDelta) > type(uint256).max - S) revert SupplyOverflow();
             newS = S + uint256(supplyDelta);
             
             // Calculate rewards for staking contract
@@ -135,12 +193,32 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
             }
         } else {
             // Prevent underflow by checking bounds
-            require(absDelta <= S, "HalomToken: Supply underflow");
+            if (absDelta > S) revert SupplyUnderflow();
             newS = S - absDelta;
         }
         
+        // Update state
         _totalSupply = newS;
         _gonsPerFragment = TOTAL_GONS / _totalSupply;
+        lastRebaseTime = block.timestamp;
+        dailyRebaseCount++;
+        
+        // Record rebase history
+        if (rebaseHistory.length >= maxRebaseHistory) {
+            // Remove oldest entry
+            for (uint256 i = 0; i < rebaseHistory.length - 1; i++) {
+                rebaseHistory[i] = rebaseHistory[i + 1];
+            }
+            rebaseHistory.pop();
+        }
+        
+        rebaseHistory.push(RebaseInfo({
+            supplyDelta: supplyDelta,
+            timestamp: block.timestamp,
+            newSupply: newS,
+            caller: msg.sender
+        }));
+        
         emit Rebase(newS, supplyDelta);
     }
 
@@ -153,8 +231,8 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
      * This replaces the old public mint function for security
      */
     function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE) {
-        require(to != address(0), "HalomToken: Cannot mint to zero address");
-        require(amount > 0, "HalomToken: Cannot mint zero amount");
+        if (to == address(0)) revert ZeroAddress();
+        if (amount == 0) revert InvalidAmount();
         _mint(to, amount);
     }
 
@@ -168,17 +246,11 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         return _gonBalances[account] / _gonsPerFragment;
     }
 
-    // OpenZeppelin ERC20 now uses _update for all transfers, mints, burns
-    function _update(address from, address to, uint256 amount) internal override {
+    function _update(address from, address to, uint256 amount) internal virtual override {
         // Mint
         if (from == address(0)) {
-            // Only update _totalSupply if this is not the initial mint in constructor
-            if (_totalSupply == 0) {
-                _totalSupply = amount;
-            } else {
-                unchecked {
-                    _totalSupply += amount;
-                }
+            unchecked {
+                _totalSupply += amount;
             }
             if (_totalSupply > 0) {
                 _gonsPerFragment = TOTAL_GONS / _totalSupply;
@@ -208,14 +280,14 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
             return;
         }
         // Transfer
-        require(from != address(0), "ERC20: transfer from the zero address");
-        require(to != address(0), "ERC20: transfer to the zero address");
-        require(balanceOf(from) >= amount, "ERC20: transfer amount exceeds balance");
+        if (from == address(0)) revert ZeroAddress();
+        if (to == address(0)) revert ZeroAddress();
+        if (balanceOf(from) < amount) revert InsufficientBalance();
 
         // Anti-whale checks
         if (!isExcludedFromLimits[from] && !isExcludedFromLimits[to]) {
-            require(amount <= maxTransferAmount, "HalomToken: Transfer amount exceeds limit");
-            require(balanceOf(to) + amount <= maxWalletAmount, "HalomToken: Wallet balance would exceed limit");
+            if (amount > maxTransferAmount) revert TransferAmountExceedsLimit();
+            if (balanceOf(to) + amount > maxWalletAmount) revert WalletBalanceExceedsLimit();
         }
 
         uint256 gons = amount * _gonsPerFragment;
@@ -246,13 +318,13 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         bytes32 r,
         bytes32 s
     ) public virtual override {
-        require(block.timestamp <= expiry, "ERC20Votes: signature expired");
+        if (block.timestamp > expiry) revert InvalidNonce();
         address signer = ecrecover(
             _hashTypedDataV4(keccak256(abi.encode(_DELEGATION_TYPEHASH, delegatee, nonce, expiry))),
             v, r, s
         );
-        require(signer != address(0), "ERC20Votes: invalid signature");
-        require(nonce == _useNonce(signer), "ERC20Votes: invalid nonce");
+        if (signer == address(0)) revert Unauthorized();
+        if (nonce != _useNonce(signer)) revert InvalidNonce();
         _delegates[signer] = delegatee;
         _moveDelegateVotes(address(0), delegatee, balanceOf(signer));
     }
@@ -263,12 +335,12 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     }
 
     function getPastVotes(address account, uint256 blockNumber) public view virtual override returns (uint256) {
-        require(blockNumber < block.number, "ERC20Votes: block not yet mined");
+        if (blockNumber >= block.number) revert InvalidNonce();
         return _checkpointsLookup(_delegateCheckpoints[account], blockNumber, _delegateCheckpointCounts[account]);
     }
 
     function getPastTotalSupply(uint256 blockNumber) public view virtual override returns (uint256) {
-        require(blockNumber < block.number, "ERC20Votes: block not yet mined");
+        if (blockNumber >= block.number) revert InvalidNonce();
         return _checkpointsLookup(_totalSupplyCheckpoints, blockNumber, _totalSupplyCheckpointCount);
     }
 
@@ -356,4 +428,27 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     bytes32 private constant _DELEGATION_TYPEHASH = keccak256(
         "Delegation(address delegatee,uint256 nonce,uint256 expiry)"
     );
+
+    /**
+     * @dev Get rebase history for monitoring
+     */
+    function getRebaseHistory() external view returns (RebaseInfo[] memory) {
+        return rebaseHistory;
+    }
+    
+    /**
+     * @dev Emergency pause rebase functionality
+     */
+    function emergencyPauseRebase() external onlyRole(EMERGENCY_ROLE) {
+        rebaseCooldown = type(uint256).max; // Effectively disable rebase
+        emit RebaseEmergencyPaused(msg.sender);
+    }
+    
+    /**
+     * @dev Resume rebase functionality
+     */
+    function resumeRebase(uint256 _cooldown) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        rebaseCooldown = _cooldown;
+        emit RebaseResumed(_cooldown);
+    }
 } 

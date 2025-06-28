@@ -8,6 +8,21 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "./interfaces/IHalomInterfaces.sol";
 
+// Custom errors for gas optimization (only those not already in other contracts)
+error ZeroAddress();
+error InvalidAmount();
+error AmountBelowMinimum();
+error AmountAboveMaximum();
+error InvalidLockPeriod();
+error StakeExceedsMaximum();
+error LockPeriodNotExpired();
+error EmergencyPaused();
+error RewardRateTooHigh();
+error SlashPercentageInvalid();
+error CommissionRateTooHigh();
+error NoRewardsToClaim();
+error NoCommissionToClaim();
+
 contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
@@ -15,6 +30,7 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
     bytes32 public constant REWARDER_ROLE = keccak256("REWARDER_ROLE");
     bytes32 public constant SLASHER_ROLE = keccak256("SLASHER_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
     IHalomToken public halomToken;
     IHalomRoleManager public roleManager;
@@ -68,6 +84,19 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
     // Rebase-aware reward tracking
     uint256 public lastRebaseIndex; // Last rebase index when rewards were calculated
     mapping(address => uint256) public userLastRebaseIndex; // User's last rebase index
+    
+    // Enhanced security features
+    bool public emergencyPaused;
+    uint256 public maxRewardRate = 1000; // 10% max reward rate (basis points)
+    uint256 public rewardCooldown = 1 hours; // Minimum time between reward claims
+    mapping(address => uint256) public lastRewardClaimTime;
+    uint256 public constant MAX_REWARD_PER_CLAIM = 10000e18; // 10K HLM max per claim
+    
+    // Anti-manipulation
+    mapping(address => uint256) public stakeCount;
+    mapping(address => uint256) public lastStakeTime;
+    uint256 public constant STAKE_COOLDOWN = 300; // 5 minutes between stakes
+    uint256 public constant MAX_STAKES_PER_DAY = 10; // Max stakes per day per user
 
     event Staked(address indexed user, uint256 amount, uint256 lockTime);
     event Unstaked(address indexed user, uint256 amount);
@@ -80,6 +109,9 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
     event SlashPercentageUpdated(uint256 oldPercentage, uint256 newPercentage);
     event StakeWithLock(address indexed user, uint256 amount, uint256 lockPeriod, uint256 lockUntil);
     event LockPeriodSet(address indexed user, uint256 lockPeriod, uint256 lockUntil);
+    event EmergencyPausedEvent(address indexed caller);
+    event EmergencyResumed(address indexed caller);
+    event RewardRateLimited(address indexed user, uint256 requested, uint256 actual);
     
     // Delegation events
     event Delegated(address indexed delegator, address indexed validator, uint256 amount);
@@ -95,11 +127,11 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         uint256 _lockPeriod,
         uint256 _slashPercentage
     ) {
-        require(_halomToken != address(0), "Halom token is zero address");
-        require(_roleManager != address(0), "Role manager is zero address");
-        require(_rewardRate > 0, "Reward rate must be greater than 0");
-        require(_lockPeriod > 0, "Lock period must be greater than 0");
-        require(_slashPercentage > 0 && _slashPercentage <= MAX_SLASH_PERCENTAGE, "Invalid slash percentage");
+        if (_halomToken == address(0)) revert ZeroAddress();
+        if (_roleManager == address(0)) revert ZeroAddress();
+        if (_rewardRate == 0) revert InvalidAmount();
+        if (_lockPeriod == 0) revert InvalidAmount();
+        if (_slashPercentage == 0 || _slashPercentage > MAX_SLASH_PERCENTAGE) revert SlashPercentageInvalid();
 
         halomToken = IHalomToken(_halomToken);
         roleManager = IHalomRoleManager(_roleManager);
@@ -113,6 +145,41 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         _grantRole(REWARDER_ROLE, _roleManager);
         _grantRole(SLASHER_ROLE, _roleManager); // Governor can slash
         _grantRole(PAUSER_ROLE, _roleManager);
+        _grantRole(EMERGENCY_ROLE, _roleManager);
+    }
+
+    /**
+     * @dev Emergency pause staking
+     */
+    function emergencyPause() external onlyRole(EMERGENCY_ROLE) {
+        emergencyPaused = true;
+        _pause();
+        emit EmergencyPausedEvent(msg.sender);
+    }
+    
+    /**
+     * @dev Resume staking
+     */
+    function emergencyResume() external onlyRole(GOVERNOR_ROLE) {
+        emergencyPaused = false;
+        _unpause();
+        emit EmergencyResumed(msg.sender);
+    }
+    
+    /**
+     * @dev Set maximum reward rate
+     */
+    function setMaxRewardRate(uint256 newRate) external onlyRole(GOVERNOR_ROLE) {
+        if (newRate > 5000) revert RewardRateTooHigh(); // Max 50%
+        maxRewardRate = newRate;
+    }
+    
+    /**
+     * @dev Set reward cooldown
+     */
+    function setRewardCooldown(uint256 newCooldown) external onlyRole(GOVERNOR_ROLE) {
+        if (newCooldown > 24 hours) revert InvalidAmount(); // Max 24h
+        rewardCooldown = newCooldown;
     }
 
     /**
@@ -154,6 +221,12 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         uint256 mask = pending > 0 ? 1 : 0;
         uint256 reward = pending * mask;
         if (reward > 0) {
+            // Apply reward rate limiting
+            if (reward > MAX_REWARD_PER_CLAIM) {
+                reward = MAX_REWARD_PER_CLAIM;
+                emit RewardRateLimited(_account, pending, reward);
+            }
+            
             SafeERC20.safeTransfer(IERC20(address(halomToken)), _account, reward);
             emit RewardClaimed(_account, reward);
         }
@@ -184,6 +257,24 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         
         return _pendingRewards;
     }
+    
+    /**
+     * @dev Check for stake manipulation
+     */
+    function _checkStakeManipulation(address user) internal {
+        // Check stake frequency
+        if (block.timestamp < lastStakeTime[user] + STAKE_COOLDOWN) {
+            revert InvalidAmount();
+        }
+        
+        // Check daily stake limit
+        uint256 currentDay = block.timestamp / 1 days;
+        uint256 lastStakeDay = lastStakeTime[user] / 1 days;
+        
+        if (currentDay == lastStakeDay && stakeCount[user] >= MAX_STAKES_PER_DAY) {
+            revert InvalidAmount();
+        }
+    }
 
     /**
      * @dev Stake tokens with a specific lock period
@@ -192,29 +283,34 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         uint256 _amount,
         uint256 _lockPeriod
     ) external nonReentrant whenNotPaused updateRewards(msg.sender) {
-        require(_amount >= minStakeAmount, "Amount below minimum");
-        require(_amount <= maxStakeAmount, "Amount above maximum");
-        require(_lockPeriod >= MIN_LOCK_PERIOD && _lockPeriod <= MAX_LOCK_PERIOD, "Invalid lock period");
-        require(stakedBalance[msg.sender] + _amount <= maxStakeAmount, "Total stake would exceed maximum");
+        if (emergencyPaused) revert EmergencyPaused();
+        if (_amount < minStakeAmount) revert AmountBelowMinimum();
+        if (_amount > maxStakeAmount) revert AmountAboveMaximum();
+        if (_lockPeriod < MIN_LOCK_PERIOD || _lockPeriod > MAX_LOCK_PERIOD) revert InvalidLockPeriod();
+        if (stakedBalance[msg.sender] + _amount > maxStakeAmount) revert StakeExceedsMaximum();
+        
+        _checkStakeManipulation(msg.sender);
         
         SafeERC20.safeTransferFrom(IERC20(address(halomToken)), msg.sender, address(this), _amount);
         
+        // Update stake tracking
         uint256 oldFourthRoot = fourthRootStake[msg.sender];
         stakedBalance[msg.sender] += _amount;
         totalStaked += _amount;
         
-        // Calculate fourth root with boost
-        uint256 newFourthRoot = fourthRootWithBoost(stakedBalance[msg.sender], msg.sender);
+        uint256 newFourthRoot = fourthRoot(stakedBalance[msg.sender]);
         fourthRootStake[msg.sender] = newFourthRoot;
         totalFourthRootStake = totalFourthRootStake - oldFourthRoot + newFourthRoot;
         
-        stakeTime[msg.sender] = block.timestamp;
+        // Set lock period
         userLockPeriod[msg.sender] = _lockPeriod;
         lockUntil[msg.sender] = block.timestamp + _lockPeriod;
         hasLockedStake[msg.sender] = true;
+        stakeTime[msg.sender] = block.timestamp;
         
-        // Update rebase index
-        userLastRebaseIndex[msg.sender] = _getRebaseIndex();
+        // Update manipulation tracking
+        lastStakeTime[msg.sender] = block.timestamp;
+        stakeCount[msg.sender]++;
         
         emit StakeWithLock(msg.sender, _amount, _lockPeriod, lockUntil[msg.sender]);
     }
@@ -266,9 +362,9 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         
         // Check lock period if user has locked stake
         if (hasLockedStake[msg.sender]) {
-            require(block.timestamp >= lockUntil[msg.sender], "Lock period not met");
+            if (block.timestamp < lockUntil[msg.sender]) revert LockPeriodNotExpired();
         } else {
-            require(block.timestamp >= stakeTime[msg.sender] + lockPeriod, "Lock period not met");
+            if (block.timestamp < stakeTime[msg.sender] + lockPeriod) revert LockPeriodNotExpired();
         }
         
         uint256 oldFourthRoot = fourthRootStake[msg.sender];

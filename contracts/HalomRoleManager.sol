@@ -4,6 +4,17 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 
+// Custom errors for gas optimization
+error ZeroAddress();
+error NotContract();
+error RoleFrozen();
+error RoleAlreadyFrozen();
+error RoleNotFrozen();
+error Unauthorized();
+error InvalidRole();
+error TimeNotElapsed();
+error MultiSigRequired();
+
 /**
  * @title HalomRoleManager
  * @dev Centralized role management for the Halom ecosystem
@@ -39,15 +50,31 @@ contract HalomRoleManager is AccessControl, Pausable {
     mapping(bytes32 => address[]) public roleAssignments;
     mapping(bytes32 => bool) public roleFrozen;
     
+    // Time-based role grants
+    mapping(bytes32 => mapping(address => uint256)) public roleGrantTimestamps;
+    mapping(bytes32 => uint256) public roleGrantDelays;
+    
+    // Multi-sig requirements
+    mapping(bytes32 => bool) public multiSigRequired;
+    mapping(bytes32 => mapping(address => uint256)) public pendingRoleGrants;
+    mapping(bytes32 => mapping(address => address[])) public roleGrantApprovals;
+    
+    // Role hierarchy (higher number = higher privilege)
+    mapping(bytes32 => uint8) public roleHierarchy;
+    
     // Events
-    event RoleFrozen(bytes32 indexed role, address indexed frozenBy);
+    event RoleFrozenEvent(bytes32 indexed role, address indexed frozenBy);
     event RoleUnfrozen(bytes32 indexed role, address indexed unfrozenBy);
     event ContractRoleAssigned(bytes32 indexed role, address indexed contractAddress, address indexed assignedBy);
     event HumanRoleRevoked(bytes32 indexed role, address indexed account, address indexed revokedBy);
+    event RoleGrantRequested(bytes32 indexed role, address indexed account, address indexed requester);
+    event RoleGrantApproved(bytes32 indexed role, address indexed account, address indexed approver);
+    event RoleGrantDelaySet(bytes32 indexed role, uint256 delay);
+    event MultiSigRequiredSet(bytes32 indexed role, bool required);
     
     constructor(address _timelock, address _governor) {
-        require(_timelock != address(0), "Timelock cannot be zero");
-        require(_governor != address(0), "Governor cannot be zero");
+        if (_timelock == address(0)) revert ZeroAddress();
+        if (_governor == address(0)) revert ZeroAddress();
         
         // Only Timelock gets DEFAULT_ADMIN_ROLE
         _grantRole(DEFAULT_ADMIN_ROLE, _timelock);
@@ -60,28 +87,107 @@ contract HalomRoleManager is AccessControl, Pausable {
         
         // Emergency role for critical situations
         _grantRole(EMERGENCY_ROLE, _governor);
+        
+        // Set role hierarchy (higher number = higher privilege)
+        roleHierarchy[DEFAULT_ADMIN_ROLE] = 100;
+        roleHierarchy[EMERGENCY_ROLE] = 90;
+        roleHierarchy[GOVERNOR_ROLE] = 80;
+        roleHierarchy[PAUSER_ROLE] = 70;
+        roleHierarchy[MINTER_ROLE] = 60;
+        roleHierarchy[REBASE_CALLER] = 50;
+        roleHierarchy[TREASURY_CONTROLLER] = 40;
+        roleHierarchy[SLASHER_ROLE] = 30;
+        roleHierarchy[ORACLE_UPDATER_ROLE] = 20;
+        roleHierarchy[REWARDER_ROLE] = 10;
+        roleHierarchy[STAKING_CONTRACT_ROLE] = 5;
+        
+        // Set default grant delays (in seconds)
+        roleGrantDelays[EMERGENCY_ROLE] = 7 days;
+        roleGrantDelays[GOVERNOR_ROLE] = 3 days;
+        roleGrantDelays[MINTER_ROLE] = 1 days;
+        roleGrantDelays[REBASE_CALLER] = 1 days;
+        roleGrantDelays[TREASURY_CONTROLLER] = 2 days;
+        
+        // Set multi-sig requirements for critical roles
+        multiSigRequired[EMERGENCY_ROLE] = true;
+        multiSigRequired[GOVERNOR_ROLE] = true;
+        multiSigRequired[MINTER_ROLE] = true;
+        multiSigRequired[TREASURY_CONTROLLER] = true;
     }
     
     /**
      * @dev Grant role to contract only (no human addresses)
      */
     function grantRoleToContract(bytes32 role, address contractAddress) external onlyRole(GOVERNOR_ROLE) {
-        require(contractAddress != address(0), "Contract address cannot be zero");
-        require(contractAddress.code.length > 0, "Address must be a contract");
-        require(!roleFrozen[role], "Role is frozen");
+        if (contractAddress == address(0)) revert ZeroAddress();
+        if (contractAddress.code.length == 0) revert NotContract();
+        if (roleFrozen[role]) revert RoleFrozen();
+        
+        // Check role hierarchy - can't grant higher privilege than self
+        if (roleHierarchy[role] >= roleHierarchy[GOVERNOR_ROLE]) revert Unauthorized();
         
         _grantRole(role, contractAddress);
         roleAssignments[role].push(contractAddress);
+        roleGrantTimestamps[role][contractAddress] = block.timestamp;
         
         emit ContractRoleAssigned(role, contractAddress, msg.sender);
+    }
+    
+    /**
+     * @dev Request role grant for human (with delay and multi-sig)
+     */
+    function requestRoleGrant(bytes32 role, address account) external onlyRole(GOVERNOR_ROLE) {
+        if (account == address(0)) revert ZeroAddress();
+        if (account.code.length > 0) revert NotContract();
+        if (roleFrozen[role]) revert RoleFrozen();
+        
+        // Check role hierarchy
+        if (roleHierarchy[role] >= roleHierarchy[GOVERNOR_ROLE]) revert Unauthorized();
+        
+        pendingRoleGrants[role][account] = block.timestamp + roleGrantDelays[role];
+        roleGrantApprovals[role][account] = new address[](0);
+        
+        emit RoleGrantRequested(role, account, msg.sender);
+    }
+    
+    /**
+     * @dev Approve pending role grant (multi-sig)
+     */
+    function approveRoleGrant(bytes32 role, address account) external onlyRole(GOVERNOR_ROLE) {
+        if (pendingRoleGrants[role][account] == 0) revert InvalidRole();
+        if (block.timestamp < pendingRoleGrants[role][account]) revert TimeNotElapsed();
+        
+        address[] storage approvals = roleGrantApprovals[role][account];
+        
+        // Check if already approved
+        for (uint256 i = 0; i < approvals.length; i++) {
+            if (approvals[i] == msg.sender) revert Unauthorized();
+        }
+        
+        approvals.push(msg.sender);
+        
+        emit RoleGrantApproved(role, account, msg.sender);
+        
+        // Grant role if enough approvals (2 for multi-sig)
+        if (approvals.length >= 2 || !multiSigRequired[role]) {
+            _grantRole(role, account);
+            roleAssignments[role].push(account);
+            roleGrantTimestamps[role][account] = block.timestamp;
+            
+            // Clear pending grant
+            delete pendingRoleGrants[role][account];
+            delete roleGrantApprovals[role][account];
+            
+            emit ContractRoleAssigned(role, account, msg.sender);
+        }
     }
     
     /**
      * @dev Revoke role from human address (security measure)
      */
     function revokeRoleFromHuman(bytes32 role, address account) external onlyRole(GOVERNOR_ROLE) {
-        require(account.code.length == 0, "Cannot revoke from contract");
-        require(hasRole(role, account), "Account does not have role");
+        if (account.code.length > 0) revert NotContract();
+        if (!hasRole(role, account)) revert Unauthorized();
         
         _revokeRole(role, account);
         
@@ -92,20 +198,36 @@ contract HalomRoleManager is AccessControl, Pausable {
      * @dev Freeze a role to prevent further assignments
      */
     function freezeRole(bytes32 role) external onlyRole(GOVERNOR_ROLE) {
-        require(!roleFrozen[role], "Role already frozen");
+        if (roleFrozen[role]) revert RoleAlreadyFrozen();
         roleFrozen[role] = true;
         
-        emit RoleFrozen(role, msg.sender);
+        emit RoleFrozenEvent(role, msg.sender);
     }
     
     /**
      * @dev Unfreeze a role (only in emergency)
      */
     function unfreezeRole(bytes32 role) external onlyRole(EMERGENCY_ROLE) {
-        require(roleFrozen[role], "Role not frozen");
+        if (!roleFrozen[role]) revert RoleNotFrozen();
         roleFrozen[role] = false;
         
         emit RoleUnfrozen(role, msg.sender);
+    }
+    
+    /**
+     * @dev Set role grant delay
+     */
+    function setRoleGrantDelay(bytes32 role, uint256 delay) external onlyRole(GOVERNOR_ROLE) {
+        roleGrantDelays[role] = delay;
+        emit RoleGrantDelaySet(role, delay);
+    }
+    
+    /**
+     * @dev Set multi-sig requirement for role
+     */
+    function setMultiSigRequired(bytes32 role, bool required) external onlyRole(GOVERNOR_ROLE) {
+        multiSigRequired[role] = required;
+        emit MultiSigRequiredSet(role, required);
     }
     
     /**
@@ -123,10 +245,18 @@ contract HalomRoleManager is AccessControl, Pausable {
     }
     
     /**
+     * @dev Check pending role grant
+     */
+    function getPendingRoleGrant(bytes32 role, address account) external view returns (uint256 timestamp, address[] memory approvals) {
+        timestamp = pendingRoleGrants[role][account];
+        approvals = roleGrantApprovals[role][account];
+    }
+    
+    /**
      * @dev Override grantRole to prevent direct usage
      */
     function grantRole(bytes32 role, address account) public virtual override {
-        revert("Use grantRoleToContract for contracts or specific functions for humans");
+        revert("Use grantRoleToContract for contracts or requestRoleGrant for humans");
     }
     
     /**

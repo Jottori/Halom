@@ -122,14 +122,14 @@ describe("HalomToken", function () {
         it("Should revert if maxRebaseDelta is set to 0", async function () {
             await expect(
                 token.connect(governor).setMaxRebaseDelta(0)
-            ).to.be.revertedWith("HalomToken: Delta must be between 0.01% and 10%");
+            ).to.be.revertedWithCustomError(token, "InvalidRebaseDelta");
         });
 
         it("Should revert if maxRebaseDelta is set above 10%", async function () {
             const tooHighDelta = 1100; // 11%
             await expect(
                 token.connect(governor).setMaxRebaseDelta(tooHighDelta)
-            ).to.be.revertedWith("HalomToken: Delta must be between 0.01% and 10%");
+            ).to.be.revertedWithCustomError(token, "RebaseDeltaTooHigh");
         });
     });
 

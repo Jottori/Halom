@@ -9,10 +9,20 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "./HalomToken.sol";
 import "./interfaces/IHalomInterfaces.sol";
 
+// Custom errors for gas optimization (only those not already in HalomToken)
+error AmountExceedsMaximum();
+error WithdrawalCooldownNotMet();
+error FeeRateOutOfBounds();
+error EmergencyPaused();
+error MultiSigRequired();
+error WithdrawalLimitExceeded();
+error NoRewardsToClaim();
+
 /**
  * @title HalomTreasury
  * @dev Treasury contract for managing protocol fees and DAO funds
  * Implements secure role structure with proper governance controls
+ * Includes protection against drain attacks and unauthorized withdrawals
  */
 contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
@@ -21,6 +31,7 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
     bytes32 public constant TREASURY_CONTROLLER = keccak256("TREASURY_CONTROLLER");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
     IHalomToken public immutable halomToken;
     IERC20 public immutable eurcToken; // EURC instead of DAI
@@ -55,6 +66,32 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
     uint256 public maxWithdrawalAmount = 1000000e18; // 1M HLM max withdrawal
     uint256 public withdrawalCooldown = 24 hours;
     mapping(address => uint256) public lastWithdrawalTime;
+    
+    // Enhanced security features
+    bool public emergencyPaused;
+    uint256 public dailyWithdrawalLimit = 5000000e18; // 5M HLM daily limit
+    uint256 public dailyWithdrawalUsed;
+    uint256 public lastDailyReset;
+    
+    // Multi-sig withdrawal system
+    mapping(bytes32 => WithdrawalRequest) public withdrawalRequests;
+    mapping(bytes32 => mapping(address => bool)) public withdrawalApprovals;
+    uint256 public constant WITHDRAWAL_APPROVAL_THRESHOLD = 2; // 2 approvals required
+    uint256 public constant WITHDRAWAL_REQUEST_EXPIRY = 7 days; // 7 days expiry
+    
+    // Withdrawal tracking
+    mapping(address => uint256) public totalWithdrawn;
+    mapping(address => uint256) public withdrawalCount;
+    uint256 public constant MAX_WITHDRAWALS_PER_DAY = 5; // Max 5 withdrawals per day per address
+    
+    struct WithdrawalRequest {
+        address to;
+        uint256 amount;
+        uint256 timestamp;
+        bool executed;
+        uint256 approvalCount;
+        string reason;
+    }
 
     event FeeCollected(address indexed user, uint256 amount, uint256 fourthRoot);
     event FeeDistributed(address indexed user, uint256 amount);
@@ -66,15 +103,21 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
     event FeePercentagesUpdated(uint256 staking, uint256 lpStaking, uint256 daoReserve);
     event TreasuryWithdrawal(address indexed to, uint256 amount, address indexed controller);
     event WithdrawalParametersUpdated(uint256 maxAmount, uint256 cooldown);
+    event EmergencyPausedEvent(address indexed caller);
+    event EmergencyResumed(address indexed caller);
+    event WithdrawalRequestCreated(bytes32 indexed requestId, address indexed to, uint256 amount, string reason);
+    event WithdrawalRequestApproved(bytes32 indexed requestId, address indexed approver);
+    event WithdrawalRequestExecuted(bytes32 indexed requestId, address indexed to, uint256 amount);
+    event DailyWithdrawalLimitReset(uint256 newLimit);
 
     constructor(
         address _halomToken,
         address _eurcToken,
         address _roleManager
     ) {
-        require(_halomToken != address(0), "Halom token is zero address");
-        require(_eurcToken != address(0), "EURC token is zero address");
-        require(_roleManager != address(0), "Role manager is zero address");
+        if (_halomToken == address(0)) revert ZeroAddress();
+        if (_eurcToken == address(0)) revert ZeroAddress();
+        if (_roleManager == address(0)) revert ZeroAddress();
 
         halomToken = IHalomToken(_halomToken);
         eurcToken = IERC20(_eurcToken);
@@ -85,6 +128,48 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
         _grantRole(GOVERNOR_ROLE, _roleManager);
         _grantRole(TREASURY_CONTROLLER, _roleManager);
         _grantRole(PAUSER_ROLE, _roleManager);
+        _grantRole(EMERGENCY_ROLE, _roleManager);
+        
+        lastDailyReset = block.timestamp;
+    }
+
+    /**
+     * @dev Emergency pause treasury
+     */
+    function emergencyPause() external onlyRole(EMERGENCY_ROLE) {
+        emergencyPaused = true;
+        _pause();
+        emit EmergencyPausedEvent(msg.sender);
+    }
+    
+    /**
+     * @dev Resume treasury
+     */
+    function emergencyResume() external onlyRole(GOVERNOR_ROLE) {
+        emergencyPaused = false;
+        _unpause();
+        emit EmergencyResumed(msg.sender);
+    }
+    
+    /**
+     * @dev Set daily withdrawal limit
+     */
+    function setDailyWithdrawalLimit(uint256 newLimit) external onlyRole(GOVERNOR_ROLE) {
+        if (newLimit == 0) revert InvalidAmount();
+        dailyWithdrawalLimit = newLimit;
+        emit DailyWithdrawalLimitReset(newLimit);
+    }
+    
+    /**
+     * @dev Reset daily withdrawal counter
+     */
+    function resetDailyWithdrawalCounter() external onlyRole(TREASURY_CONTROLLER) {
+        uint256 currentDay = block.timestamp / 1 days;
+        if (currentDay > lastDailyReset / 1 days) {
+            dailyWithdrawalUsed = 0;
+            lastDailyReset = block.timestamp;
+            emit DailyWithdrawalLimitReset(dailyWithdrawalLimit);
+        }
     }
 
     /**
@@ -106,8 +191,8 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
      * @dev Collect fees from user (only treasury controller)
      */
     function collectFees(address _user, uint256 _amount) external onlyRole(TREASURY_CONTROLLER) {
-        require(_user != address(0), "Cannot collect from zero address");
-        require(_amount > 0, "Cannot collect 0 fees");
+        if (_user == address(0)) revert ZeroAddress();
+        if (_amount == 0) revert InvalidAmount();
         
         // Remove transferFrom since HalomToken now mints directly
         // halomToken.safeTransferFrom(_user, address(this), _amount);
@@ -119,8 +204,8 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
      * @dev Distribute fees to users based on fourth root
      */
     function distributeFees(uint256 _amount) external onlyRole(TREASURY_CONTROLLER) {
-        require(_amount > 0, "Amount must be greater than 0");
-        require(_amount <= halomToken.balanceOf(address(this)), "Insufficient treasury balance");
+        if (_amount == 0) revert InvalidAmount();
+        if (_amount > halomToken.balanceOf(address(this))) revert InsufficientBalance();
         
         if (totalFourthRootFees > 0) {
             rewardsPerFourthRoot += (_amount * 1e18) / totalFourthRootFees;
@@ -133,8 +218,10 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
      * @dev Claim user's fee rewards
      */
     function claimFeeRewards() external nonReentrant whenNotPaused {
+        if (emergencyPaused) revert EmergencyPaused();
+        
         uint256 pending = (fourthRootFees[msg.sender] * rewardsPerFourthRoot) / 1e18 - rewardDebt[msg.sender];
-        require(pending > 0, "No rewards to claim");
+        if (pending == 0) revert NoRewardsToClaim();
         
         // halomToken.safeTransfer(msg.sender, pending);
         SafeERC20.safeTransfer(IERC20(address(halomToken)), msg.sender, pending);
@@ -144,24 +231,114 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @dev Withdraw treasury funds (only treasury controller)
+     * @dev Create withdrawal request (multi-sig)
+     */
+    function createWithdrawalRequest(
+        address _to,
+        uint256 _amount,
+        string memory _reason
+    ) external onlyRole(TREASURY_CONTROLLER) returns (bytes32) {
+        if (_to == address(0)) revert ZeroAddress();
+        if (_amount == 0) revert InvalidAmount();
+        if (_amount > halomToken.balanceOf(address(this))) revert InsufficientBalance();
+        if (_amount > maxWithdrawalAmount) revert AmountExceedsMaximum();
+        
+        bytes32 requestId = keccak256(abi.encodePacked(_to, _amount, block.timestamp, _reason));
+        
+        withdrawalRequests[requestId] = WithdrawalRequest({
+            to: _to,
+            amount: _amount,
+            timestamp: block.timestamp,
+            executed: false,
+            approvalCount: 0,
+            reason: _reason
+        });
+        
+        emit WithdrawalRequestCreated(requestId, _to, _amount, _reason);
+        return requestId;
+    }
+    
+    /**
+     * @dev Approve withdrawal request
+     */
+    function approveWithdrawalRequest(bytes32 _requestId) external onlyRole(TREASURY_CONTROLLER) {
+        WithdrawalRequest storage request = withdrawalRequests[_requestId];
+        if (request.timestamp == 0) revert InvalidAmount();
+        if (request.executed) revert InvalidAmount();
+        if (block.timestamp > request.timestamp + WITHDRAWAL_REQUEST_EXPIRY) revert InvalidAmount();
+        if (withdrawalApprovals[_requestId][msg.sender]) revert Unauthorized();
+        
+        withdrawalApprovals[_requestId][msg.sender] = true;
+        request.approvalCount++;
+        
+        emit WithdrawalRequestApproved(_requestId, msg.sender);
+        
+        // Execute if enough approvals
+        if (request.approvalCount >= WITHDRAWAL_APPROVAL_THRESHOLD) {
+            _executeWithdrawalRequest(_requestId);
+        }
+    }
+    
+    /**
+     * @dev Execute withdrawal request
+     */
+    function _executeWithdrawalRequest(bytes32 _requestId) internal {
+        WithdrawalRequest storage request = withdrawalRequests[_requestId];
+        
+        // Check daily limits
+        _checkDailyWithdrawalLimits(request.to, request.amount);
+        
+        SafeERC20.safeTransfer(IERC20(address(halomToken)), request.to, request.amount);
+        request.executed = true;
+        
+        // Update tracking
+        totalWithdrawn[request.to] += request.amount;
+        withdrawalCount[request.to]++;
+        dailyWithdrawalUsed += request.amount;
+        
+        emit WithdrawalRequestExecuted(_requestId, request.to, request.amount);
+        emit TreasuryWithdrawal(request.to, request.amount, msg.sender);
+    }
+    
+    /**
+     * @dev Check daily withdrawal limits
+     */
+    function _checkDailyWithdrawalLimits(address _to, uint256 _amount) internal {
+        // Reset daily counter if needed
+        uint256 currentDay = block.timestamp / 1 days;
+        if (currentDay > lastDailyReset / 1 days) {
+            dailyWithdrawalUsed = 0;
+            lastDailyReset = block.timestamp;
+        }
+        
+        if (dailyWithdrawalUsed + _amount > dailyWithdrawalLimit) revert WithdrawalLimitExceeded();
+        
+        // Check per-address limits
+        if (withdrawalCount[_to] >= MAX_WITHDRAWALS_PER_DAY) revert WithdrawalLimitExceeded();
+    }
+
+    /**
+     * @dev Withdraw treasury funds (only treasury controller) - legacy function
      */
     function withdrawTreasuryFunds(
         address _to,
         uint256 _amount,
         bool _isEmergency
     ) external onlyRole(TREASURY_CONTROLLER) {
-        require(_to != address(0), "Cannot withdraw to zero address");
-        require(_amount > 0, "Amount must be greater than 0");
-        require(_amount <= halomToken.balanceOf(address(this)), "Insufficient treasury balance");
+        if (emergencyPaused && !_isEmergency) revert EmergencyPaused();
+        if (_to == address(0)) revert ZeroAddress();
+        if (_amount == 0) revert InvalidAmount();
+        if (_amount > halomToken.balanceOf(address(this))) revert InsufficientBalance();
         
         if (!_isEmergency) {
-            require(_amount <= maxWithdrawalAmount, "Amount exceeds maximum withdrawal");
-            require(block.timestamp >= lastWithdrawalTime[_to] + withdrawalCooldown, "Withdrawal cooldown not met");
+            if (_amount > maxWithdrawalAmount) revert AmountExceedsMaximum();
+            if (block.timestamp < lastWithdrawalTime[_to] + withdrawalCooldown) revert WithdrawalCooldownNotMet();
             lastWithdrawalTime[_to] = block.timestamp;
+            
+            // Check daily limits
+            _checkDailyWithdrawalLimits(_to, _amount);
         }
         
-        // halomToken.safeTransfer(_to, _amount);
         SafeERC20.safeTransfer(IERC20(address(halomToken)), _to, _amount);
         
         emit TreasuryWithdrawal(_to, _amount, msg.sender);
@@ -171,7 +348,7 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
      * @dev Update fee rate (only governor)
      */
     function updateFeeRate(uint256 _newRate) external onlyRole(GOVERNOR_ROLE) {
-        require(_newRate >= MIN_FEE_RATE && _newRate <= MAX_FEE_RATE, "Fee rate out of bounds");
+        if (_newRate < MIN_FEE_RATE || _newRate > MAX_FEE_RATE) revert FeeRateOutOfBounds();
         
         uint256 oldRate = feeRate;
         feeRate = _newRate;
@@ -187,9 +364,9 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
         address _lpStakingAddress,
         address _daoReserveAddress
     ) external onlyRole(GOVERNOR_ROLE) {
-        require(_stakingAddress != address(0), "Staking address cannot be zero");
-        require(_lpStakingAddress != address(0), "LP staking address cannot be zero");
-        require(_daoReserveAddress != address(0), "DAO reserve address cannot be zero");
+        if (_stakingAddress == address(0)) revert ZeroAddress();
+        if (_lpStakingAddress == address(0)) revert ZeroAddress();
+        if (_daoReserveAddress == address(0)) revert ZeroAddress();
         
         stakingAddress = _stakingAddress;
         lpStakingAddress = _lpStakingAddress;

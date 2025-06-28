@@ -349,7 +349,7 @@ describe("Secure Role Structure", function () {
         it("Should prevent direct role grants", async function () {
             await expect(
                 roleManager.grantRole(MINTER_ROLE, user1.address)
-            ).to.be.revertedWith("Use grantRoleToContract for contracts or specific functions for humans");
+            ).to.be.revertedWith("Use grantRoleToContract for contracts or requestRoleGrant for humans");
         });
 
         it("Should prevent direct role revokes", async function () {
@@ -373,7 +373,7 @@ describe("Secure Role Structure", function () {
             // Try to transfer more than the limit
             await expect(
                 halomToken.connect(user1).transfer(user2.address, maxTransfer + ethers.parseEther("1"))
-            ).to.be.revertedWith("ERC20: transfer amount exceeds balance");
+            ).to.be.revertedWithCustomError(halomToken, "InsufficientBalance");
         });
 
         it("Should enforce wallet limits", async function () {
