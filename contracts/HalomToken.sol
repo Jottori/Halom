@@ -113,6 +113,11 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
             return;
         }
 
+        // Check maxRebaseDelta limits first
+        uint256 maxDeltaValue = (S * maxRebaseDelta) / 10000;
+        uint256 absDelta = supplyDelta > 0 ? uint256(supplyDelta) : uint256(-supplyDelta);
+        require(absDelta <= maxDeltaValue, supplyDelta > 0 ? "HalomToken: Supply increase too large" : "HalomToken: Supply decrease too large");
+
         uint256 newS;
         if (supplyDelta > 0) {
             // Prevent overflow by checking bounds
@@ -127,16 +132,8 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
             }
         } else {
             // Prevent underflow by checking bounds
-            uint256 absDelta = uint256(-supplyDelta);
             require(absDelta <= S, "HalomToken: Supply underflow");
             newS = S - absDelta;
-        }
-        
-        uint256 maxDeltaValue = (S * maxRebaseDelta) / 10000;
-        if (newS > S) {
-            require(newS - S <= maxDeltaValue, "HalomToken: Supply increase too large");
-        } else {
-            require(S - newS <= maxDeltaValue, "HalomToken: Supply decrease too large");
         }
         
         _totalSupply = newS;
@@ -161,7 +158,7 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     // --- Overrides for rebase token ---
 
     function totalSupply() public view override(ERC20) returns (uint256) {
-        return super.totalSupply();
+        return _totalSupply;
     }
 
     function balanceOf(address account) public view override(ERC20) returns (uint256) {

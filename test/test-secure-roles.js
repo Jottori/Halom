@@ -135,8 +135,8 @@ describe("Secure Role Structure", function () {
         await halomToken.connect(owner).grantRole(MINTER_ROLE, await staking.getAddress());
 
         // Setup oracle roles
-        await oracle.setHalomToken(await halomToken.getAddress());
         await oracle.grantRole(await oracle.ORACLE_UPDATER_ROLE(), await roleManager.getAddress());
+        await oracle.setHalomToken(await halomToken.getAddress());
         await oracle.addOracleNode(await governor.getAddress());
 
         // Setup staking roles
