@@ -29,7 +29,7 @@ describe("HalomOracle", function () {
         ORACLE_UPDATER_ROLE = await oracle.ORACLE_UPDATER_ROLE();
 
         // Grant DEFAULT_ADMIN_ROLE to deployer for privileged actions
-        await oracle.grantRole(await oracle.DEFAULT_ADMIN_ROLE(), deployer.address);
+        await oracle.connect(deployer).grantRole(await oracle.DEFAULT_ADMIN_ROLE(), deployer.address);
         
         // Setup roles and permissions
         await oracle.connect(deployer).grantRole(ORACLE_UPDATER_ROLE, user1.address);

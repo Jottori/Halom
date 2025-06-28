@@ -190,7 +190,7 @@ describe("Halom Governance System", function () {
             const LOCK_DURATION = await governor.LOCK_DURATION();
             
             // Fast forward past the lock duration
-            await ethers.provider.send("evm_increaseTime", [LOCK_DURATION + 86400]);
+            await ethers.provider.send("evm_increaseTime", [Number(LOCK_DURATION) + 86400]);
             await ethers.provider.send("evm_mine", []);
             
             // The voting power should be 0 after lock expires
@@ -206,7 +206,7 @@ describe("Halom Governance System", function () {
             const LOCK_DURATION = await governor.LOCK_DURATION();
             
             // Fast forward past the lock duration to ensure lock period is expired
-            await ethers.provider.send("evm_increaseTime", [LOCK_DURATION + 86400]);
+            await ethers.provider.send("evm_increaseTime", [Number(LOCK_DURATION) + 86400]);
             await ethers.provider.send("evm_mine", []);
             
             const balanceBefore = await halomToken.balanceOf(deployer.address);

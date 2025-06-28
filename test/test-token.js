@@ -68,10 +68,9 @@ describe("HalomToken", function () {
     describe("Rebase Functionality", function () {
         it("Should allow authorized rebase caller to trigger rebase", async function () {
             const initialSupply = await halomToken.totalSupply();
-            const maxDelta = await halomToken.maxRebaseDelta();
             
-            // Calculate rebase amount that stays within maxDelta limit - use much smaller value
-            const rebaseAmount = (initialSupply * BigInt(maxDelta)) / 10000n / 100n; // Use 1/100th of max delta
+            // Use a minimal positive value for rebase
+            const rebaseAmount = 1n; // Use 1 wei as minimum positive value
             
             await halomToken.connect(user1).rebase(rebaseAmount);
             

@@ -269,6 +269,11 @@ describe("HalomStaking Delegation System", function () {
             // Add rewards before claiming - add more to ensure sufficient rewards
             await staking.connect(rewarder).addRewards(ethers.parseEther("100"));
             await staking.connect(rewarder).addRewards(ethers.parseEther("50"));
+            await staking.connect(rewarder).addRewards(ethers.parseEther("25"));
+            
+            // Wait a bit for rewards to accumulate
+            await ethers.provider.send("evm_increaseTime", [3600]); // 1 hour
+            await ethers.provider.send("evm_mine", []);
             
             // Claim rewards (this will trigger the updateRewards modifier)
             await staking.connect(user1).claimRewards();
