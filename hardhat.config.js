@@ -1,5 +1,6 @@
 require("@nomicfoundation/hardhat-toolbox");
 require('@openzeppelin/hardhat-upgrades');
+require('solidity-coverage');
 require('dotenv').config();
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
