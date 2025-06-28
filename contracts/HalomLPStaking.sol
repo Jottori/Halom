@@ -44,10 +44,18 @@ contract HalomLPStaking is AccessControl, ReentrancyGuard {
         address _roleManager,
         uint256 _rewardRate
     ) {
-        require(_lpToken != address(0), "LP token is zero address");
-        require(_halomToken != address(0), "Halom token is zero address");
-        require(_roleManager != address(0), "Role manager is zero address");
-        require(_rewardRate > 0, "Reward rate must be greater than 0");
+        require(_lpToken != address(0),
+            "LP token is zero address"
+        );
+        require(_halomToken != address(0),
+            "Halom token is zero address"
+        );
+        require(_roleManager != address(0),
+            "Role manager is zero address"
+        );
+        require(_rewardRate > 0,
+            "Reward rate must be greater than 0"
+        );
 
         lpToken = IERC20(_lpToken);
         halomToken = IHalomToken(_halomToken);
@@ -172,17 +180,24 @@ contract HalomLPStaking is AccessControl, ReentrancyGuard {
         address _to,
         uint256 _amount
     ) external onlyRole(GOVERNOR_ROLE) {
-        require(_to != address(0), "Cannot recover to zero address");
-        require(_amount > 0, "Cannot recover 0 amount");
-        
+        require(_to != address(0),
+            "Cannot recover to zero address"
+        );
+        require(_amount > 0,
+            "Cannot recover 0 amount"
+        );
         // Prevent recovery of staked LP tokens
-        require(_token != address(lpToken), "Cannot recover staked LP tokens");
-        
+        require(_token != address(lpToken),
+            "Cannot recover staked LP tokens"
+        );
         // For reward tokens, only allow recovery of excess amounts
         if (_token == address(halomToken)) {
             uint256 contractBalance = halomToken.balanceOf(address(this));
             uint256 requiredBalance = pendingRewards;
-            require(_amount <= contractBalance - requiredBalance, "Cannot recover required rewards");
+            require(
+                _amount <= contractBalance - requiredBalance,
+                "Cannot recover required rewards"
+            );
         }
         
         IERC20(_token).safeTransfer(_to, _amount);
