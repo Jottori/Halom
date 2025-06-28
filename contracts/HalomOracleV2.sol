@@ -20,6 +20,8 @@ error OutlierDetected();
 error EmergencyPaused();
 error InvalidParameters();
 error NotContract();
+error ZeroAddress();
+error Unauthorized();
 
 /**
  * @title HalomOracleV2

@@ -13,7 +13,6 @@ import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
  */
 contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     // Roles
-    bytes32 public constant DEFAULT_ADMIN_ROLE = 0x00;
     bytes32 public constant REBASE_CALLER = keccak256("REBASE_CALLER");
     bytes32 public constant STAKING_CONTRACT_ROLE = keccak256("STAKING_CONTRACT_ROLE");
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
@@ -76,7 +75,6 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         // Mint initial supply to governance using _update to avoid conflicts
         _update(address(0), _governance, initialSupply);
 
-        _grantRole(DEFAULT_ADMIN_ROLE, _governance);
         _grantRole(REBASE_CALLER, _oracleAddress);
 
         rewardRate = 2000; // Default 20%
@@ -96,7 +94,7 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         _writeTotalSupplyCheckpoint(0, 0, initialSupply);
     }
 
-    function setStakingContract(address _stakingAddress) public onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setStakingContract(address _stakingAddress) public onlyRole(REBASE_CALLER) {
         if (_stakingAddress == address(0)) revert ZeroAddress();
         if (_stakingAddress.code.length == 0) revert InvalidAmount();
         
@@ -111,18 +109,18 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         emit StakingContractUpdated(oldContract, _stakingAddress);
     }
 
-    function setRewardRate(uint256 _newRate) public onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setRewardRate(uint256 _newRate) public onlyRole(REBASE_CALLER) {
         if (_newRate > 10000) revert RateExceedsMaximum();
         rewardRate = _newRate;
     }
 
-    function setMaxRebaseDelta(uint256 _newDelta) public onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setMaxRebaseDelta(uint256 _newDelta) public onlyRole(REBASE_CALLER) {
         if (_newDelta == 0) revert InvalidRebaseDelta();
         if (_newDelta > 1000) revert RebaseDeltaTooHigh(); // Max 10%
         maxRebaseDelta = _newDelta;
     }
     
-    function setAntiWhaleLimits(uint256 _maxTransfer, uint256 _maxWallet) public onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setAntiWhaleLimits(uint256 _maxTransfer, uint256 _maxWallet) public onlyRole(REBASE_CALLER) {
         require(_maxTransfer > 0, "HalomToken: Max transfer must be > 0");
         require(_maxWallet > 0, "HalomToken: Max wallet must be > 0");
         require(_maxTransfer <= _maxWallet, "HalomToken: Max transfer cannot exceed max wallet");
@@ -133,7 +131,7 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
         emit AntiWhaleLimitsUpdated(_maxTransfer, _maxWallet);
     }
     
-    function setExcludedFromLimits(address _account, bool _excluded) public onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setExcludedFromLimits(address _account, bool _excluded) public onlyRole(REBASE_CALLER) {
         isExcludedFromLimits[_account] = _excluded;
         emit ExcludedFromLimits(_account, _excluded);
     }
@@ -141,7 +139,7 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     function setRebaseProtection(
         uint256 _cooldown, 
         uint256 _maxPerDay
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    ) external onlyRole(REBASE_CALLER) {
         if (_cooldown > 24 hours) revert InvalidRebaseDelta(); // Max 24h cooldown
         if (_maxPerDay == 0 || _maxPerDay > 10) revert RebaseDeltaTooHigh(); // Max 10 per day
         
@@ -444,7 +442,7 @@ contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     /**
      * @dev Resume rebase functionality
      */
-    function resumeRebase(uint256 _cooldown) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function resumeRebase(uint256 _cooldown) external onlyRole(REBASE_CALLER) {
         rebaseCooldown = _cooldown;
         emit RebaseResumed(_cooldown);
     }
