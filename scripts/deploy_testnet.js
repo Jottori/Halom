@@ -75,8 +75,9 @@ async function main() {
     const staking = await HalomStaking.deploy(
         await halomToken.getAddress(),
         await governor.getAddress(),
-        deployer.address, // rewarder
-        deployer.address  // pauser
+        2000, // rewardRate
+        30 * 24 * 60 * 60, // lockPeriod (30 days)
+        5000 // slashPercentage (50%)
     );
     await staking.waitForDeployment();
     console.log("HalomStaking deployed to:", await staking.getAddress());
@@ -88,7 +89,7 @@ async function main() {
         await mockUSDC.getAddress(), // LP token (using mock USDC)
         await halomToken.getAddress(),
         await governor.getAddress(),
-        deployer.address
+        2000 // rewardRate
     );
     await lpStaking.waitForDeployment();
     console.log("HalomLPStaking deployed to:", await lpStaking.getAddress());
@@ -99,9 +100,7 @@ async function main() {
     const treasury = await HalomTreasury.deploy(
         await halomToken.getAddress(),
         await mockUSDC.getAddress(), // Using mock USDC as stablecoin
-        await governor.getAddress(),
-        deployer.address, // operator
-        deployer.address  // pauser
+        await governor.getAddress()
     );
     await treasury.waitForDeployment();
     console.log("HalomTreasury deployed to:", await treasury.getAddress());

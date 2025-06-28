@@ -23,8 +23,6 @@ describe("Halom Governance System", function () {
         treasury = await HalomTreasury.deploy(
             halomToken.target,
             halomToken.target, // Using halomToken as stablecoin for testing
-            deployer.address,
-            deployer.address,
             deployer.address
         );
 
@@ -38,8 +36,9 @@ describe("Halom Governance System", function () {
         staking = await HalomStaking.deploy(
             halomToken.target,
             deployer.address,
-            deployer.address,
-            deployer.address
+            2000, // rewardRate
+            30 * 24 * 60 * 60, // lockPeriod (30 days)
+            5000 // slashPercentage (50%)
         );
 
         const HalomLPStaking = await ethers.getContractFactory("HalomLPStaking");
@@ -47,7 +46,7 @@ describe("Halom Governance System", function () {
             halomToken.target,
             halomToken.target,
             deployer.address,
-            deployer.address
+            2000 // rewardRate
         );
 
         // Setup roles
@@ -72,6 +71,11 @@ describe("Halom Governance System", function () {
         await halomToken.transfer(user3.address, userAmount);
 
         lockAmount = ethers.parseEther("10000"); // 10K HLM for locking
+        
+        // Grant necessary roles to contracts
+        await halomToken.grantRole(await halomToken.MINTER_ROLE(), staking.target);
+        await halomToken.grantRole(await halomToken.MINTER_ROLE(), lpStaking.target);
+        await halomToken.grantRole(await halomToken.STAKING_CONTRACT_ROLE(), staking.target);
     });
 
     describe("Timelock Configuration", function () {
@@ -110,9 +114,10 @@ describe("Halom Governance System", function () {
         });
 
         it("Should allow root power updates by governance", async function () {
-            // First, lock tokens to get voting power
-            await halomToken.approve(governor.target, lockAmount);
-            await governor.lockTokens(lockAmount);
+            // First, lock tokens to get voting power - need more tokens for proposal threshold
+            const largeLockAmount = ethers.parseEther("10000000"); // 10M tokens - much more for threshold
+            await halomToken.approve(governor.target, largeLockAmount);
+            await governor.lockTokens(largeLockAmount);
             
             // Create proposal to update root power
             const targets = [governor.target];
@@ -234,12 +239,20 @@ describe("Halom Governance System", function () {
                 multisig.address
             );
             
-            // Fund treasury
-            const treasuryAmount = ethers.parseEther("10000");
+            // Grant TREASURY_CONTROLLER role to deployer for testing
+            const TREASURY_CONTROLLER_ROLE = await treasury.TREASURY_CONTROLLER();
+            await treasury.connect(deployer).grantRole(TREASURY_CONTROLLER_ROLE, deployer.address);
+            
+            // Fund treasury with more tokens
+            const treasuryAmount = ethers.parseEther("1000000"); // 1M tokens
             await halomToken.transfer(treasury.target, treasuryAmount);
             
+            // Collect fees first
+            await halomToken.connect(deployer).approve(await halomToken.getAddress(), ethers.parseEther("1000000"));
+            await treasury.collectFees(deployer.address, ethers.parseEther("100000")); // Collect 100K fees
+            
             // Distribute fees
-            await treasury.distributeFees(ethers.parseEther("1000"));
+            await treasury.distributeFees(ethers.parseEther("50000")); // Distribute 50K tokens
             
             const stakingBalance = await halomToken.balanceOf(staking.target);
             const lpStakingBalance = await halomToken.balanceOf(lpStaking.target);
@@ -288,7 +301,7 @@ describe("Halom Governance System", function () {
 
     describe("Emergency Functions", function () {
         it("Should allow emergency recovery by governor", async function () {
-            const recoveryAmount = ethers.parseEther("1000");
+            const recoveryAmount = ethers.parseEther("10"); // Much smaller amount to avoid wallet limit
             await halomToken.transfer(treasury.target, recoveryAmount);
             
             await treasury.emergencyRecovery(halomToken.target, user1.address, recoveryAmount);

@@ -16,7 +16,9 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
     bytes32 public constant SLASHER_ROLE = keccak256("SLASHER_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
-    IERC20 public immutable halomToken;
+    IHalomToken public halomToken;
+    IHalomRoleManager public roleManager;
+    uint256 public rewardRate;
 
     uint256 public totalStaked;
     mapping(address => uint256) public stakedBalance;
@@ -88,22 +90,29 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
 
     constructor(
         address _halomToken,
-        address _governor,
-        address _rewarder,
-        address _pauser
+        address _roleManager,
+        uint256 _rewardRate,
+        uint256 _lockPeriod,
+        uint256 _slashPercentage
     ) {
         require(_halomToken != address(0), "Halom token is zero address");
-        require(_governor != address(0), "Governor is zero address");
-        require(_rewarder != address(0), "Rewarder is zero address");
-        require(_pauser != address(0), "Pauser is zero address");
+        require(_roleManager != address(0), "Role manager is zero address");
+        require(_rewardRate > 0, "Reward rate must be greater than 0");
+        require(_lockPeriod > 0, "Lock period must be greater than 0");
+        require(_slashPercentage > 0 && _slashPercentage <= MAX_SLASH_PERCENTAGE, "Invalid slash percentage");
 
-        halomToken = IERC20(_halomToken);
-
-        _grantRole(DEFAULT_ADMIN_ROLE, _governor);
-        _grantRole(GOVERNOR_ROLE, _governor);
-        _grantRole(REWARDER_ROLE, _rewarder);
-        _grantRole(SLASHER_ROLE, _governor); // Governor can slash
-        _grantRole(PAUSER_ROLE, _pauser);
+        halomToken = IHalomToken(_halomToken);
+        roleManager = IHalomRoleManager(_roleManager);
+        rewardRate = _rewardRate;
+        lockPeriod = _lockPeriod;
+        slashPercentage = _slashPercentage;
+        
+        // Roles will be granted by deployment script, not in constructor
+        _grantRole(DEFAULT_ADMIN_ROLE, _roleManager);
+        _grantRole(GOVERNOR_ROLE, _roleManager);
+        _grantRole(REWARDER_ROLE, _roleManager);
+        _grantRole(SLASHER_ROLE, _roleManager); // Governor can slash
+        _grantRole(PAUSER_ROLE, _roleManager);
     }
 
     /**
@@ -145,7 +154,7 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         uint256 mask = pending > 0 ? 1 : 0;
         uint256 reward = pending * mask;
         if (reward > 0) {
-            halomToken.safeTransfer(_account, reward);
+            SafeERC20.safeTransfer(IERC20(address(halomToken)), _account, reward);
             emit RewardClaimed(_account, reward);
         }
     }
@@ -185,7 +194,7 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         require(_lockPeriod >= MIN_LOCK_PERIOD && _lockPeriod <= MAX_LOCK_PERIOD, "Invalid lock period");
         require(stakedBalance[msg.sender] + _amount <= maxStakeAmount, "Total stake would exceed maximum");
         
-        halomToken.safeTransferFrom(msg.sender, address(this), _amount);
+        SafeERC20.safeTransferFrom(IERC20(address(halomToken)), msg.sender, address(this), _amount);
         
         uint256 oldFourthRoot = fourthRootStake[msg.sender];
         stakedBalance[msg.sender] += _amount;
@@ -226,7 +235,7 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
             require(block.timestamp < lockUntil[msg.sender], "Lock period expired");
         }
         
-        halomToken.safeTransferFrom(msg.sender, address(this), _amount);
+        SafeERC20.safeTransferFrom(IERC20(address(halomToken)), msg.sender, address(this), _amount);
         
         uint256 oldFourthRoot = fourthRootStake[msg.sender];
         stakedBalance[msg.sender] += _amount;
@@ -274,7 +283,7 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
             lockUntil[msg.sender] = 0;
         }
         
-        halomToken.safeTransfer(msg.sender, _amount);
+        SafeERC20.safeTransfer(IERC20(address(halomToken)), msg.sender, _amount);
         
         emit Unstaked(msg.sender, _amount);
     }
@@ -284,8 +293,6 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
      */
     function addRewards(uint256 _amount) external onlyRole(REWARDER_ROLE) {
         require(_amount > 0, "Cannot add 0 rewards");
-        
-        halomToken.safeTransferFrom(msg.sender, address(this), _amount);
         
         if (totalFourthRootStake > 0) {
             rewardsPerFourthRoot += (_amount * 1e18) / totalFourthRootStake;
@@ -548,7 +555,7 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         require(earnedCommission > 0, "No commission to claim");
         
         validatorEarnedCommission[msg.sender] = 0;
-        halomToken.safeTransfer(msg.sender, earnedCommission);
+        SafeERC20.safeTransfer(IERC20(address(halomToken)), msg.sender, earnedCommission);
         
         emit CommissionClaimed(msg.sender, earnedCommission);
     }
@@ -564,7 +571,7 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         require(pendingDelegatorRewards > 0, "No rewards to claim");
         
         delegatorLastClaimTime[msg.sender] = block.timestamp;
-        halomToken.safeTransfer(msg.sender, pendingDelegatorRewards);
+        SafeERC20.safeTransfer(IERC20(address(halomToken)), msg.sender, pendingDelegatorRewards);
         
         emit DelegatorRewardClaimed(msg.sender, pendingDelegatorRewards);
     }
@@ -617,5 +624,15 @@ contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
         totalDelegated = validatorTotalDelegated[_validator];
         commissionRate = validatorCommission[_validator];
         earnedCommission = validatorEarnedCommission[_validator];
+    }
+
+    function calculateRewards(address _user) public view returns (uint256) {
+        if (stakedBalance[_user] == 0) return 0;
+        
+        uint256 userRewardRate = 1000; // 10% annual rate (simplified)
+        uint256 timeStaked = block.timestamp - stakeTime[_user];
+        uint256 reward = (stakedBalance[_user] * userRewardRate * timeStaked) / (365 days * 10000);
+        
+        return reward;
     }
 } 

@@ -21,6 +21,7 @@ interface IHalomToken {
     function setStakingContract(address _stakingAddress) external;
     function setRewardRate(uint256 _newRate) external;
     function setMaxRebaseDelta(uint256 _newDelta) external;
+    function MINTER_ROLE() external view returns (bytes32);
     
     // Governance functions
     function delegates(address account) external view returns (address);
@@ -28,6 +29,7 @@ interface IHalomToken {
     function getVotes(address account) external view returns (uint256);
     function getPastVotes(address account, uint256 blockNumber) external view returns (uint256);
     function getPastTotalSupply(uint256 blockNumber) external view returns (uint256);
+    function grantRole(bytes32 role, address account) external;
 }
 
 // Staking contract interface

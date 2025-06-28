@@ -4,7 +4,7 @@ const { ethers } = require("hardhat");
 describe("HalomStaking", function () {
   let token, staking;
   let owner, governor, user1, user2;
-  let GOVERNOR_ROLE;
+  let GOVERNOR_ROLE, STAKING_CONTRACT_ROLE;
 
   beforeEach(async function () {
     [owner, governor, user1, user2] = await ethers.getSigners();
@@ -12,15 +12,25 @@ describe("HalomStaking", function () {
     const HalomToken = await ethers.getContractFactory("HalomToken");
     token = await HalomToken.deploy(owner.address, governor.address);
 
-    // Role hash
-    GOVERNOR_ROLE = ethers.keccak256(ethers.toUtf8Bytes("GOVERNOR_ROLE"));
+    // Get role constants from contract
+    GOVERNOR_ROLE = await token.DEFAULT_ADMIN_ROLE();
+    STAKING_CONTRACT_ROLE = await token.STAKING_CONTRACT_ROLE();
 
     const HalomStaking = await ethers.getContractFactory("HalomStaking");
-    staking = await HalomStaking.deploy(token.target, governor.address, governor.address, governor.address);
+    staking = await HalomStaking.deploy(
+        token.target, 
+        governor.address, 
+        2000, // rewardRate
+        30 * 24 * 60 * 60, // lockPeriod (30 days)
+        5000 // slashPercentage (50%)
+    );
 
     // Grant STAKING_CONTRACT role to staking contract
-    const STAKING_CONTRACT = ethers.keccak256(ethers.toUtf8Bytes("STAKING_CONTRACT"));
-    await token.connect(governor).grantRole(STAKING_CONTRACT, staking.target);
+    await token.connect(governor).grantRole(STAKING_CONTRACT_ROLE, staking.target);
+
+    // Grant GOVERNOR_ROLE to governor in staking contract
+    const STAKING_GOVERNOR_ROLE = await staking.GOVERNOR_ROLE();
+    await staking.connect(governor).grantRole(STAKING_GOVERNOR_ROLE, governor.address);
 
     // Token approval for staking
     await token.connect(governor).transfer(user1.address, ethers.parseEther("10000")); // 10K HLM
@@ -124,7 +134,7 @@ describe("HalomStaking", function () {
       await staking.connect(governor).grantRole(REWARDER_ROLE, governor.address);
       
       // Grant MINTER_ROLE to governor for testing
-      await token.connect(owner).grantRole(await token.MINTER_ROLE(), governor.address);
+      await token.connect(governor).grantRole(await token.MINTER_ROLE(), governor.address);
       
       // Mint tokens to governor and approve staking contract
       await token.connect(governor).mint(governor.address, ethers.parseEther("1000"));

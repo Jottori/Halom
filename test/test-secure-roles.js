@@ -58,8 +58,9 @@ describe("Secure Role Structure", function () {
         staking = await HalomStaking.deploy(
             await halomToken.getAddress(),
             await governor.getAddress(),
-            await halomToken.getAddress(), // rewarder
-            await governor.getAddress()  // pauser
+            2000, // rewardRate
+            30 * 24 * 60 * 60, // lockPeriod (30 days)
+            5000 // slashPercentage (50%)
         );
         await staking.waitForDeployment();
 
@@ -69,7 +70,7 @@ describe("Secure Role Structure", function () {
             await halomToken.getAddress(), // LP token (using HalomToken as LP for testing)
             await halomToken.getAddress(),
             await governor.getAddress(),
-            await governor.getAddress()
+            2000 // rewardRate
         );
         await lpStaking.waitForDeployment();
 
@@ -78,8 +79,6 @@ describe("Secure Role Structure", function () {
         treasury = await HalomTreasury.deploy(
             await halomToken.getAddress(),
             await halomToken.getAddress(), // EURC token (using HalomToken as EURC for testing)
-            await governor.getAddress(),
-            await governor.getAddress(),
             await governor.getAddress()
         );
         await treasury.waitForDeployment();
@@ -102,7 +101,7 @@ describe("Secure Role Structure", function () {
 
         // Get role constants
         DEFAULT_ADMIN_ROLE = await timelock.DEFAULT_ADMIN_ROLE();
-        GOVERNOR_ROLE = ethers.keccak256(ethers.toUtf8Bytes("GOVERNOR_ROLE"));
+        GOVERNOR_ROLE = await halomToken.DEFAULT_ADMIN_ROLE();
         MINTER_ROLE = await halomToken.MINTER_ROLE();
         REBASE_CALLER = await halomToken.REBASE_CALLER();
         STAKING_CONTRACT_ROLE = await halomToken.STAKING_CONTRACT_ROLE();
@@ -125,8 +124,8 @@ describe("Secure Role Structure", function () {
         console.log('PAUSER_ROLE:', PAUSER_ROLE, typeof PAUSER_ROLE);
 
         // Setup governance roles
-        const proposerRole = timelock.PROPOSER_ROLE;
-        const executorRole = timelock.EXECUTOR_ROLE;
+        const proposerRole = await timelock.PROPOSER_ROLE();
+        const executorRole = await timelock.EXECUTOR_ROLE();
         await timelock.grantRole(proposerRole, await governor.getAddress());
         await timelock.grantRole(executorRole, await governor.getAddress());
 
@@ -137,6 +136,7 @@ describe("Secure Role Structure", function () {
 
         // Setup oracle roles
         await oracle.setHalomToken(await halomToken.getAddress());
+        await oracle.grantRole(await oracle.ORACLE_UPDATER_ROLE(), await roleManager.getAddress());
         await oracle.addOracleNode(await governor.getAddress());
 
         // Setup staking roles

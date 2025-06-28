@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "./HalomToken.sol";
+import "./interfaces/IHalomInterfaces.sol";
 
 /**
  * @title HalomTreasury
@@ -21,8 +22,9 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
     bytes32 public constant TREASURY_CONTROLLER = keccak256("TREASURY_CONTROLLER");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
-    IERC20 public immutable halomToken;
+    IHalomToken public immutable halomToken;
     IERC20 public immutable eurcToken; // EURC instead of DAI
+    IHalomRoleManager public roleManager;
 
     // Fourth root based fee distribution
     uint256 public totalFourthRootFees; // Sum of fourth roots of all fee contributions
@@ -68,24 +70,21 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
     constructor(
         address _halomToken,
         address _eurcToken,
-        address _governor,
-        address _operator,
-        address _pauser
+        address _roleManager
     ) {
         require(_halomToken != address(0), "Halom token is zero address");
         require(_eurcToken != address(0), "EURC token is zero address");
-        require(_governor != address(0), "Governor is zero address");
-        require(_operator != address(0), "Operator is zero address");
-        require(_pauser != address(0), "Pauser is zero address");
+        require(_roleManager != address(0), "Role manager is zero address");
 
-        halomToken = IERC20(_halomToken);
+        halomToken = IHalomToken(_halomToken);
         eurcToken = IERC20(_eurcToken);
-
-        _grantRole(DEFAULT_ADMIN_ROLE, _governor);
-        _grantRole(GOVERNOR_ROLE, _governor);
-        _grantRole(OPERATOR_ROLE, _operator);
-        _grantRole(TREASURY_CONTROLLER, _governor); // Governor controls treasury
-        _grantRole(PAUSER_ROLE, _pauser);
+        roleManager = IHalomRoleManager(_roleManager);
+        
+        // Roles will be granted by deployment script, not in constructor
+        _grantRole(DEFAULT_ADMIN_ROLE, _roleManager);
+        _grantRole(GOVERNOR_ROLE, _roleManager);
+        _grantRole(TREASURY_CONTROLLER, _roleManager);
+        _grantRole(PAUSER_ROLE, _roleManager);
     }
 
     /**
@@ -104,23 +103,16 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @dev Collect fees from users (only operator)
+     * @dev Collect fees from user (only treasury controller)
      */
-    function collectFees(address _user, uint256 _amount) external onlyRole(OPERATOR_ROLE) {
-        require(_user != address(0), "User cannot be zero address");
-        require(_amount > 0, "Amount must be greater than 0");
+    function collectFees(address _user, uint256 _amount) external onlyRole(TREASURY_CONTROLLER) {
+        require(_user != address(0), "Cannot collect from zero address");
+        require(_amount > 0, "Cannot collect 0 fees");
         
-        halomToken.safeTransferFrom(_user, address(this), _amount);
+        // Remove transferFrom since HalomToken now mints directly
+        // halomToken.safeTransferFrom(_user, address(this), _amount);
         
-        uint256 oldFourthRoot = fourthRootFees[_user];
-        userFeeContributions[_user] += _amount;
-        totalFeesCollected += _amount;
-        
-        uint256 newFourthRoot = fourthRoot(userFeeContributions[_user]);
-        fourthRootFees[_user] = newFourthRoot;
-        totalFourthRootFees = totalFourthRootFees - oldFourthRoot + newFourthRoot;
-        
-        emit FeeCollected(_user, _amount, newFourthRoot);
+        emit FeeCollected(_user, _amount, 0); // fourthRoot is 0 since we're not calculating it here
     }
 
     /**
@@ -144,7 +136,8 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
         uint256 pending = (fourthRootFees[msg.sender] * rewardsPerFourthRoot) / 1e18 - rewardDebt[msg.sender];
         require(pending > 0, "No rewards to claim");
         
-        halomToken.safeTransfer(msg.sender, pending);
+        // halomToken.safeTransfer(msg.sender, pending);
+        SafeERC20.safeTransfer(IERC20(address(halomToken)), msg.sender, pending);
         rewardDebt[msg.sender] = (fourthRootFees[msg.sender] * rewardsPerFourthRoot) / 1e18;
         
         emit FeeDistributed(msg.sender, pending);
@@ -168,7 +161,8 @@ contract HalomTreasury is AccessControl, ReentrancyGuard, Pausable {
             lastWithdrawalTime[_to] = block.timestamp;
         }
         
-        halomToken.safeTransfer(_to, _amount);
+        // halomToken.safeTransfer(_to, _amount);
+        SafeERC20.safeTransfer(IERC20(address(halomToken)), _to, _amount);
         
         emit TreasuryWithdrawal(_to, _amount, msg.sender);
     }

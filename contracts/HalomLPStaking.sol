@@ -5,15 +5,19 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "./interfaces/IHalomInterfaces.sol";
 
 contract HalomLPStaking is AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
     bytes32 public constant REWARDER_ROLE = keccak256("REWARDER_ROLE");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
     IERC20 public immutable lpToken;
-    IERC20 public immutable halomToken;
+    IHalomToken public immutable halomToken;
+    IHalomRoleManager public roleManager;
+    uint256 public rewardRate;
 
     uint256 public totalStaked;
     mapping(address => uint256) public stakedBalance;
@@ -37,18 +41,24 @@ contract HalomLPStaking is AccessControl, ReentrancyGuard {
     constructor(
         address _lpToken,
         address _halomToken,
-        address _governor,
-        address _rewarder
+        address _roleManager,
+        uint256 _rewardRate
     ) {
         require(_lpToken != address(0), "LP token is zero address");
         require(_halomToken != address(0), "Halom token is zero address");
+        require(_roleManager != address(0), "Role manager is zero address");
+        require(_rewardRate > 0, "Reward rate must be greater than 0");
 
         lpToken = IERC20(_lpToken);
-        halomToken = IERC20(_halomToken);
-
-        _grantRole(DEFAULT_ADMIN_ROLE, _governor);
-        _grantRole(GOVERNOR_ROLE, _governor);
-        _grantRole(REWARDER_ROLE, _rewarder);
+        halomToken = IHalomToken(_halomToken);
+        roleManager = IHalomRoleManager(_roleManager);
+        rewardRate = _rewardRate;
+        
+        // Roles will be granted by deployment script, not in constructor
+        _grantRole(DEFAULT_ADMIN_ROLE, _roleManager);
+        _grantRole(GOVERNOR_ROLE, _roleManager);
+        _grantRole(REWARDER_ROLE, _roleManager);
+        _grantRole(PAUSER_ROLE, _roleManager);
     }
 
     /**
@@ -76,7 +86,7 @@ contract HalomLPStaking is AccessControl, ReentrancyGuard {
     modifier updateRewards(address _account) {
         uint256 pending = (fourthRootStake[_account] * rewardsPerFourthRoot) / 1e18 - rewardDebt[_account];
         if (pending > 0) {
-            halomToken.safeTransfer(_account, pending);
+            SafeERC20.safeTransfer(IERC20(address(halomToken)), _account, pending);
             emit RewardClaimed(_account, pending);
         }
         _;
@@ -137,11 +147,8 @@ contract HalomLPStaking is AccessControl, ReentrancyGuard {
 
     function addRewards(uint256 _amount) external onlyRole(REWARDER_ROLE) {
         require(_amount > 0, "Cannot add 0 rewards");
-        
-        halomToken.safeTransferFrom(msg.sender, address(this), _amount);
-        
+        SafeERC20.safeTransferFrom(IERC20(address(halomToken)), msg.sender, address(this), _amount);
         if (totalFourthRootStake == 0) {
-            // Store rewards for the first staker instead of losing them
             pendingRewards += _amount;
             emit RewardAdded(msg.sender, _amount);
         } else {

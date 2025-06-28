@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "./HalomToken.sol"; // Using local import for interface
+import "./interfaces/IHalomInterfaces.sol";
 
 contract HalomOracle is AccessControl, Pausable {
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");

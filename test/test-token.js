@@ -4,18 +4,34 @@ const { ethers } = require("hardhat");
 describe("HalomToken", function () {
     let HalomToken, token;
     let owner, governor, rebaser, burner, user1, user2;
-    let GOVERNOR_ROLE, REBASE_CALLER_ROLE;
+    let GOVERNOR_ROLE, REBASE_CALLER_ROLE, MINTER_ROLE;
     const INITIAL_SUPPLY = ethers.parseUnits("1000000", 18);
 
     beforeEach(async function () {
         [owner, governor, rebaser, burner, user1, user2] = await ethers.getSigners();
 
         const HalomToken = await ethers.getContractFactory("HalomToken");
-        token = await HalomToken.deploy(governor.address, rebaser.address);
+        token = await HalomToken.deploy(
+            ethers.ZeroAddress, // oracle (will be set later)
+            governor.address // governance
+        );
 
         // Get role constants from contract
         GOVERNOR_ROLE = await token.DEFAULT_ADMIN_ROLE();
-        REBASE_CALLER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("REBASE_CALLER"));
+        REBASE_CALLER_ROLE = await token.REBASE_CALLER();
+        MINTER_ROLE = await token.MINTER_ROLE();
+        
+        // Grant REBASE_CALLER_ROLE to rebaser
+        await token.connect(governor).grantRole(REBASE_CALLER_ROLE, rebaser.address);
+        
+        // Grant MINTER_ROLE to burner for testing
+        await token.connect(governor).grantRole(MINTER_ROLE, burner.address);
+        
+        // Grant MINTER_ROLE to governor for testing
+        await token.connect(governor).grantRole(MINTER_ROLE, governor.address);
+        
+        // Mint additional tokens to governor for testing
+        await token.connect(governor).mint(governor.address, ethers.parseEther("1000000"));
     });
 
     async function deployTokenFixture() {
@@ -24,6 +40,7 @@ describe("HalomToken", function () {
 
     describe("Deployment and Initial Setup", function () {
         it("Should assign GOVERNOR_ROLE to the governor", async function () {
+            // Governor should automatically get DEFAULT_ADMIN_ROLE as constructor parameter
             expect(await token.hasRole(GOVERNOR_ROLE, governor.address)).to.equal(true);
         });
 
@@ -76,19 +93,19 @@ describe("HalomToken", function () {
             const actualDelta = finalTotalSupply - initialTotalSupply;
             
             // The actual delta should be capped at maxRebaseDelta
-            expect(actualDelta).to.be.lte(maxDelta);
+            expect(actualDelta).to.be.lte(maxDelta * initialTotalSupply / 10000n);
         });
     });
 
     describe("Governance", function () {
         it("Should allow governor to set maxRebaseDelta within limits", async function () {
-            const newMaxDelta = ethers.parseEther("500"); // 5%
+            const newMaxDelta = 500; // 5% (500 basis points)
             await token.connect(governor).setMaxRebaseDelta(newMaxDelta);
             expect(await token.maxRebaseDelta()).to.equal(newMaxDelta);
         });
 
         it("Should revert if non-governor tries to set maxRebaseDelta", async function () {
-            const newMaxDelta = ethers.parseEther("500");
+            const newMaxDelta = 500;
             await expect(
                 token.connect(user1).setMaxRebaseDelta(newMaxDelta)
             ).to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount");
@@ -97,14 +114,14 @@ describe("HalomToken", function () {
         it("Should revert if maxRebaseDelta is set to 0", async function () {
             await expect(
                 token.connect(governor).setMaxRebaseDelta(0)
-            ).to.be.revertedWith("Max rebase delta cannot be zero");
+            ).to.be.revertedWith("HalomToken: Delta must be between 0.01% and 10%");
         });
 
         it("Should revert if maxRebaseDelta is set above 10%", async function () {
-            const tooHighDelta = ethers.parseEther("1100"); // 11%
+            const tooHighDelta = 1100; // 11%
             await expect(
                 token.connect(governor).setMaxRebaseDelta(tooHighDelta)
-            ).to.be.revertedWith("Max rebase delta cannot exceed 10%");
+            ).to.be.revertedWith("HalomToken: Delta must be between 0.01% and 10%");
         });
     });
 
@@ -113,14 +130,21 @@ describe("HalomToken", function () {
             // Transfer tokens to user1 first
             await token.connect(governor).transfer(user1.address, ethers.parseEther("1000"));
             
-            // Grant MINTER_ROLE to burner for testing
-            await token.connect(governor).grantRole(await token.MINTER_ROLE(), burner.address);
+            // Grant STAKING_CONTRACT_ROLE to burner (burning uses STAKING_CONTRACT_ROLE)
+            const STAKING_CONTRACT_ROLE = await token.STAKING_CONTRACT_ROLE();
+            await token.connect(governor).grantRole(STAKING_CONTRACT_ROLE, burner.address);
             
             const burnAmount = ethers.parseEther("100");
+            const balanceBefore = await token.balanceOf(user1.address);
+            
+            // Check if user1 has enough balance
+            expect(balanceBefore).to.be.gte(burnAmount);
+            
             await token.connect(user1).approve(burner.address, burnAmount);
             await token.connect(burner).burnFrom(user1.address, burnAmount);
             
-            expect(await token.balanceOf(user1.address)).to.equal(ethers.parseEther("900"));
+            const balanceAfter = await token.balanceOf(user1.address);
+            expect(balanceAfter).to.equal(balanceBefore - burnAmount);
         });
     });
 }); 

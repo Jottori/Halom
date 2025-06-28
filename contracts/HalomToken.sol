@@ -6,16 +6,7 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
-interface IHalomStaking {
-    function addRewards(uint256 amount) external;
-}
-
-interface IHalomToken is IERC20 {
-    function rebase(int256 supplyDelta) external;
-    function burnFrom(address account, uint256 amount) external;
-}
-
-contract HalomToken is IHalomToken, ERC20, AccessControl, IVotes, EIP712 {
+contract HalomToken is ERC20, AccessControl, IVotes, EIP712 {
     bytes32 public constant REBASE_CALLER = keccak256("REBASE_CALLER");
     bytes32 public constant STAKING_CONTRACT_ROLE = keccak256("STAKING_CONTRACT_ROLE");
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
@@ -50,12 +41,14 @@ contract HalomToken is IHalomToken, ERC20, AccessControl, IVotes, EIP712 {
     
     constructor(address _oracleAddress, address _governance) ERC20("Halom", "HOM") EIP712("Halom", "1") {
         uint256 initialSupply = 1_000_000 * 10**decimals();
+        
+        // Set initial supply and gons per fragment
         _totalSupply = initialSupply;
         _gonsPerFragment = TOTAL_GONS / initialSupply;
-        _gonBalances[_governance] = TOTAL_GONS;
         
-        emit Transfer(address(0), _governance, initialSupply);
-
+        // Mint initial supply to governance using _update to avoid conflicts
+        _update(address(0), _governance, initialSupply);
+        
         _grantRole(DEFAULT_ADMIN_ROLE, _governance);
         _grantRole(REBASE_CALLER, _oracleAddress);
 
@@ -126,15 +119,21 @@ contract HalomToken is IHalomToken, ERC20, AccessControl, IVotes, EIP712 {
 
         uint256 newS;
         if (supplyDelta > 0) {
+            // Prevent overflow by checking bounds
+            require(uint256(supplyDelta) <= type(uint256).max - S, "HalomToken: Supply overflow");
             newS = S + uint256(supplyDelta);
+            
+            // Calculate rewards for staking contract
             uint256 rewards = (uint256(supplyDelta) * rewardRate) / 10000;
             if (rewards > 0 && halomStakingAddress != address(0)) {
+                // Mint rewards directly to staking contract
                 _mint(halomStakingAddress, rewards);
-                // Call addRewards on staking contract to distribute rewards
-                IHalomStaking(halomStakingAddress).addRewards(rewards);
             }
         } else {
-            newS = S - uint256(-supplyDelta);
+            // Prevent underflow by checking bounds
+            uint256 absDelta = uint256(-supplyDelta);
+            require(absDelta <= S, "HalomToken: Supply underflow");
+            newS = S - absDelta;
         }
         
         uint256 maxDeltaValue = (S * maxRebaseDelta) / 10000;
@@ -163,24 +162,13 @@ contract HalomToken is IHalomToken, ERC20, AccessControl, IVotes, EIP712 {
         _mint(to, amount);
     }
 
-    /**
-     * @dev Internal mint function for rebase rewards
-     * Only callable by the contract itself during rebase
-     */
-    function _mintForRebase(address to, uint256 amount) internal {
-        require(to != address(0), "HalomToken: Cannot mint to zero address");
-        require(amount > 0, "HalomToken: Cannot mint zero amount");
-        _mint(to, amount);
-    }
-
     // --- Overrides for rebase token ---
 
-    function totalSupply() public view override(ERC20, IERC20) returns (uint256) {
-        return _totalSupply;
+    function totalSupply() public view override(ERC20) returns (uint256) {
+        return super.totalSupply();
     }
 
-    function balanceOf(address account) public view override(ERC20, IERC20) returns (uint256) {
-        if (_gonsPerFragment == 0) return 0;
+    function balanceOf(address account) public view override(ERC20) returns (uint256) {
         return _gonBalances[account] / _gonsPerFragment;
     }
 
@@ -188,8 +176,13 @@ contract HalomToken is IHalomToken, ERC20, AccessControl, IVotes, EIP712 {
     function _update(address from, address to, uint256 amount) internal override {
         // Mint
         if (from == address(0)) {
-            unchecked {
-                _totalSupply += amount;
+            // Only update _totalSupply if this is not the initial mint in constructor
+            if (_totalSupply == 0) {
+                _totalSupply = amount;
+            } else {
+                unchecked {
+                    _totalSupply += amount;
+                }
             }
             if (_totalSupply > 0) {
                 _gonsPerFragment = TOTAL_GONS / _totalSupply;

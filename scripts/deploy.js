@@ -48,16 +48,14 @@ async function main() {
 
   // --- 3. Deploy HalomOracle ---
   const HalomOracle = await ethers.getContractFactory('HalomOracle');
-  const halomOracle = await HalomOracle.deploy(halomTokenAddress, UPDATER, GOVERNOR, PAUSER);
+  const halomOracle = await HalomOracle.deploy(deployer.address, 1); // governance, chainId
   await halomOracle.waitForDeployment();
   const halomOracleAddress = await halomOracle.getAddress();
   console.log('HalomOracle deployed at:', halomOracleAddress);
 
-  // --- 4. Grant REBASE_CALLER_ROLE to Oracle, then revoke from deployer ---
-  /**
-   * @dev Only the oracle should have REBASE_CALLER_ROLE after deployment. The deployer is revoked for security.
-   */
-  const REBASE_CALLER_ROLE = await halomToken.REBASE_CALLER_ROLE();
+  // --- 4. Set HalomToken in Oracle and grant REBASE_CALLER_ROLE to Oracle ---
+  await halomOracle.setHalomToken(halomTokenAddress);
+  const REBASE_CALLER_ROLE = await halomToken.REBASE_CALLER();
   await halomToken.grantRole(REBASE_CALLER_ROLE, halomOracleAddress);
   await halomToken.revokeRole(REBASE_CALLER_ROLE, deployer.address);
   console.log('REBASE_CALLER_ROLE granted to Oracle and revoked from deployer.');
@@ -66,9 +64,10 @@ async function main() {
   const HalomStaking = await ethers.getContractFactory('HalomStaking');
   const halomStaking = await HalomStaking.deploy(
     halomTokenAddress,
-    GOVERNOR,
-    REWARDER,
-    PAUSER
+    GOVERNOR, // roleManager address
+    2000, // rewardRate
+    30 * 24 * 60 * 60, // lockPeriod (30 days)
+    5000 // slashPercentage (50%)
   );
   await halomStaking.waitForDeployment();
   const halomStakingAddress = await halomStaking.getAddress();
@@ -117,9 +116,8 @@ async function main() {
   const halomLPStaking = await HalomLPStaking.deploy(
     lpTokenAddress,
     halomTokenAddress,
-    GOVERNOR,
-    REWARDER,
-    PAUSER
+    GOVERNOR, // roleManager address
+    2000 // rewardRate
   );
   await halomLPStaking.waitForDeployment();
   const halomLPStakingAddress = await halomLPStaking.getAddress();
@@ -130,9 +128,7 @@ async function main() {
   const halomTreasury = await HalomTreasury.deploy(
     halomTokenAddress,
     eurcTokenAddress,
-    GOVERNOR,
-    REWARDER,
-    PAUSER
+    GOVERNOR // roleManager address
   );
   await halomTreasury.waitForDeployment();
   const halomTreasuryAddress = await halomTreasury.getAddress();
@@ -156,7 +152,15 @@ async function main() {
   await halomStaking.grantRole(SLASHER_ROLE, GOVERNOR);
   console.log('SLASHER_ROLE granted to governor in staking.');
 
-  // --- 14. Save all deployed addresses to offchain/deployment.json ---
+  // --- 14. Grant MINTER_ROLE to treasury for fee distribution ---
+  await halomToken.grantRole(MINTER_ROLE, halomTreasuryAddress);
+  console.log('MINTER_ROLE granted to treasury for fee distribution.');
+
+  // --- 15. Grant MINTER_ROLE to LP staking for rewards ---
+  await halomToken.grantRole(MINTER_ROLE, halomLPStakingAddress);
+  console.log('MINTER_ROLE granted to LP staking for rewards.');
+
+  // --- 16. Save all deployed addresses to offchain/deployment.json ---
   /**
    * @dev This file is used by offchain tools, frontends, and monitoring scripts.
    */
@@ -178,7 +182,7 @@ async function main() {
   fs.writeFileSync('offchain/deployment.json', JSON.stringify(deployment, null, 2));
   console.log('Deployment addresses saved to offchain/deployment.json');
 
-  // --- 15. Post-deployment verification ---
+  // --- 17. Post-deployment verification ---
   console.log('\n=== Deployment Verification ===');
   console.log('✅ HalomToken deployed and configured');
   console.log('✅ HalomOracle deployed with REBASE_CALLER_ROLE');

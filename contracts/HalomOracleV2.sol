@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./HalomToken.sol";
+import "./interfaces/IHalomInterfaces.sol";
 
 /**
  * @title HalomOracleV2
