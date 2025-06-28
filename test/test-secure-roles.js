@@ -123,13 +123,23 @@ describe("Secure Role Structure", function () {
         console.log('TREASURY_CONTROLLER:', TREASURY_CONTROLLER, typeof TREASURY_CONTROLLER);
         console.log('PAUSER_ROLE:', PAUSER_ROLE, typeof PAUSER_ROLE);
 
+        // Debug: Check owner's roles
+        console.log('Owner has DEFAULT_ADMIN_ROLE on halomToken:', await halomToken.hasRole(DEFAULT_ADMIN_ROLE, owner.address));
+        console.log('Owner has DEFAULT_ADMIN_ROLE on timelock:', await timelock.hasRole(DEFAULT_ADMIN_ROLE, owner.address));
+
         // Setup governance roles
         const proposerRole = await timelock.PROPOSER_ROLE();
         const executorRole = await timelock.EXECUTOR_ROLE();
         await timelock.grantRole(proposerRole, await governor.getAddress());
         await timelock.grantRole(executorRole, await governor.getAddress());
 
-        // Setup token roles
+        // Setup token roles - ensure owner has admin role first
+        if (!(await halomToken.hasRole(DEFAULT_ADMIN_ROLE, owner.address))) {
+            console.log("Granting DEFAULT_ADMIN_ROLE to owner on halomToken");
+            // The deployer should already have this role, but let's check
+            await halomToken.grantRole(DEFAULT_ADMIN_ROLE, owner.address);
+        }
+        
         await halomToken.connect(owner).setStakingContract(await staking.getAddress());
         await halomToken.connect(owner).grantRole(REBASE_CALLER, await oracle.getAddress());
         await halomToken.connect(owner).grantRole(MINTER_ROLE, await staking.getAddress());
@@ -137,6 +147,9 @@ describe("Secure Role Structure", function () {
         // Setup oracle roles
         await oracle.grantRole(await oracle.ORACLE_UPDATER_ROLE(), await roleManager.getAddress());
         await oracle.setHalomToken(await halomToken.getAddress());
+        
+        // Grant GOVERNOR_ROLE to owner on oracle for testing
+        await oracle.grantRole(await oracle.GOVERNOR_ROLE(), owner.address);
         await oracle.addOracleNode(await governor.getAddress());
 
         // Setup staking roles
