@@ -2,452 +2,277 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./HalomToken.sol";
-import "./interfaces/IHalomInterfaces.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
+import "./libraries/GovernanceMath.sol";
+import "./libraries/GovernanceErrors.sol";
 
-// Custom errors for gas optimization (only those not already in HalomToken)
-error InvalidHOI();
-error HOITooHigh();
-error SubmissionWindowClosed();
-error AlreadySubmitted();
-error AlreadyExecuted();
-error InsufficientSubmissions();
-error ConsensusNotReached();
-error DeviationTooHigh();
-error OutlierDetected();
-error EmergencyPaused();
-error InvalidParameters();
-error NotContract();
-error ZeroAddress();
-error Unauthorized();
-
-/**
- * @title HalomOracleV2
- * @dev Enhanced oracle with multiple nodes and consensus mechanism
- * Implements secure role structure with ORACLE_UPDATER_ROLE for authorized nodes only
- * Includes protection against data manipulation and outlier attacks
- */
-contract HalomOracleV2 is AccessControl, Pausable, ReentrancyGuard {
-    bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
-    bytes32 public constant ORACLE_UPDATER_ROLE = keccak256("ORACLE_UPDATER_ROLE");
-    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+contract HalomOracleV2 is AccessControl, ReentrancyGuard, Pausable {
+    using GovernanceMath for uint256;
+    
+    bytes32 public constant ORACLE_ROLE = keccak256("ORACLE_ROLE");
+    bytes32 public constant UPDATER_ROLE = keccak256("UPDATER_ROLE");
     bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
-
-    IHalomToken public halomToken;
     
-    uint256 public latestHOI;
-    uint256 public lastUpdateTime;
-    uint256 public nonce;
-    uint256 public immutable chainId;
-    
-    // Consensus parameters
-    uint256 public constant MIN_ORACLE_NODES = 3;
-    uint256 public consensusThreshold = 2; // Minimum 2 nodes must agree
-    uint256 public maxDeviation = 500; // 5% max deviation between submissions
-    uint256 public constant SUBMISSION_WINDOW = 300; // 5 minutes window for submissions
-    
-    // Enhanced security parameters
-    uint256 public constant MAX_HOI_CHANGE = 200; // 2% max change between updates
-    uint256 public constant MIN_HOI_VALUE = 100; // Minimum HOI value (1.0)
-    uint256 public constant MAX_HOI_VALUE = 1000; // Maximum HOI value (10.0)
-    uint256 public constant OUTLIER_THRESHOLD = 300; // 3% threshold for outlier detection
-    
-    // Oracle reputation and slashing
-    mapping(address => uint256) public oracleReputation;
-    mapping(address => uint256) public oracleErrors;
-    mapping(address => uint256) public lastSubmissionTime;
-    uint256 public constant MAX_ERRORS = 5; // Max errors before oracle is slashed
-    uint256 public constant REPUTATION_THRESHOLD = 50; // Minimum reputation to submit
-    
-    // Emergency controls
-    bool public emergencyPaused;
-    uint256 public emergencyHOI;
-    uint256 public emergencyTimestamp;
-    
-    // Data validation
-    mapping(uint256 => uint256[]) public historicalHOI;
-    uint256 public historicalHOICount;
-    uint256 public constant MAX_HISTORY = 100; // Keep last 100 HOI values
-    
-    struct OracleSubmission {
-        uint256 hoi;
+    struct OracleData {
+        uint256 value;
         uint256 timestamp;
-        bool submitted;
+        uint256 blockNumber;
+        bool isValid;
     }
     
-    struct ConsensusRound {
-        uint256 nonce;
-        uint256 startTime;
-        uint256 endTime;
-        uint256[] submissions;
-        address[] submitters;
-        bool executed;
-        uint256 finalHOI;
-        uint256 medianHOI;
-        uint256[] validSubmissions;
+    struct OracleConfig {
+        uint256 minUpdateInterval;
+        uint256 maxDeviationPercent;
+        uint256 heartbeatInterval;
+        uint256 staleThreshold;
     }
     
-    mapping(uint256 => mapping(address => OracleSubmission)) public submissions; // nonce => oracle => submission
-    mapping(uint256 => ConsensusRound) public consensusRounds; // nonce => round
-    mapping(address => bool) public authorizedOracles;
-    address[] public oracleNodes;
+    mapping(bytes32 => OracleData) public oracleData;
+    mapping(bytes32 => OracleConfig) public oracleConfigs;
+    mapping(bytes32 => bool) public supportedFeeds;
     
-    // Oracle node management
-    uint256 public maxOracleNodes = 10;
-    uint256 public minOracleNodes = 3;
+    uint256 public constant PRECISION = 1e18;
+    uint256 public constant MAX_DEVIATION = 50e16; // 50%
+    uint256 public constant MIN_UPDATE_INTERVAL = 1 hours;
+    uint256 public constant MAX_UPDATE_INTERVAL = 24 hours;
     
-    event OracleSubmissionReceived(
-        uint256 indexed nonce,
-        address indexed oracle,
-        uint256 hoi,
-        uint256 timestamp
-    );
+    event OracleUpdated(bytes32 indexed feedId, uint256 value, uint256 timestamp);
+    event FeedAdded(bytes32 indexed feedId, uint256 minUpdateInterval, uint256 maxDeviationPercent);
+    event FeedRemoved(bytes32 indexed feedId);
+    event ConfigUpdated(bytes32 indexed feedId, uint256 minUpdateInterval, uint256 maxDeviationPercent);
+    event EmergencyPaused(address indexed pauser);
+    event EmergencyUnpaused(address indexed unpauser);
     
-    event ConsensusReached(
-        uint256 indexed nonce,
-        uint256 finalHOI,
-        int256 supplyDelta,
-        address[] participants
-    );
+    error InvalidFeed();
+    error FeedNotSupported();
+    error StaleData();
+    error InvalidValue();
+    error UpdateTooFrequent();
+    error DeviationTooHigh();
+    error InvalidConfig();
+    error Unauthorized();
+    error ContractPaused();
     
-    event OracleAuthorized(address indexed oracle, bool authorized);
-    event ConsensusParametersUpdated(uint256 minNodes, uint256 threshold, uint256 maxDeviation);
-    event OracleNodeAdded(address indexed oracle, address indexed addedBy);
-    event OracleNodeRemoved(address indexed oracle, address indexed removedBy);
-    event OracleSlashed(address indexed oracle, uint256 errors);
-    event OutlierDetectedEvent(address indexed oracle, uint256 hoi, uint256 median);
-    event EmergencyHOISet(uint256 hoi, address indexed caller);
-
-    constructor(address _governance, uint256 _chainId) {
-        if (_governance == address(0)) revert ZeroAddress();
-        if (_chainId == 0) revert InvalidParameters();
-        
-        chainId = _chainId;
-        _grantRole(DEFAULT_ADMIN_ROLE, _governance);
-        _grantRole(GOVERNOR_ROLE, _governance);
-        _grantRole(PAUSER_ROLE, _governance);
-        _grantRole(EMERGENCY_ROLE, _governance);
-    }
-
-    /**
-     * @dev Set HalomToken address (only governor)
-     */
-    function setHalomToken(address _halomToken) external onlyRole(GOVERNOR_ROLE) {
-        if (_halomToken == address(0)) revert ZeroAddress();
-        if (_halomToken.code.length == 0) revert NotContract();
-        halomToken = IHalomToken(_halomToken);
-    }
-
-    /**
-     * @dev Add oracle node (only governor)
-     */
-    function addOracleNode(address _oracle) external onlyRole(GOVERNOR_ROLE) {
-        if (_oracle == address(0)) revert ZeroAddress();
-        if (_oracle.code.length == 0) revert NotContract();
-        if (authorizedOracles[_oracle]) revert Unauthorized();
-        if (oracleNodes.length >= maxOracleNodes) revert InvalidParameters();
-        
-        authorizedOracles[_oracle] = true;
-        oracleNodes.push(_oracle);
-        _grantRole(ORACLE_UPDATER_ROLE, _oracle);
-        
-        // Initialize reputation
-        oracleReputation[_oracle] = 100;
-        
-        emit OracleAuthorized(_oracle, true);
-        emit OracleNodeAdded(_oracle, msg.sender);
-    }
-
-    /**
-     * @dev Remove oracle node (only governor)
-     */
-    function removeOracleNode(address _oracle) external onlyRole(GOVERNOR_ROLE) {
-        if (!authorizedOracles[_oracle]) revert Unauthorized();
-        if (oracleNodes.length <= minOracleNodes) revert InvalidParameters();
-        
-        authorizedOracles[_oracle] = false;
-        _revokeRole(ORACLE_UPDATER_ROLE, _oracle);
-        
-        // Remove from oracleNodes array
-        for (uint256 i = 0; i < oracleNodes.length; i++) {
-            if (oracleNodes[i] == _oracle) {
-                oracleNodes[i] = oracleNodes[oracleNodes.length - 1];
-                oracleNodes.pop();
-                break;
-            }
-        }
-        
-        emit OracleAuthorized(_oracle, false);
-        emit OracleNodeRemoved(_oracle, msg.sender);
-    }
-
-    /**
-     * @dev Emergency pause oracle
-     */
-    function emergencyPause() external onlyRole(EMERGENCY_ROLE) {
-        emergencyPaused = true;
-        _pause();
+    constructor() {
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(ORACLE_ROLE, msg.sender);
+        _grantRole(UPDATER_ROLE, msg.sender);
+        _grantRole(EMERGENCY_ROLE, msg.sender);
     }
     
-    /**
-     * @dev Emergency set HOI value
-     */
-    function emergencySetHOI(uint256 _hoi) external onlyRole(EMERGENCY_ROLE) {
-        if (_hoi < MIN_HOI_VALUE || _hoi > MAX_HOI_VALUE) revert InvalidHOI();
-        
-        emergencyHOI = _hoi;
-        emergencyTimestamp = block.timestamp;
-        latestHOI = _hoi;
-        lastUpdateTime = block.timestamp;
-        
-        emit EmergencyHOISet(_hoi, msg.sender);
+    modifier onlyOracle() {
+        if (!hasRole(ORACLE_ROLE, msg.sender)) revert Unauthorized();
+        _;
     }
     
-    /**
-     * @dev Resume oracle
-     */
-    function emergencyResume() external onlyRole(GOVERNOR_ROLE) {
-        emergencyPaused = false;
-        _unpause();
+    modifier onlyUpdater() {
+        if (!hasRole(UPDATER_ROLE, msg.sender)) revert Unauthorized();
+        _;
     }
-
-    /**
-     * @dev Set HOI with multiple node aggregation and weighted consensus
-     * @param node The oracle node address
-     * @param hoiValue The HOI value to submit
-     */
-    function setHOI(address node, uint256 hoiValue) external onlyRole(ORACLE_UPDATER_ROLE) {
-        if (emergencyPaused) revert EmergencyPaused();
-        if (!authorizedOracles[node]) revert Unauthorized();
-        if (hoiValue < MIN_HOI_VALUE || hoiValue > MAX_HOI_VALUE) revert InvalidHOI();
+    
+    modifier onlyEmergency() {
+        if (!hasRole(EMERGENCY_ROLE, msg.sender)) revert Unauthorized();
+        _;
+    }
+    
+    modifier whenNotPausedOracle() {
+        if (paused()) revert ContractPaused();
+        _;
+    }
+    
+    function addFeed(
+        bytes32 feedId,
+        uint256 minUpdateInterval,
+        uint256 maxDeviationPercent
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (supportedFeeds[feedId]) revert InvalidFeed();
+        if (minUpdateInterval < MIN_UPDATE_INTERVAL || minUpdateInterval > MAX_UPDATE_INTERVAL) revert InvalidConfig();
+        if (maxDeviationPercent > MAX_DEVIATION) revert InvalidConfig();
         
-        // Timestamp validation: only accept fresh data (within last 5 minutes)
-        if (block.timestamp > lastUpdateTime + 300) revert SubmissionWindowClosed();
-        
-        // Check if already submitted for this round
-        if (submissions[nonce][node].submitted) revert AlreadySubmitted();
-        
-        // Validate oracle reputation
-        if (oracleReputation[node] < REPUTATION_THRESHOLD) revert Unauthorized();
-        
-        // Store submission
-        submissions[nonce][node] = OracleSubmission({
-            hoi: hoiValue,
-            timestamp: block.timestamp,
-            submitted: true
+        supportedFeeds[feedId] = true;
+        oracleConfigs[feedId] = OracleConfig({
+            minUpdateInterval: minUpdateInterval,
+            maxDeviationPercent: maxDeviationPercent,
+            heartbeatInterval: minUpdateInterval * 2,
+            staleThreshold: block.timestamp + minUpdateInterval * 4
         });
         
-        // Add to consensus round
-        ConsensusRound storage round = consensusRounds[nonce];
-        if (round.startTime == 0) {
-            round.startTime = block.timestamp;
-            round.endTime = block.timestamp + SUBMISSION_WINDOW;
+        emit FeedAdded(feedId, minUpdateInterval, maxDeviationPercent);
+    }
+    
+    function removeFeed(bytes32 feedId) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (!supportedFeeds[feedId]) revert FeedNotSupported();
+        
+        supportedFeeds[feedId] = false;
+        delete oracleConfigs[feedId];
+        delete oracleData[feedId];
+        
+        emit FeedRemoved(feedId);
+    }
+    
+    function updateOracleData(
+        bytes32 feedId,
+        uint256 value,
+        uint256 timestamp
+    ) external onlyUpdater whenNotPausedOracle nonReentrant {
+        if (!supportedFeeds[feedId]) revert FeedNotSupported();
+        if (value == 0) revert InvalidValue();
+        if (timestamp > block.timestamp) revert InvalidValue();
+        
+        OracleConfig memory config = oracleConfigs[feedId];
+        OracleData memory currentData = oracleData[feedId];
+        
+        if (currentData.isValid) {
+            if (block.timestamp < currentData.timestamp + config.minUpdateInterval) revert UpdateTooFrequent();
+            
+            uint256 deviation = GovernanceMath.calculateDeviation(currentData.value, value);
+            if (deviation > config.maxDeviationPercent) revert DeviationTooHigh();
         }
-        round.submissions.push(hoiValue);
-        round.submitters.push(node);
         
-        emit OracleSubmissionReceived(nonce, node, hoiValue, block.timestamp);
+        oracleData[feedId] = OracleData({
+            value: value,
+            timestamp: timestamp,
+            blockNumber: block.number,
+            isValid: true
+        });
         
-        // Check if consensus can be reached
-        if (round.submissions.length >= consensusThreshold) {
-            _executeConsensus();
+        emit OracleUpdated(feedId, value, timestamp);
+    }
+    
+    function _getOracleData(bytes32 feedId) internal view returns (OracleData memory) {
+        if (!supportedFeeds[feedId]) revert FeedNotSupported();
+        
+        OracleData memory data = oracleData[feedId];
+        if (!data.isValid) revert InvalidValue();
+        
+        OracleConfig memory config = oracleConfigs[feedId];
+        if (block.timestamp > data.timestamp + config.staleThreshold) revert StaleData();
+        
+        return data;
+    }
+    
+    function getOracleData(bytes32 feedId) external view returns (OracleData memory) {
+        return _getOracleData(feedId);
+    }
+    
+    function getLatestValue(bytes32 feedId) external view returns (uint256) {
+        OracleData memory data = _getOracleData(feedId);
+        return data.value;
+    }
+    
+    function isDataStale(bytes32 feedId) external view returns (bool) {
+        if (!supportedFeeds[feedId]) return true;
+        
+        OracleData memory data = oracleData[feedId];
+        if (!data.isValid) return true;
+        
+        OracleConfig memory config = oracleConfigs[feedId];
+        return block.timestamp > data.timestamp + config.staleThreshold;
+    }
+    
+    function updateConfig(
+        bytes32 feedId,
+        uint256 minUpdateInterval,
+        uint256 maxDeviationPercent
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (!supportedFeeds[feedId]) revert FeedNotSupported();
+        if (minUpdateInterval < MIN_UPDATE_INTERVAL || minUpdateInterval > MAX_UPDATE_INTERVAL) revert InvalidConfig();
+        if (maxDeviationPercent > MAX_DEVIATION) revert InvalidConfig();
+        
+        oracleConfigs[feedId].minUpdateInterval = minUpdateInterval;
+        oracleConfigs[feedId].maxDeviationPercent = maxDeviationPercent;
+        oracleConfigs[feedId].heartbeatInterval = minUpdateInterval * 2;
+        oracleConfigs[feedId].staleThreshold = block.timestamp + minUpdateInterval * 4;
+        
+        emit ConfigUpdated(feedId, minUpdateInterval, maxDeviationPercent);
+    }
+    
+    function emergencyPause() external onlyEmergency {
+        _pause();
+        emit EmergencyPaused(msg.sender);
+    }
+    
+    function emergencyUnpause() external onlyEmergency {
+        _unpause();
+        emit EmergencyUnpaused(msg.sender);
+    }
+    
+    function batchUpdateOracleData(
+        bytes32[] calldata feedIds,
+        uint256[] calldata values,
+        uint256[] calldata timestamps
+    ) external onlyUpdater whenNotPausedOracle nonReentrant {
+        uint256 length = feedIds.length;
+        if (length != values.length || length != timestamps.length) revert InvalidConfig();
+        
+        for (uint256 i = 0; i < length; i++) {
+            bytes32 feedId = feedIds[i];
+            uint256 value = values[i];
+            uint256 timestamp = timestamps[i];
+            
+            if (!supportedFeeds[feedId]) continue;
+            if (value == 0) continue;
+            if (timestamp > block.timestamp) continue;
+            
+            OracleConfig memory config = oracleConfigs[feedId];
+            OracleData memory currentData = oracleData[feedId];
+            
+            if (currentData.isValid) {
+                if (block.timestamp < currentData.timestamp + config.minUpdateInterval) continue;
+                
+                uint256 deviation = GovernanceMath.calculateDeviation(currentData.value, value);
+                if (deviation > config.maxDeviationPercent) continue;
+            }
+            
+            oracleData[feedId] = OracleData({
+                value: value,
+                timestamp: timestamp,
+                blockNumber: block.number,
+                isValid: true
+            });
+            
+            emit OracleUpdated(feedId, value, timestamp);
         }
     }
-
-    /**
-     * @dev Execute consensus with weighted aggregation
-     */
-    function _executeConsensus() internal {
-        ConsensusRound storage round = consensusRounds[nonce];
-        if (round.executed) revert AlreadyExecuted();
+    
+    function getMultipleOracleData(bytes32[] calldata feedIds) external view returns (OracleData[] memory) {
+        uint256 length = feedIds.length;
+        OracleData[] memory results = new OracleData[](length);
         
-        // Calculate weighted average based on oracle reputation
-        uint256 totalWeight = 0;
-        uint256 weightedSum = 0;
-        
-        for (uint256 i = 0; i < round.submissions.length; i++) {
-            address oracle = round.submitters[i];
-            uint256 weight = oracleReputation[oracle];
-            uint256 submission = round.submissions[i];
+        for (uint256 i = 0; i < length; i++) {
+            bytes32 feedId = feedIds[i];
             
-            totalWeight += weight;
-            weightedSum += submission * weight;
-        }
-        
-        uint256 weightedAverage = weightedSum / totalWeight;
-        
-        // Outlier detection and removal
-        uint256[] memory validSubmissions = new uint256[](round.submissions.length);
-        uint256 validCount = 0;
-        
-        for (uint256 i = 0; i < round.submissions.length; i++) {
-            uint256 submission = round.submissions[i];
-            uint256 deviation = _calculateDeviation(submission, weightedAverage);
-            
-            if (deviation <= OUTLIER_THRESHOLD) {
-                validSubmissions[validCount] = submission;
-                validCount++;
-            } else {
-                // Penalize outlier oracle
-                address oracle = round.submitters[i];
-                oracleErrors[oracle]++;
-                oracleReputation[oracle] = oracleReputation[oracle] > 10 ? oracleReputation[oracle] - 10 : 0;
+            if (supportedFeeds[feedId]) {
+                OracleData memory data = oracleData[feedId];
+                OracleConfig memory config = oracleConfigs[feedId];
                 
-                emit OutlierDetectedEvent(oracle, submission, weightedAverage);
-                
-                if (oracleErrors[oracle] >= MAX_ERRORS) {
-                    emit OracleSlashed(oracle, oracleErrors[oracle]);
+                if (data.isValid && block.timestamp <= data.timestamp + config.staleThreshold) {
+                    results[i] = data;
                 }
             }
         }
         
-        if (validCount < consensusThreshold) revert InsufficientSubmissions();
+        return results;
+    }
+    
+    function getSupportedFeeds() external view returns (bytes32[] memory) {
+        uint256 count = 0;
+        bytes32[] memory temp = new bytes32[](100);
         
-        // Calculate final HOI from valid submissions
-        uint256 finalHOI = 0;
-        for (uint256 i = 0; i < validCount; i++) {
-            finalHOI += validSubmissions[i];
-        }
-        finalHOI = finalHOI / validCount;
-        
-        // Validate final HOI change
-        if (latestHOI > 0) {
-            uint256 change = _calculateDeviation(finalHOI, latestHOI);
-            if (change > MAX_HOI_CHANGE) revert HOITooHigh();
-        }
-        
-        // Update state
-        latestHOI = finalHOI;
-        lastUpdateTime = block.timestamp;
-        round.executed = true;
-        round.finalHOI = finalHOI;
-        round.validSubmissions = validSubmissions;
-        
-        // Update historical data
-        historicalHOI[nonce] = validSubmissions;
-        historicalHOICount++;
-        if (historicalHOICount > MAX_HISTORY) {
-            // Remove oldest entry (circular buffer helyett egyszerű törlés)
-            delete historicalHOI[nonce - MAX_HISTORY];
-        }
-        
-        // Calculate supply delta for rebase
-        int256 supplyDelta = _calculateSupplyDelta(finalHOI);
-        
-        // Reward participating oracles
-        for (uint256 i = 0; i < round.submitters.length; i++) {
-            address oracle = round.submitters[i];
-            if (oracleErrors[oracle] < MAX_ERRORS) {
-                oracleReputation[oracle] = oracleReputation[oracle] < 100 ? oracleReputation[oracle] + 1 : 100;
+        for (uint256 i = 0; i < 100; i++) {
+            bytes32 feedId = bytes32(i);
+            if (supportedFeeds[feedId]) {
+                temp[count] = feedId;
+                count++;
             }
         }
         
-        emit ConsensusReached(nonce, finalHOI, supplyDelta, round.submitters);
-        
-        // Increment nonce for next round
-        nonce++;
-    }
-
-    /**
-     * @dev Calculate deviation between two values
-     */
-    function _calculateDeviation(uint256 value1, uint256 value2) internal pure returns (uint256) {
-        if (value2 == 0) return 0;
-        uint256 diff = value1 > value2 ? value1 - value2 : value2 - value1;
-        return (diff * 10000) / value2; // Return as basis points
-    }
-
-    /**
-     * @dev Calculate supply delta for rebase based on HOI
-     */
-    function _calculateSupplyDelta(uint256 hoi) internal view returns (int256) {
-        if (hoi == 100) return 0; // No change if HOI = 1.0
-        
-        uint256 totalSupply = halomToken.totalSupply();
-        int256 delta;
-        
-        if (hoi > 100) {
-            // Inflation: HOI > 1.0
-            uint256 inflationRate = hoi - 100;
-            delta = int256((totalSupply * inflationRate) / 10000);
-        } else {
-            // Deflation: HOI < 1.0
-            uint256 deflationRate = 100 - hoi;
-            delta = -int256((totalSupply * deflationRate) / 10000);
+        bytes32[] memory result = new bytes32[](count);
+        for (uint256 i = 0; i < count; i++) {
+            result[i] = temp[i];
         }
         
-        return delta;
-    }
-
-    /**
-     * @dev Get weighted HOI from multiple nodes
-     */
-    function getWeightedHOI() public view returns (uint256 weightedHOI, uint256 totalWeight) {
-        uint256 sum = 0;
-        uint256 weightSum = 0;
-        
-        for (uint256 i = 0; i < oracleNodes.length; i++) {
-            address oracle = oracleNodes[i];
-            if (authorizedOracles[oracle] && oracleReputation[oracle] >= REPUTATION_THRESHOLD) {
-                uint256 weight = oracleReputation[oracle];
-                // Use latest submission or fallback to historical data
-                uint256 hoi = submissions[nonce][oracle].submitted ? 
-                    submissions[nonce][oracle].hoi : latestHOI;
-                
-                sum += hoi * weight;
-                weightSum += weight;
-            }
-        }
-        
-        if (weightSum > 0) {
-            weightedHOI = sum / weightSum;
-        } else {
-            weightedHOI = latestHOI;
-        }
-        
-        totalWeight = weightSum;
-    }
-
-    /**
-     * @dev Get oracle statistics
-     */
-    function getOracleStats(address oracle) public view returns (
-        uint256 reputation,
-        uint256 errors,
-        uint256 lastSubmission,
-        bool authorized
-    ) {
-        return (
-            oracleReputation[oracle],
-            oracleErrors[oracle],
-            lastSubmissionTime[oracle],
-            authorizedOracles[oracle]
-        );
-    }
-
-    /**
-     * @dev Update consensus parameters (only governor)
-     */
-    function updateConsensusParameters(
-        uint256 _minNodes,
-        uint256 _threshold,
-        uint256 _maxDeviation
-    ) external onlyRole(GOVERNOR_ROLE) {
-        if (_minNodes < 2 || _threshold < 2) revert InvalidParameters();
-        
-        minOracleNodes = _minNodes;
-        consensusThreshold = _threshold;
-        maxDeviation = _maxDeviation;
-        
-        emit ConsensusParametersUpdated(_minNodes, _threshold, _maxDeviation);
-    }
-
-    /**
-     * @dev Get historical HOI data
-     */
-    function getHistoricalHOI() external view returns (uint256[] memory) {
-        return historicalHOI[0];
+        return result;
     }
 } 

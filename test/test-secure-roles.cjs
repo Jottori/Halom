@@ -19,48 +19,42 @@ describe('Secure Role Structure', function () {
 
     // Deploy TimelockController
     const HalomTimelock = await ethers.getContractFactory('HalomTimelock');
-    timelock = await HalomTimelock.deploy(
-      86400, // 1 day delay
-      [], // proposers
-      [], // executors
-      owner.address // admin
-    );
+    const minDelay = 3600; // 1 hour minimum
+    const proposers = [owner.address];
+    const executors = [owner.address];
+    timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);
     await timelock.waitForDeployment();
 
     console.log('Timelock deployed at:', await timelock.getAddress());
 
     // Deploy HalomToken
     const HalomToken = await ethers.getContractFactory('HalomToken');
-    halomToken = await HalomToken.deploy(
-      ethers.ZeroAddress, // oracle (will be set later)
-      owner.address // governance (deployer is admin for test)
-    );
+    halomToken = await HalomToken.deploy(owner.address, owner.address);
     await halomToken.waitForDeployment();
 
     // Deploy HalomGovernor
     const HalomGovernor = await ethers.getContractFactory('HalomGovernor');
     governor = await HalomGovernor.deploy(
       await halomToken.getAddress(),
-      await timelock.getAddress()
+      await timelock.getAddress(),
+      1, // votingDelay
+      45818, // votingPeriod
+      ethers.parseEther("1000000"), // proposalThreshold
+      3 // quorumPercent
     );
     await governor.waitForDeployment();
 
     // Deploy HalomOracleV2
     const HalomOracleV2 = await ethers.getContractFactory('HalomOracleV2');
-    oracle = await HalomOracleV2.deploy(
-      owner.address, // Use owner as governor for test
-      chainId
-    );
+    oracle = await HalomOracleV2.deploy();
     await oracle.waitForDeployment();
 
     // Deploy HalomStaking
     const HalomStaking = await ethers.getContractFactory('HalomStaking');
     staking = await HalomStaking.deploy(
       await halomToken.getAddress(),
-      owner.address, // Use owner as governance for testing
-      2000, // rewardRate
-      30 * 24 * 60 * 60, // lockPeriod (30 days)
-      5000 // slashPercentage (50%)
+      owner.address, // roleManager
+      ethers.parseEther("0.1") // rewardRate
     );
     await staking.waitForDeployment();
 
@@ -68,27 +62,24 @@ describe('Secure Role Structure', function () {
     const HalomLPStaking = await ethers.getContractFactory('HalomLPStaking');
     lpStaking = await HalomLPStaking.deploy(
       await halomToken.getAddress(), // LP token (using HalomToken as LP for testing)
-      await halomToken.getAddress(),
-      owner.address, // Use owner as governance for testing
-      2000 // rewardRate
+      await halomToken.getAddress(), // rewardToken
+      owner.address, // roleManager
+      ethers.parseEther("0.1") // rewardRate
     );
     await lpStaking.waitForDeployment();
 
     // Deploy HalomTreasury
     const HalomTreasury = await ethers.getContractFactory('HalomTreasury');
     treasury = await HalomTreasury.deploy(
-      await halomToken.getAddress(),
-      await halomToken.getAddress(), // EURC token (using HalomToken as EURC for testing)
-      owner.address // Use owner as governance for testing
+      await halomToken.getAddress(), // rewardToken
+      owner.address, // roleManager
+      3600 // interval
     );
     await treasury.waitForDeployment();
 
     // Deploy HalomRoleManager
     const HalomRoleManager = await ethers.getContractFactory('HalomRoleManager');
-    roleManager = await HalomRoleManager.deploy(
-      await timelock.getAddress(),
-      await governor.getAddress()
-    );
+    roleManager = await HalomRoleManager.deploy();
     await roleManager.waitForDeployment();
 
     // Debug: Check if all addresses are properly initialized
@@ -101,15 +92,15 @@ describe('Secure Role Structure', function () {
 
     // Get role constants
     DEFAULT_ADMIN_ROLE = await timelock.DEFAULT_ADMIN_ROLE();
-    GOVERNOR_ROLE = await halomToken.DEFAULT_ADMIN_ROLE();
+    GOVERNOR_ROLE = halomToken.GOVERNOR_ROLE;
     MINTER_ROLE = await halomToken.MINTER_ROLE();
-    REBASE_CALLER = await halomToken.REBASE_CALLER();
+    REBASE_CALLER = halomToken.REBASE_CALLER;
     STAKING_CONTRACT_ROLE = await halomToken.STAKING_CONTRACT_ROLE();
-    ORACLE_UPDATER_ROLE = await oracle.ORACLE_UPDATER_ROLE();
-    REWARDER_ROLE = await staking.REWARDER_ROLE();
+    ORACLE_UPDATER_ROLE = await oracle.UPDATER_ROLE();
+    REWARDER_ROLE = await staking.REWARD_MANAGER_ROLE();
     SLASHER_ROLE = await staking.SLASHER_ROLE();
     TREASURY_CONTROLLER = await treasury.TREASURY_CONTROLLER();
-    PAUSER_ROLE = await staking.PAUSER_ROLE();
+    PAUSER_ROLE = halomToken.PAUSER_ROLE;
 
     // Debug: Print role constants
     console.log('DEFAULT_ADMIN_ROLE:', DEFAULT_ADMIN_ROLE, typeof DEFAULT_ADMIN_ROLE);
@@ -162,14 +153,12 @@ describe('Secure Role Structure', function () {
     await halomToken.connect(owner).grantRole(MINTER_ROLE, owner.address);
 
     // Setup oracle roles
-    await oracle.grantRole(await oracle.ORACLE_UPDATER_ROLE(), await roleManager.getAddress());
-    await oracle.setHalomToken(await halomToken.getAddress());
-    await oracle.addOracleNode(await governor.getAddress());
-    // Don't add owner as oracle node since it's not a contract
+    await oracle.grantRole(await oracle.UPDATER_ROLE(), await roleManager.getAddress());
+    // Note: HalomOracleV2 doesn't have setHalomToken or addOracleNode functions
 
     // Setup staking roles
-    await staking.grantRole(REWARDER_ROLE, await halomToken.getAddress());
-    await lpStaking.grantRole(REWARDER_ROLE, owner.address); // Use owner instead of governor
+    await staking.grantRole(await staking.REWARD_MANAGER_ROLE(), await halomToken.getAddress());
+    await lpStaking.grantRole(await lpStaking.REWARD_MANAGER_ROLE(), owner.address); // Use owner instead of governor
 
     // Grant MINTER_ROLE to owner for testing
     await halomToken.connect(owner).grantRole(MINTER_ROLE, owner.address);
@@ -183,6 +172,22 @@ describe('Secure Role Structure', function () {
     await halomToken.connect(owner).setExcludedFromLimits(await oracle.getAddress(), true);
     await halomToken.connect(owner).setExcludedFromLimits(await governor.getAddress(), true);
     await halomToken.connect(owner).setExcludedFromLimits(owner.address, true);
+
+    // Setup roles for HalomToken
+    await halomToken.grantRole(await halomToken.GOVERNOR_ROLE(), await governor.getAddress());
+    await halomToken.grantRole(await halomToken.REBASER_ROLE(), await oracle.getAddress());
+    await halomToken.grantRole(await halomToken.MINTER_ROLE(), await staking.getAddress());
+    await halomToken.grantRole(await halomToken.MINTER_ROLE(), await treasury.getAddress());
+
+    // Setup roles for HalomStaking
+    await staking.grantRole(await staking.DEFAULT_ADMIN_ROLE(), owner.address);
+    await staking.grantRole(await staking.REWARD_MANAGER_ROLE(), await halomToken.getAddress());
+
+    // Setup roles for HalomTreasury
+    await treasury.grantRole(await treasury.DEFAULT_ADMIN_ROLE(), owner.address);
+
+    // Setup roles for HalomRoleManager
+    await roleManager.grantRole(await roleManager.DEFAULT_ADMIN_ROLE(), owner.address);
   }
 
   beforeEach(async function () {
@@ -366,7 +371,7 @@ describe('Secure Role Structure', function () {
 
     it('Should allow contract role assignment', async function () {
       // Test that the role manager exists and can be called
-      expect(await roleManager.hasRole(MINTER_ROLE, staking.getAddress())).to.be.false;
+      expect(await roleManager.hasRole(MINTER_ROLE, await staking.getAddress())).to.be.false;
     });
   });
 
@@ -552,6 +557,238 @@ describe('Secure Role Structure', function () {
     it('Should verify staking contract address is properly set', async function () {
       const stakingContractAddress = await halomToken.halomStakingAddress();
       expect(stakingContractAddress).to.equal(await staking.getAddress());
+    });
+  });
+
+  describe('Role Management', function () {
+    it('Should use proper roles instead of DEFAULT_ADMIN_ROLE for staking', async function () {
+      const stakingRole = await halomToken.STAKING_CONTRACT_ROLE();
+      expect(await halomToken.hasRole(stakingRole, await staking.getAddress())).to.be.true;
+    });
+
+    it('Should allow token contract to call addRewards on staking', async function () {
+      const rewardAmount = ethers.parseEther('1000');
+      await halomToken.mint(await staking.getAddress(), rewardAmount);
+      await staking.addRewards(rewardAmount);
+      // Check that rewards were added by checking if staking contract has the tokens
+      expect(await halomToken.balanceOf(await staking.getAddress())).to.be.gte(rewardAmount);
+    });
+
+    it('Should prevent unauthorized addresses from calling addRewards', async function () {
+      const rewardAmount = ethers.parseEther('1000');
+      await expect(
+        staking.connect(user1).addRewards(rewardAmount)
+      ).to.be.revertedWithCustomError(staking, 'AccessControlUnauthorizedAccount');
+    });
+  });
+
+  describe('HalomRoleManager Comprehensive Tests', function () {
+    let roleManager;
+    let MINTER_ROLE, GOVERNOR_ROLE, ORACLE_ROLE;
+
+    beforeEach(async function () {
+      [deployer, user1, user2, user3, multisig] = await ethers.getSigners();
+      
+      // Deploy staking contract first
+      const HalomToken = await ethers.getContractFactory('HalomToken');
+      const halomToken = await HalomToken.deploy(deployer.address, deployer.address);
+      
+      const HalomStaking = await ethers.getContractFactory('HalomStaking');
+      staking = await HalomStaking.deploy(await halomToken.getAddress(), deployer.address, 2000);
+      
+      const HalomRoleManager = await ethers.getContractFactory('HalomRoleManager');
+      roleManager = await HalomRoleManager.deploy();
+      
+      MINTER_ROLE = await roleManager.MINTER_ROLE();
+      GOVERNOR_ROLE = roleManager.GOVERNOR_ROLE;
+      ORACLE_ROLE = await roleManager.ORACLE_UPDATER_ROLE();
+    });
+
+    it('Should allow admin to grant roles to contracts', async function () {
+      const adminRole = await roleManager.DEFAULT_ADMIN_ROLE();
+      
+      // Grant admin role to deployer for testing
+      await roleManager.grantRole(adminRole, deployer.address);
+      
+      // Grant MINTER_ROLE to a contract
+      await roleManager.grantRole(MINTER_ROLE, await staking.getAddress());
+      
+      expect(await roleManager.hasRole(MINTER_ROLE, await staking.getAddress())).to.be.true;
+    });
+
+    it('Should allow admin to revoke roles from humans', async function () {
+      const adminRole = await roleManager.DEFAULT_ADMIN_ROLE();
+      
+      // Grant admin role to deployer for testing
+      await roleManager.grantRole(adminRole, deployer.address);
+      
+      // Grant role to human
+      await roleManager.grantRole(MINTER_ROLE, user1.address);
+      expect(await roleManager.hasRole(MINTER_ROLE, user1.address)).to.be.true;
+      
+      // Revoke role from human
+      await roleManager.revokeRole(MINTER_ROLE, user1.address);
+      expect(await roleManager.hasRole(MINTER_ROLE, user1.address)).to.be.false;
+    });
+
+    it('Should prevent direct role grants', async function () {
+      await expect(
+        roleManager.grantRole(MINTER_ROLE, user1.address)
+      ).to.be.revertedWithCustomError(roleManager, 'AccessControlUnauthorizedAccount');
+    });
+
+    it('Should prevent direct role revokes', async function () {
+      await expect(
+        roleManager.revokeRole(MINTER_ROLE, user1.address)
+      ).to.be.revertedWithCustomError(roleManager, 'AccessControlUnauthorizedAccount');
+    });
+
+    it('Should emit events when roles are granted to contracts', async function () {
+      const adminRole = await roleManager.DEFAULT_ADMIN_ROLE();
+      await roleManager.grantRole(adminRole, deployer.address);
+      
+      await expect(roleManager.grantRole(MINTER_ROLE, await staking.getAddress()))
+        .to.emit(roleManager, 'RoleGranted')
+        .withArgs(MINTER_ROLE, await staking.getAddress(), deployer.address);
+    });
+
+    it('Should emit events when roles are revoked from humans', async function () {
+      const adminRole = await roleManager.DEFAULT_ADMIN_ROLE();
+      await roleManager.grantRole(adminRole, deployer.address);
+      
+      // Grant role first
+      await roleManager.grantRole(MINTER_ROLE, user1.address);
+      
+      await expect(roleManager.revokeRole(MINTER_ROLE, user1.address))
+        .to.emit(roleManager, 'RoleRevoked')
+        .withArgs(MINTER_ROLE, user1.address, deployer.address);
+    });
+
+    it('Should handle role queries correctly', async function () {
+      const adminRole = await roleManager.DEFAULT_ADMIN_ROLE();
+      
+      // Check default admin role
+      expect(await roleManager.hasRole(adminRole, deployer.address)).to.be.false;
+      
+      // Grant admin role
+      await roleManager.grantRole(adminRole, deployer.address);
+      expect(await roleManager.hasRole(adminRole, deployer.address)).to.be.true;
+      
+      // Check non-existent role
+      const nonExistentRole = ethers.keccak256(ethers.toUtf8Bytes('NON_EXISTENT_ROLE'));
+      expect(await roleManager.hasRole(nonExistentRole, deployer.address)).to.be.false;
+    });
+
+    it('Should handle role admin queries', async function () {
+      const adminRole = await roleManager.DEFAULT_ADMIN_ROLE();
+      const roleAdmin = await roleManager.getRoleAdmin(MINTER_ROLE);
+      
+      // Default admin role should be the admin for all roles
+      expect(roleAdmin).to.equal(adminRole);
+    });
+
+    it('Should handle role member queries', async function () {
+      const adminRole = await roleManager.DEFAULT_ADMIN_ROLE();
+      await roleManager.grantRole(adminRole, deployer.address);
+      
+      // Grant role to multiple addresses
+      await roleManager.grantRole(MINTER_ROLE, user1.address);
+      await roleManager.grantRole(MINTER_ROLE, user2.address);
+      await roleManager.grantRole(MINTER_ROLE, await staking.getAddress());
+      
+      // Check role members
+      expect(await roleManager.hasRole(MINTER_ROLE, user1.address)).to.be.true;
+      expect(await roleManager.hasRole(MINTER_ROLE, user2.address)).to.be.true;
+      expect(await roleManager.hasRole(MINTER_ROLE, await staking.getAddress())).to.be.true;
+      expect(await roleManager.hasRole(MINTER_ROLE, user3.address)).to.be.false;
+    });
+
+    it('Should handle role renunciation', async function () {
+      const adminRole = await roleManager.DEFAULT_ADMIN_ROLE();
+      await roleManager.grantRole(adminRole, deployer.address);
+      
+      // Grant role to user
+      await roleManager.grantRole(MINTER_ROLE, user1.address);
+      expect(await roleManager.hasRole(MINTER_ROLE, user1.address)).to.be.true;
+      
+      // User renounces role
+      await roleManager.connect(user1).renounceRole(MINTER_ROLE, user1.address);
+      expect(await roleManager.hasRole(MINTER_ROLE, user1.address)).to.be.false;
+    });
+
+    it('Should prevent non-admin from granting roles to contracts', async function () {
+      await expect(
+        roleManager.connect(user1).grantRole(MINTER_ROLE, await staking.getAddress())
+      ).to.be.revertedWithCustomError(roleManager, 'AccessControlUnauthorizedAccount');
+    });
+
+    it('Should prevent non-admin from revoking roles from humans', async function () {
+      const adminRole = await roleManager.DEFAULT_ADMIN_ROLE();
+      await roleManager.grantRole(adminRole, deployer.address);
+      
+      // Grant role to user
+      await roleManager.grantRole(MINTER_ROLE, user1.address);
+      
+      // Non-admin tries to revoke
+      await expect(
+        roleManager.connect(user1).revokeRole(MINTER_ROLE, user2.address)
+      ).to.be.revertedWithCustomError(roleManager, 'AccessControlUnauthorizedAccount');
+    });
+
+    it('Should handle edge cases with zero addresses', async function () {
+      const adminRole = await roleManager.DEFAULT_ADMIN_ROLE();
+      await roleManager.grantRole(adminRole, deployer.address);
+      
+      // Try to grant role to zero address
+      await expect(
+        roleManager.grantRole(MINTER_ROLE, ethers.ZeroAddress)
+      ).to.be.revertedWithCustomError(roleManager, 'InvalidAccount');
+      
+      // Try to revoke role from zero address
+      await expect(
+        roleManager.revokeRole(MINTER_ROLE, ethers.ZeroAddress)
+      ).to.be.revertedWithCustomError(roleManager, 'InvalidAccount');
+    });
+
+    it('Should handle role grant/revoke to same address', async function () {
+      const adminRole = await roleManager.DEFAULT_ADMIN_ROLE();
+      await roleManager.grantRole(adminRole, deployer.address);
+      
+      // Grant role
+      await roleManager.grantRole(MINTER_ROLE, user1.address);
+      expect(await roleManager.hasRole(MINTER_ROLE, user1.address)).to.be.true;
+      
+      // Grant same role again (should not fail)
+      await roleManager.grantRole(MINTER_ROLE, user1.address);
+      expect(await roleManager.hasRole(MINTER_ROLE, user1.address)).to.be.true;
+      
+      // Revoke role
+      await roleManager.revokeRole(MINTER_ROLE, user1.address);
+      expect(await roleManager.hasRole(MINTER_ROLE, user1.address)).to.be.false;
+      
+      // Revoke same role again (should not fail)
+      await roleManager.revokeRole(MINTER_ROLE, user1.address);
+      expect(await roleManager.hasRole(MINTER_ROLE, user1.address)).to.be.false;
+    });
+
+    it('Should handle multiple role operations correctly', async function () {
+      const adminRole = await roleManager.DEFAULT_ADMIN_ROLE();
+      await roleManager.grantRole(adminRole, deployer.address);
+      
+      // Grant multiple roles to same address
+      await roleManager.grantRole(MINTER_ROLE, user1.address);
+      await roleManager.grantRole(GOVERNOR_ROLE, user1.address);
+      await roleManager.grantRole(ORACLE_ROLE, user1.address);
+      
+      expect(await roleManager.hasRole(MINTER_ROLE, user1.address)).to.be.true;
+      expect(await roleManager.hasRole(GOVERNOR_ROLE, user1.address)).to.be.true;
+      expect(await roleManager.hasRole(ORACLE_ROLE, user1.address)).to.be.true;
+      
+      // Revoke one role
+      await roleManager.revokeRole(MINTER_ROLE, user1.address);
+      expect(await roleManager.hasRole(MINTER_ROLE, user1.address)).to.be.false;
+      expect(await roleManager.hasRole(GOVERNOR_ROLE, user1.address)).to.be.true;
+      expect(await roleManager.hasRole(ORACLE_ROLE, user1.address)).to.be.true;
     });
   });
 });

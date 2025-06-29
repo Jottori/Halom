@@ -9,27 +9,31 @@ describe('HalomOracle', function () {
 
   beforeEach(async function () {
     [owner, governor, updater, otherAccount] = await ethers.getSigners();
-    chainId = (await ethers.provider.getNetwork()).chainId;
+    
+    // Get chainId properly
+    const network = await ethers.provider.getNetwork();
+    chainId = Number(network.chainId);
 
     // Deploy mock token
     HalomToken = await ethers.getContractFactory('HalomToken');
-    token = await HalomToken.deploy(governor.address, governor.address); // (governor, governor)
+    token = await HalomToken.deploy(owner.address, owner.address);
+    await token.waitForDeployment();
 
-    // Deploy oracle
+    // Deploy oracle with correct parameters
     HalomOracle = await ethers.getContractFactory('HalomOracle');
     oracle = await HalomOracle.deploy(governor.address, chainId);
+    await oracle.waitForDeployment();
 
     // Get role constants from contract
-    GOVERNOR_ROLE = await oracle.DEFAULT_ADMIN_ROLE();
+    GOVERNOR_ROLE = await oracle.GOVERNOR_ROLE();
     ORACLE_UPDATER_ROLE = await oracle.ORACLE_UPDATER_ROLE();
     REBASE_CALLER_ROLE = await token.REBASE_CALLER();
 
     // Setup roles and permissions
+    await oracle.connect(governor).grantRole(GOVERNOR_ROLE, governor.address);
     await oracle.connect(governor).grantRole(ORACLE_UPDATER_ROLE, updater.address);
     await oracle.connect(governor).setHalomToken(token.target);
-
-    // Grant REBASE_CALLER role to the oracle contract
-    await token.connect(governor).grantRole(REBASE_CALLER_ROLE, oracle.target);
+    await token.connect(owner).grantRole(REBASE_CALLER_ROLE, oracle.target);
   });
 
   describe('Deployment and Role Setup', function () {
@@ -48,7 +52,7 @@ describe('HalomOracle', function () {
       const hoiValue = ethers.parseUnits('1.001', 9); // Smaller value
 
       await expect(oracle.connect(updater).setHOI(hoiValue, currentNonce))
-        .to.emit(oracle, 'HOISet');
+        .to.emit(oracle, 'HOIUpdated');
 
       expect(await oracle.latestHOI()).to.equal(hoiValue);
       expect(await oracle.nonce()).to.equal(currentNonce + 1n);
@@ -123,6 +127,9 @@ describe('HalomOracle', function () {
     });
 
     it('Should handle negative rebase correctly', async function () {
+      // Mint tokens to the token contract itself so it has balance to burn during negative rebase
+      await token.connect(owner).mint(token.target, ethers.parseEther('1000000'));
+      
       const currentNonce = await oracle.nonce();
       const hoiValue = ethers.parseUnits('0.999', 9); // 0.1% decrease - much smaller
 

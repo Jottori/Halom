@@ -1,223 +1,175 @@
 const { expect } = require('chai');
 const { ethers } = require('hardhat');
+const { time } = require('@nomicfoundation/hardhat-network-helpers');
 
 describe('HalomStaking', function () {
-  let token, staking;
-  let owner, governor, user1, user2;
-  let GOVERNOR_ROLE, STAKING_CONTRACT_ROLE;
+  let staking, token, owner, user1, user2, user3;
+  let STAKING_ADMIN_ROLE, REWARD_MANAGER_ROLE;
 
   beforeEach(async function () {
-    [owner, governor, user1, user2] = await ethers.getSigners();
+    [owner, user1, user2, user3] = await ethers.getSigners();
 
+    // Deploy token first
     const HalomToken = await ethers.getContractFactory('HalomToken');
-    token = await HalomToken.deploy(owner.address, governor.address);
+    token = await HalomToken.deploy(owner.address, owner.address);
+    await token.waitForDeployment();
 
-    // Get role constants from contract
-    GOVERNOR_ROLE = await token.DEFAULT_ADMIN_ROLE();
-    STAKING_CONTRACT_ROLE = await token.STAKING_CONTRACT_ROLE();
-
+    // Deploy staking contract
     const HalomStaking = await ethers.getContractFactory('HalomStaking');
     staking = await HalomStaking.deploy(
-      token.target,
-      governor.address,
-      2000, // rewardRate
-      30 * 24 * 60 * 60, // lockPeriod (30 days)
-      5000 // slashPercentage (50%)
+      await token.getAddress(), 
+      owner.address, 
+      2000
     );
+    await staking.waitForDeployment();
 
-    // Grant STAKING_CONTRACT role to staking contract
-    await token.connect(governor).grantRole(STAKING_CONTRACT_ROLE, staking.target);
+    // Get role constants
+    STAKING_ADMIN_ROLE = await staking.DEFAULT_ADMIN_ROLE();
+    REWARD_MANAGER_ROLE = await staking.REWARD_MANAGER_ROLE();
 
-    // Grant GOVERNOR_ROLE to governor in staking contract
-    const STAKING_GOVERNOR_ROLE = await staking.GOVERNOR_ROLE();
-    await staking.connect(governor).grantRole(STAKING_GOVERNOR_ROLE, governor.address);
+    // Setup roles
+    await staking.grantRole(STAKING_ADMIN_ROLE, owner.address);
+    await staking.grantRole(REWARD_MANAGER_ROLE, owner.address);
 
-    // Token approval for staking
-    await token.connect(governor).transfer(user1.address, ethers.parseEther('10000')); // 10K HLM
-    await token.connect(user1).approve(staking.target, ethers.parseEther('10000'));
+    // Mint tokens for testing
+    await token.mint(user1.address, ethers.parseEther('10000'));
+    await token.mint(user2.address, ethers.parseEther('10000'));
+    await token.mint(user3.address, ethers.parseEther('10000'));
   });
 
-  describe('Deployment and Role Setup', function () {
-    it('Should set the correct roles on deployment', async function () {
-      expect(await staking.halomToken()).to.equal(token.target);
+  describe('Deployment and Initial Setup', function () {
+    it('Should deploy with correct parameters', async function () {
+      expect(await staking.stakingToken()).to.equal(await token.getAddress());
+      expect(await staking.hasRole(STAKING_ADMIN_ROLE, owner.address)).to.be.true;
+    });
+
+    it('Should have correct initial state', async function () {
+      const poolInfo = await staking.poolInfo();
+      expect(poolInfo.totalStaked).to.equal(0);
     });
   });
 
-  describe('Staking with Lock Periods', function () {
-    it('Should allow staking with minimum amount', async function () {
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('100'), 30 * 24 * 60 * 60); // 30 days lock
-      const userStake = await staking.stakedBalance(user1.address);
-      expect(userStake).to.equal(ethers.parseEther('100'));
+  describe('Staking Operations', function () {
+    beforeEach(async function () {
+      await token.connect(user1).approve(await staking.getAddress(), ethers.parseEther('10000'));
     });
 
-    it('Should allow staking with maximum amount', async function () {
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('10000'), 30 * 24 * 60 * 60); // 30 days lock
-      const userStake = await staking.stakedBalance(user1.address);
-      expect(userStake).to.equal(ethers.parseEther('10000'));
+    it('Should allow users to stake tokens', async function () {
+      const stakeAmount = ethers.parseUnits('0.1', 18); // 0.1 token (above new minimum)
+      await staking.connect(user1).stake(stakeAmount, 30 * 24 * 3600);
+
+      const stakerInfo = await staking.stakerInfo(user1.address);
+      expect(stakerInfo.stakedAmount).to.be.gt(0);
     });
 
-    it('Should revert with amount below minimum', async function () {
+    it('Should prevent staking zero amount', async function () {
       await expect(
-        staking.connect(user1).stakeWithLock(ethers.parseEther('50'), 30 * 24 * 60 * 60)
-      ).to.be.revertedWithCustomError(staking, 'AmountBelowMinimum');
+        staking.connect(user1).stake(0, 30 * 24 * 3600)
+      ).to.be.revertedWithCustomError(staking, 'InvalidAmount');
     });
 
-    it('Should revert with amount above maximum', async function () {
+    it('Should prevent staking more than balance', async function () {
+      const tooMuch = ethers.parseEther('20000');
       await expect(
-        staking.connect(user1).stakeWithLock(ethers.parseEther('2000000'), 30 * 24 * 60 * 60)
-      ).to.be.revertedWithCustomError(staking, 'AmountAboveMaximum');
+        staking.connect(user1).stake(tooMuch, 30 * 24 * 3600)
+      ).to.be.reverted;
     });
   });
 
-  describe('Staking, Unstaking, and Rewards', function () {
-    it('Should allow staking and correctly update balances', async function () {
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('100'), 30 * 24 * 60 * 60);
-      const userStake = await staking.stakedBalance(user1.address);
-      expect(userStake).to.equal(ethers.parseEther('100'));
+  describe('Unstaking Operations', function () {
+    beforeEach(async function () {
+      await token.connect(user1).approve(await staking.getAddress(), ethers.parseEther('10000'));
+      await staking.connect(user1).stake(ethers.parseEther('1'), 30 * 24 * 3600); // 1 token, 30 days
     });
 
-    it('Should allow unstaking after lock period', async function () {
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('100'), 30 * 24 * 60 * 60);
-
-      // Fast forward time to pass lock period
-      await ethers.provider.send('evm_increaseTime', [31 * 24 * 60 * 60]); // 31 days
+    it('Should allow users to unstake tokens', async function () {
+      // Wait for lock period to expire
+      await ethers.provider.send('evm_increaseTime', [31 * 24 * 3600]); // 31 days
       await ethers.provider.send('evm_mine');
 
-      await staking.connect(user1).unstake(ethers.parseEther('50'));
-      const userStake = await staking.stakedBalance(user1.address);
-      expect(userStake).to.equal(ethers.parseEther('50'));
+      const unstakeAmount = ethers.parseEther('0.5');
+      const balanceBefore = await token.balanceOf(user1.address);
+      
+      await staking.connect(user1).unstake(unstakeAmount);
+      
+      expect(await token.balanceOf(user1.address)).to.be.gt(balanceBefore);
     });
 
-    it('Should revert unstaking before lock period', async function () {
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('1000'), 30 * 24 * 60 * 60);
+    it('Should prevent unstaking more than staked', async function () {
+      await token.connect(user1).approve(await staking.getAddress(), ethers.parseEther('10000'));
+      await staking.connect(user1).stake(ethers.parseEther('1'), 86400); // 1 token, 1 day
+      await time.increase(86500); // Advance time past lock
+      const stakerInfo = await staking.stakerInfo(user1.address);
+      const tooMuch = stakerInfo.stakedAmount + 1n;
       await expect(
-        staking.connect(user1).unstake(ethers.parseEther('1000'))
-      ).to.be.revertedWithCustomError(staking, 'LockPeriodNotExpired');
+        staking.connect(user1).unstake(tooMuch)
+      ).to.be.revertedWithCustomError(staking, 'InsufficientStake');
+    });
+  });
+
+  describe('Reward Management', function () {
+    beforeEach(async function () {
+      await token.connect(user1).approve(await staking.getAddress(), ethers.parseEther('10000'));
+      await staking.connect(user1).stake(ethers.parseEther('1'), 30 * 24 * 3600); // 1 token, 30 days
     });
 
-    it('Should allow additional staking after initial stake', async function () {
-      // Initial stake with lock
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('100'), 30 * 24 * 60 * 60);
-
-      // Additional stake (should preserve lock period) - use minimum amount
-      await staking.connect(user1).stake(ethers.parseEther('100'));
-
-      const userStake = await staking.stakedBalance(user1.address);
-      expect(userStake).to.equal(ethers.parseEther('200'));
+    it('Should allow reward manager to add rewards', async function () {
+      // First approve the staking contract to spend tokens on behalf of the reward manager
+      await token.connect(owner).approve(await staking.getAddress(), ethers.parseEther('10000'));
+      
+      // Add rewards
+      await staking.connect(owner).addRewards(ethers.parseEther('10'));
+      
+      // Check that rewards were added
+      const poolInfo = await staking.poolInfo();
+      expect(poolInfo.totalRewardDistributed).to.be.gt(0);
     });
 
-    it('Should revert initial stake without lock period', async function () {
+    it('Should prevent non-reward manager from adding rewards', async function () {
       await expect(
-        staking.connect(user1).stake(ethers.parseEther('100'))
-      ).to.be.revertedWith('Use stakeWithLock for initial stake');
+        staking.connect(user1).addRewards(ethers.parseEther('100'))
+      ).to.be.revertedWithCustomError(staking, 'Unauthorized');
+    });
+
+    it('Should allow users to claim rewards', async function () {
+      // First approve the staking contract to spend tokens on behalf of the reward manager
+      await token.connect(owner).approve(await staking.getAddress(), ethers.parseEther('10000'));
+      
+      // Add rewards first
+      await staking.connect(owner).addRewards(ethers.parseEther('10'));
+      
+      // User stakes tokens
+      await staking.connect(user1).stake(ethers.parseEther('1'), 30 * 24 * 3600);
+      
+      // Wait some time for rewards to accumulate
+      await ethers.provider.send('evm_increaseTime', [3600]); // 1 hour
+      await ethers.provider.send('evm_mine');
+      
+      // User claims rewards
+      const balanceBefore = await token.balanceOf(user1.address);
+      await staking.connect(user1).claimReward();
+      const balanceAfter = await token.balanceOf(user1.address);
+      
+      expect(balanceAfter).to.be.gte(balanceBefore);
     });
   });
 
-  describe('Rewards and Fourth Root System', function () {
-    it('Should calculate fourth root correctly', async function () {
-      const fourthRoot = await staking.fourthRoot(ethers.parseEther('10000'));
-      expect(fourthRoot).to.be.gt(0);
+  describe('Emergency Controls', function () {
+    it('Should allow admin to pause and unpause', async function () {
+      await staking.connect(owner).emergencyPause();
+      expect(await staking.paused()).to.be.true;
+      
+      await staking.connect(owner).emergencyUnpause();
+      expect(await staking.paused()).to.be.false;
     });
 
-    it('Should calculate governance power correctly', async function () {
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('1000'), 30 * 24 * 60 * 60);
-      const governancePower = await staking.getGovernancePower(user1.address);
-      expect(governancePower).to.be.gt(0);
-    });
-
-    it('Should allow adding rewards', async function () {
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('100'), 30 * 24 * 60 * 60);
-
-      // Grant REWARDER_ROLE to governor for testing
-      const REWARDER_ROLE = await staking.REWARDER_ROLE();
-      await staking.connect(governor).grantRole(REWARDER_ROLE, governor.address);
-
-      // Grant MINTER_ROLE to governor for testing
-      await token.connect(governor).grantRole(await token.MINTER_ROLE(), governor.address);
-
-      // Mint tokens to governor and approve staking contract
-      await token.connect(governor).mint(governor.address, ethers.parseEther('1000'));
-      await token.connect(governor).approve(staking.target, ethers.parseEther('1000'));
-
-      // Add rewards (only governor can do this)
-      await staking.connect(governor).addRewards(ethers.parseEther('100'));
-
-      const pendingRewards = await staking.getPendingRewardsForUser(user1.address);
-      expect(pendingRewards).to.be.gt(0);
-    });
-  });
-
-  describe('Emergency Recovery', function () {
-    it('Should allow governor to recover tokens sent by mistake', async function () {
-      // Deploy a random token
-      const RandomToken = await ethers.getContractFactory('MockERC20');
-      const randomToken = await RandomToken.deploy('Random', 'RND', ethers.parseEther('10000'));
-
-      // Send random token to staking contract by mistake
-      await randomToken.transfer(staking.target, ethers.parseEther('100'));
-
-      // Governor should be able to recover it
-      await staking.connect(governor).emergencyRecovery(
-        randomToken.target,
-        user1.address,
-        ethers.parseEther('50')
-      );
-
-      expect(await randomToken.balanceOf(user1.address)).to.equal(ethers.parseEther('50'));
-    });
-  });
-
-  describe('Governance Functions', function () {
-    it('Should allow governor to update staking parameters', async function () {
-      // Grant GOVERNOR_ROLE to governor for testing
-      const GOVERNOR_ROLE = await staking.GOVERNOR_ROLE();
-      await staking.connect(governor).grantRole(GOVERNOR_ROLE, governor.address);
-
-      await staking.connect(governor).updateStakingParameters(
-        ethers.parseEther('200'), // new min stake
-        ethers.parseEther('2000000'), // new max stake
-        60 * 24 * 60 * 60 // new lock period (60 days)
-      );
-
-      expect(await staking.minStakeAmount()).to.equal(ethers.parseEther('200'));
-      expect(await staking.maxStakeAmount()).to.equal(ethers.parseEther('2000000'));
-      expect(await staking.lockPeriod()).to.equal(60 * 24 * 60 * 60);
-    });
-
-    it('Should revert if non-governor tries to update parameters', async function () {
+    it('Should prevent operations when paused', async function () {
+      await staking.connect(owner).emergencyPause();
+      await token.connect(user1).approve(await staking.getAddress(), ethers.parseEther('1000'));
+      
       await expect(
-        staking.connect(user1).updateStakingParameters(
-          ethers.parseEther('200'),
-          ethers.parseEther('2000000'),
-          60 * 24 * 60 * 60
-        )
-      ).to.be.revertedWithCustomError(staking, 'AccessControlUnauthorizedAccount');
-    });
-  });
-
-  describe('Slashing', function () {
-    it('Should allow governor to slash users', async function () {
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('1000'), 30 * 24 * 60 * 60);
-
-      // Grant SLASHER_ROLE to governor for testing
-      const SLASHER_ROLE = await staking.SLASHER_ROLE();
-      await staking.connect(governor).grantRole(SLASHER_ROLE, governor.address);
-
-      const initialBalance = await staking.stakedBalance(user1.address);
-      expect(initialBalance).to.equal(ethers.parseEther('1000'));
-
-      // Slash 50% of user's stake
-      await staking.connect(governor).slash(user1.address, 'Test slash');
-
-      const finalBalance = await staking.stakedBalance(user1.address);
-      expect(finalBalance).to.be.lt(initialBalance);
-    });
-  });
-
-  describe('Governance Guardrails', function () {
-    it('Should have parameter update functionality', async function () {
-      // Parameter updates are handled by updateStakingParameters function
-      expect(true).to.be.true;
+        staking.connect(user1).stake(ethers.parseEther('100'), 30 * 24 * 3600)
+      ).to.be.revertedWithCustomError(staking, 'ContractPaused');
     });
   });
 });

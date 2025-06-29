@@ -13,9 +13,8 @@ module.exports = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 1
-      },
-      viaIR: true
+        runs: 200
+      }
     }
   },
   networks: {

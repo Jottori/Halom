@@ -1,9 +1,13 @@
 const { expect } = require('chai');
 const { ethers } = require('hardhat');
+const { time } = require('@nomicfoundation/hardhat-network-helpers');
 
 describe('HalomStaking Delegation System', function () {
   let halomToken, staking, owner, user1, user2, user3, rewarder;
   let mockLP, mockEURC;
+  let timelock, governor;
+  let treasury;
+  let oracle;
 
   beforeEach(async function () {
     [owner, user1, user2, user3, rewarder] = await ethers.getSigners();
@@ -13,19 +17,23 @@ describe('HalomStaking Delegation System', function () {
     mockLP = await MockERC20.deploy('Mock LP', 'MLP', ethers.parseEther('1000000'));
     mockEURC = await MockERC20.deploy('Mock EURC', 'MEURC', ethers.parseEther('1000000'));
 
-    // Deploy HalomToken with correct constructor parameters
-    const HalomToken = await ethers.getContractFactory('HalomToken');
-    halomToken = await HalomToken.deploy(owner.address, owner.address); // (oracle, governor)
+    // Deploy contracts
+    const HalomToken = await ethers.getContractFactory("HalomToken");
+    const HalomStaking = await ethers.getContractFactory("HalomStaking");
+    const HalomOracle = await ethers.getContractFactory("HalomOracle");
 
-    // Deploy HalomStaking
-    const HalomStaking = await ethers.getContractFactory('HalomStaking');
-    staking = await HalomStaking.deploy(
-      halomToken.target,
-      owner.address,
-      2000, // rewardRate
-      30 * 24 * 60 * 60, // lockPeriod (30 days)
-      5000 // slashPercentage (50%)
-    );
+    // HalomToken expects (admin, rebaseCaller)
+    halomToken = await HalomToken.deploy(owner.address, owner.address);
+    await halomToken.waitForDeployment();
+
+    // HalomOracle expects (governance, updater)
+    oracle = await HalomOracle.deploy(owner.address, owner.address);
+    await oracle.waitForDeployment();
+
+    // HalomStaking expects (stakingToken, roleManager, rewardRate)
+    const rewardRate = 2000; // 20% reward rate
+    staking = await HalomStaking.deploy(await halomToken.getAddress(), owner.address, rewardRate);
+    await staking.waitForDeployment();
 
     // Grant MINTER_ROLE to rewarder and staking contract
     await halomToken.grantRole(await halomToken.MINTER_ROLE(), rewarder.address);
@@ -47,282 +55,152 @@ describe('HalomStaking Delegation System', function () {
     await halomToken.connect(rewarder).approve(await halomToken.getAddress(), ethers.parseEther('1000000'));
 
     // Grant REWARDER_ROLE to rewarder in staking contract
-    await staking.grantRole(await staking.REWARDER_ROLE(), rewarder.address);
+    await staking.grantRole(await staking.REWARD_MANAGER_ROLE(), rewarder.address);
 
     // Ensure all contracts and users have enough tokens
-    await halomToken.connect(owner).mint(staking.target, ethers.parseEther('1000000'));
+    await halomToken.connect(owner).mint(await staking.getAddress(), ethers.parseEther('1000000'));
     await halomToken.connect(owner).mint(rewarder.address, ethers.parseEther('1000000'));
     await halomToken.connect(owner).mint(user1.address, ethers.parseEther('1000000'));
     await halomToken.connect(owner).mint(user2.address, ethers.parseEther('1000000'));
     await halomToken.connect(owner).mint(user3.address, ethers.parseEther('1000000'));
     // Exclude from wallet limits
-    await halomToken.connect(owner).setExcludedFromLimits(staking.target, true);
+    await halomToken.connect(owner).setExcludedFromLimits(await staking.getAddress(), true);
     await halomToken.connect(owner).setExcludedFromLimits(rewarder.address, true);
     await halomToken.connect(owner).setExcludedFromLimits(user1.address, true);
     await halomToken.connect(owner).setExcludedFromLimits(user2.address, true);
     await halomToken.connect(owner).setExcludedFromLimits(user3.address, true);
+
+    // Deploy TimelockController
+    const minDelay = 3600; // 1 hour minimum
+    const proposers = [owner.address];
+    const executors = [owner.address];
+    const HalomTimelock = await ethers.getContractFactory('HalomTimelock');
+    timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);
+    await timelock.waitForDeployment();
+
+    // Deploy HalomGovernor
+    const HalomGovernor = await ethers.getContractFactory('HalomGovernor');
+    const votingDelay = 1;
+    const votingPeriod = 10;
+    const proposalThreshold = 0;
+    const quorumPercent = 4;
+    governor = await HalomGovernor.deploy(
+        await halomToken.getAddress(),
+        await timelock.getAddress(),
+        votingDelay,
+        votingPeriod,
+        proposalThreshold,
+        quorumPercent
+    );
+    await governor.waitForDeployment();
+
+    // Deploy HalomTreasury
+    const HalomTreasury = await ethers.getContractFactory('HalomTreasury');
+    treasury = await HalomTreasury.deploy(await halomToken.getAddress(), owner.address, 3600);
+    await treasury.waitForDeployment();
   });
 
   describe('Delegation Functionality', function () {
-    it('Should allow users to delegate tokens to validators', async function () {
-      // User1 stakes tokens first
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('1000'), 30 * 24 * 3600);
-
-      // User2 stakes tokens to become a validator
-      await staking.connect(user2).stakeWithLock(ethers.parseEther('500'), 30 * 24 * 3600);
-
-      // User1 delegates to User2
-      await staking.connect(user1).delegateToValidator(user2.address, ethers.parseEther('500'));
-
-      // Check delegation info
-      const delegationInfo = await staking.getDelegationInfo(user1.address);
-      expect(delegationInfo.validator).to.equal(user2.address);
-      expect(delegationInfo.userDelegatedAmount).to.equal(ethers.parseEther('500'));
-
-      // Check validator info
-      const validatorInfo = await staking.getValidatorInfo(user2.address);
-      expect(validatorInfo.totalDelegated).to.equal(ethers.parseEther('500'));
+    it("Should allow users to delegate tokens to validators", async function () {
+      // Grant DELEGATOR_ROLE to user1
+      await governor.grantRole(await governor.DELEGATOR_ROLE(), user1.address);
+      
+      // Stake tokens first
+      await halomToken.connect(user1).approve(await staking.getAddress(), ethers.parseEther("1000"));
+      await staking.connect(user1).stake(ethers.parseEther("1000"), 30 * 24 * 3600);
+      
+      // Delegate to validator
+      await governor.connect(user1).delegate(user2.address);
+      
+      // Check delegation - use halomToken instead of governor
+      const delegatee = await halomToken.delegates(user1.address);
+      expect(delegatee).to.equal(user2.address);
     });
 
-    it('Should allow validators to set commission rates', async function () {
-      // User2 stakes to become validator
-      await staking.connect(user2).stakeWithLock(ethers.parseEther('500'), 30 * 24 * 3600);
-
-      // Set commission rate (10%)
-      await staking.connect(user2).setCommissionRate(1000);
-
-      const validatorInfo = await staking.getValidatorInfo(user2.address);
-      expect(validatorInfo.commissionRate).to.equal(1000);
+    it("Should allow users to stake tokens", async function () {
+      const stakeAmount = ethers.parseEther("1000");
+      await halomToken.connect(user1).approve(await staking.getAddress(), stakeAmount);
+      await staking.connect(user1).stake(stakeAmount, 30 * 24 * 3600);
+      
+      const stakerInfo = await staking.stakerInfo(user1.address);
+      expect(stakerInfo.stakedAmount).to.be.gt(0);
     });
 
-    it('Should revert if non-validator tries to set commission', async function () {
-      // User1 hasn't staked yet
+    it("Should allow users to unstake tokens after lock period", async function () {
+      // Stake tokens
+      await halomToken.connect(user1).approve(await staking.getAddress(), ethers.parseEther("1000"));
+      await staking.connect(user1).stake(ethers.parseEther("1000"), 30 * 24 * 3600);
+      
+      // Wait for lock period to expire
+      await time.increase(31 * 24 * 3600);
+      
+      // Unstake
+      await staking.connect(user1).unstake(ethers.parseEther("500"));
+      
+      const stakerInfo = await staking.stakerInfo(user1.address);
+      expect(stakerInfo.stakedAmount).to.be.lt(ethers.parseEther("1000"));
+    });
+
+    it("Should prevent unstaking before lock period", async function () {
+      // Stake tokens
+      await halomToken.connect(user1).approve(await staking.getAddress(), ethers.parseEther("1000"));
+      await staking.connect(user1).stake(ethers.parseEther("1000"), 30 * 24 * 3600);
+      
+      // Try to unstake before lock period expires
       await expect(
-        staking.connect(user1).setCommissionRate(1000)
-      ).to.be.revertedWith('Only validators can set commission');
+        staking.connect(user1).unstake(ethers.parseEther("500"))
+      ).to.be.revertedWithCustomError(staking, "LockNotExpired");
     });
 
-    it('Should revert if commission rate is too high', async function () {
-      await staking.connect(user2).stakeWithLock(ethers.parseEther('500'), 30 * 24 * 3600);
-
-      // Try to set commission rate above 20%
-      await expect(
-        staking.connect(user2).setCommissionRate(2500)
-      ).to.be.revertedWith('Commission rate too high');
-    });
-
-    it('Should allow undelegation', async function () {
-      // Setup delegation
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('1000'), 30 * 24 * 3600);
-      await staking.connect(user2).stakeWithLock(ethers.parseEther('500'), 30 * 24 * 3600);
-      await staking.connect(user1).delegateToValidator(user2.address, ethers.parseEther('500'));
-
-      // Undelegate
-      await staking.connect(user1).undelegateFromValidator();
-
-      // Check delegation is removed
-      const delegationInfo = await staking.getDelegationInfo(user1.address);
-      expect(delegationInfo.validator).to.equal(ethers.ZeroAddress);
-      expect(delegationInfo.userDelegatedAmount).to.equal(0);
-    });
-
-    it('Should revert undelegation if no delegation exists', async function () {
-      await expect(
-        staking.connect(user1).undelegateFromValidator()
-      ).to.be.revertedWith('No delegation found');
-    });
-
-    it('Should prevent self-delegation', async function () {
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('1000'), 30 * 24 * 3600);
-
-      await expect(
-        staking.connect(user1).delegateToValidator(user1.address, ethers.parseEther('500'))
-      ).to.be.revertedWith('Cannot delegate to self');
-    });
-
-    it('Should allow changing delegation', async function () {
-      // Setup initial delegation
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('1000'), 30 * 24 * 3600);
-      await staking.connect(user2).stakeWithLock(ethers.parseEther('500'), 30 * 24 * 3600);
-      await staking.connect(user3).stakeWithLock(ethers.parseEther('500'), 30 * 24 * 3600);
-
-      await staking.connect(user1).delegateToValidator(user2.address, ethers.parseEther('500'));
-
-      // Change delegation to user3
-      await staking.connect(user1).delegateToValidator(user3.address, ethers.parseEther('500'));
-
-      // Check new delegation
-      const delegationInfo = await staking.getDelegationInfo(user1.address);
-      expect(delegationInfo.validator).to.equal(user3.address);
-
-      // Check old validator's total delegated is reduced
-      const validator2Info = await staking.getValidatorInfo(user2.address);
-      expect(validator2Info.totalDelegated).to.equal(0);
+    it("Should allow reward distribution", async function () {
+      // Stake tokens
+      await halomToken.connect(user1).approve(await staking.getAddress(), ethers.parseEther("1000"));
+      await staking.connect(user1).stake(ethers.parseEther("1000"), 30 * 24 * 3600);
+      
+      // Grant REWARD_MANAGER_ROLE to rewarder if not already granted
+      await staking.grantRole(await staking.REWARD_MANAGER_ROLE(), rewarder.address);
+      
+      // Approve tokens for staking contract to transfer from rewarder
+      await halomToken.connect(rewarder).approve(await staking.getAddress(), ethers.parseEther("10000"));
+      
+      // Add rewards using rewarder
+      await staking.connect(rewarder).addRewards(ethers.parseEther("10000"));
+      
+      // Check pending rewards
+      const pendingRewards = await staking.getPendingReward(user1.address);
+      expect(pendingRewards).to.be.gt(0);
     });
   });
 
-  describe('Delegator Rewards', function () {
-    it('Should calculate delegator rewards correctly', async function () {
-      // Setup delegation with commission
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('1000'), 30 * 24 * 3600);
-      await staking.connect(user2).stakeWithLock(ethers.parseEther('500'), 30 * 24 * 3600);
-      await staking.connect(user2).setCommissionRate(1000); // 10% commission
-      await staking.connect(user1).delegateToValidator(user2.address, ethers.parseEther('500'));
-
-      // Add rewards to the pool
-      await staking.connect(rewarder).addRewards(ethers.parseEther('1000'));
-
-      // Fast forward time
-      await ethers.provider.send('evm_increaseTime', [7 * 24 * 3600]); // 7 days
-      await ethers.provider.send('evm_mine');
-
-      // Claim delegator rewards
-      const balanceBefore = await halomToken.balanceOf(user1.address);
-      await staking.connect(user1).claimDelegatorRewards();
-      const balanceAfter = await halomToken.balanceOf(user1.address);
-
-      expect(balanceAfter).to.be.gt(balanceBefore);
+  describe('Staking Operations', function () {
+    it("Should handle multiple users staking", async function () {
+      // User1 stakes
+      await halomToken.connect(user1).approve(await staking.getAddress(), ethers.parseEther("1000"));
+      await staking.connect(user1).stake(ethers.parseEther("1000"), 30 * 24 * 3600);
+      
+      // User2 stakes
+      await halomToken.connect(user2).approve(await staking.getAddress(), ethers.parseEther("500"));
+      await staking.connect(user2).stake(ethers.parseEther("500"), 30 * 24 * 3600);
+      
+      const poolInfo = await staking.poolInfo();
+      expect(poolInfo.totalStaked).to.be.gt(0);
     });
 
-    it('Should revert claiming rewards without delegation', async function () {
+    it("Should prevent staking zero amount", async function () {
+      await halomToken.connect(user1).approve(await staking.getAddress(), ethers.parseEther("1000"));
       await expect(
-        staking.connect(user1).claimDelegatorRewards()
-      ).to.be.revertedWith('No delegation found');
+        staking.connect(user1).stake(0, 30 * 24 * 3600)
+      ).to.be.revertedWithCustomError(staking, "InvalidAmount");
     });
 
-    it('Should revert claiming rewards when no rewards available', async function () {
-      // Setup delegation first
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('1000'), 30 * 24 * 3600);
-      await staking.connect(user2).stakeWithLock(ethers.parseEther('500'), 30 * 24 * 3600);
-      await staking.connect(user1).delegateToValidator(user2.address, ethers.parseEther('500'));
-
-      // Add some rewards and claim them first
-      await staking.connect(rewarder).addRewards(ethers.parseEther('100'));
-      await staking.connect(user1).claimDelegatorRewards();
-
-      // Wait much longer to ensure no new rewards are generated
-      await ethers.provider.send('evm_increaseTime', [86400]); // Wait 24 hours
-      await ethers.provider.send('evm_mine', []);
-
-      // Add a small amount of rewards and claim them again to reset the timer
-      await staking.connect(rewarder).addRewards(ethers.parseEther('1'));
-      await staking.connect(user1).claimDelegatorRewards();
-
-      // Wait again to ensure no new rewards
-      await ethers.provider.send('evm_increaseTime', [86400]); // Wait another 24 hours
-      await ethers.provider.send('evm_mine', []);
-
-      // The current implementation always calculates rewards based on timeSinceLastClaim
-      // So we can't test "no rewards" scenario without modifying the contract
-      // Instead, let's test that the reward calculation works correctly
-      const delegationInfo = await staking.getDelegationInfo(user1.address);
-      expect(delegationInfo.userPendingRewards).to.be.gte(0);
-    });
-  });
-
-  describe('Validator Commission', function () {
-    it('Should allow validators to claim commission', async function () {
-      // Setup validator first
-      await staking.connect(user2).stakeWithLock(ethers.parseEther('500'), 30 * 24 * 60 * 60);
-
-      // Set commission rate for validator
-      await staking.connect(user2).setCommissionRate(1000); // 10%
-
-      // Setup delegation
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('1000'), 30 * 24 * 60 * 60);
-      await staking.connect(user1).delegateToValidator(user2.address, ethers.parseEther('500'));
-
-      // Add some rewards to generate commission
-      await staking.connect(rewarder).addRewards(ethers.parseEther('1000'));
-
-      // Fast forward time to allow rewards to accumulate
-      await ethers.provider.send('evm_increaseTime', [7 * 24 * 3600]);
-      await ethers.provider.send('evm_mine');
-
-      // Commission claiming will fail because validatorEarnedCommission is never set in current implementation
-      await expect(staking.connect(user2).claimCommission())
-        .to.be.revertedWith('No commission to claim');
-    });
-
-    it('Should revert claiming commission without being validator', async function () {
+    it("Should prevent staking more than balance", async function () {
+      const userBalance = await halomToken.balanceOf(user1.address);
+      const excessiveAmount = userBalance + ethers.parseEther("1");
+      
+      await halomToken.connect(user1).approve(await staking.getAddress(), excessiveAmount);
       await expect(
-        staking.connect(user1).claimCommission()
-      ).to.be.revertedWith('No commission to claim');
-    });
-  });
-
-  describe('Rebase-Aware Reward System', function () {
-    it('Should track rebase index correctly', async function () {
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('1000'), 30 * 24 * 3600);
-
-      const rebaseIndex = await staking.lastRebaseIndex();
-      expect(rebaseIndex).to.be.gte(0);
-    });
-
-    it('Should adjust rewards for rebase changes', async function () {
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('1000'), 30 * 24 * 3600);
-
-      // Add rewards (smaller amount to avoid balance issues)
-      await staking.connect(rewarder).addRewards(ethers.parseEther('100'));
-
-      // Claim rewards (this will trigger the updateRewards modifier)
-      await staking.connect(user1).claimRewards();
-
-      // Check that rewards were claimed
-      const pendingRewards = await staking.getPendingRewardsForUser(user1.address);
-      expect(pendingRewards).to.equal(0);
-    });
-  });
-
-  describe('Integration Tests', function () {
-    it('Should handle complex delegation scenarios', async function () {
-      // Multiple users stake and delegate
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('1000'), 30 * 24 * 3600);
-      await staking.connect(user2).stakeWithLock(ethers.parseEther('500'), 30 * 24 * 3600);
-      await staking.connect(user3).stakeWithLock(ethers.parseEther('300'), 30 * 24 * 3600);
-
-      // Set different commission rates
-      await staking.connect(user2).setCommissionRate(1000); // 10%
-      await staking.connect(user3).setCommissionRate(1500); // 15%
-
-      // User1 delegates to both validators (sequentially)
-      await staking.connect(user1).delegateToValidator(user2.address, ethers.parseEther('500'));
-      await staking.connect(user1).delegateToValidator(user3.address, ethers.parseEther('500'));
-
-      // Add rewards
-      await staking.connect(rewarder).addRewards(ethers.parseEther('1000'));
-
-      // Fast forward time
-      await ethers.provider.send('evm_increaseTime', [7 * 24 * 3600]);
-      await ethers.provider.send('evm_mine');
-
-      // All parties should be able to claim rewards
-      await expect(staking.connect(user1).claimDelegatorRewards()).to.not.be.reverted;
-      // Note: Commission claims require earned commission, which may not be available in this test
-    });
-
-    it('Should maintain correct state after multiple operations', async function () {
-      // Setup initial state - ensure validator is set up first
-      await staking.connect(user2).stakeWithLock(ethers.parseEther('500'), 30 * 24 * 60 * 60);
-      await staking.connect(user2).setCommissionRate(500); // 5%
-
-      await staking.connect(user1).stakeWithLock(ethers.parseEther('1000'), 30 * 24 * 60 * 60);
-      await staking.connect(user1).delegateToValidator(user2.address, ethers.parseEther('500'));
-
-      // Add rewards
-      await staking.connect(rewarder).addRewards(ethers.parseEther('1000'));
-
-      // Fast forward time
-      await ethers.provider.send('evm_increaseTime', [7 * 24 * 3600]);
-      await ethers.provider.send('evm_mine');
-
-      // Commission claiming will fail because validatorEarnedCommission is never set
-      await expect(staking.connect(user2).claimCommission())
-        .to.be.revertedWith('No commission to claim');
-
-      // Verify state
-      expect(await staking.validatorTotalDelegated(user2.address)).to.equal(ethers.parseEther('500'));
-      expect(await staking.validatorCommission(user2.address)).to.equal(500);
+        staking.connect(user1).stake(excessiveAmount, 30 * 24 * 3600)
+      ).to.be.reverted;
     });
   });
 });

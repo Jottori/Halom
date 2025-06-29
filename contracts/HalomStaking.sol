@@ -1,737 +1,329 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
-import "./interfaces/IHalomInterfaces.sol";
-
-// Custom errors for gas optimization (only those not already in other contracts)
-error ZeroAddress();
-error InvalidAmount();
-error AmountBelowMinimum();
-error AmountAboveMaximum();
-error InvalidLockPeriod();
-error StakeExceedsMaximum();
-error LockPeriodNotExpired();
-error EmergencyPaused();
-error RewardRateTooHigh();
-error SlashPercentageInvalid();
-error CommissionRateTooHigh();
-error NoRewardsToClaim();
-error NoCommissionToClaim();
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "./libraries/GovernanceMath.sol";
+import "./libraries/GovernanceErrors.sol";
 
 contract HalomStaking is AccessControl, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
+    using GovernanceMath for uint256;
 
-    bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
-    bytes32 public constant REWARDER_ROLE = keccak256("REWARDER_ROLE");
+    bytes32 public constant STAKING_ADMIN_ROLE = keccak256("STAKING_ADMIN_ROLE");
+    bytes32 public constant REWARD_MANAGER_ROLE = keccak256("REWARD_MANAGER_ROLE");
     bytes32 public constant SLASHER_ROLE = keccak256("SLASHER_ROLE");
-    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
-    IHalomToken public halomToken;
-    IHalomRoleManager public roleManager;
-    uint256 public rewardRate;
-
-    uint256 public totalStaked;
-    mapping(address => uint256) public stakedBalance;
-    mapping(address => uint256) public lastClaimTime;
-
-    // Fourth root based reward system
-    uint256 public totalFourthRootStake; // Sum of fourth roots of all stakes
-    mapping(address => uint256) public fourthRootStake; // Fourth root of user's stake
-    uint256 public rewardsPerFourthRoot; // Rewards per fourth root unit
-    mapping(address => uint256) public rewardDebt;
-
-    // Emergency recovery
-    uint256 public pendingRewards; // Rewards waiting for first staker
-
-    // Staking parameters
-    uint256 public minStakeAmount = 100e18; // 100 HLM minimum
-    uint256 public maxStakeAmount = 1000000e18; // 1M HLM maximum
-    uint256 public lockPeriod = 30 days; // 30 day lock period
-    mapping(address => uint256) public stakeTime;
-
-    // Slashing parameters
-    uint256 public slashPercentage = 5000; // 50% slash (in basis points)
-    uint256 public constant MAX_SLASH_PERCENTAGE = 10000; // 100%
-
-    // Lock period tracking per user
-    mapping(address => uint256) public userLockPeriod;
-    mapping(address => uint256) public lockUntil;
-    mapping(address => bool) public hasLockedStake;
-
-    // Lock boost parameters
-    uint256 public constant MIN_LOCK_PERIOD = 30 days;
-    uint256 public constant MAX_LOCK_PERIOD = 5 * 365 days; // 5 years
-    uint256 public constant BOOST_BASE = 1000; // 10% base boost
-    uint256 public constant BOOST_PER_MONTH = 10; // 0.1% per month
-
-    // Delegation system
-    mapping(address => address) public delegators; // delegator => validator
-    mapping(address => uint256) public delegatedAmount; // delegator => amount delegated
-    mapping(address => uint256) public validatorCommission; // validator => commission rate (basis points)
-    mapping(address => uint256) public validatorTotalDelegated; // validator => total delegated to them
-    mapping(address => uint256) public validatorEarnedCommission; // validator => earned commission
-    mapping(address => uint256) public delegatorLastClaimTime; // delegator => last commission claim time
+    struct StakerInfo {
+        uint256 stakedAmount;
+        uint256 rewardDebt;
+        uint256 lastClaimTime;
+        uint256 lockEndTime;
+        uint256 lockBoost;
+        bool isActive;
+    }
     
-    uint256 public constant MAX_COMMISSION_RATE = 2000; // 20% maximum commission
-    uint256 public constant COMMISSION_DENOMINATOR = 10000; // 100% in basis points
-
-    // Rebase-aware reward tracking
-    uint256 public lastRebaseIndex; // Last rebase index when rewards were calculated
-    mapping(address => uint256) public userLastRebaseIndex; // User's last rebase index
+    struct PoolInfo {
+        uint256 totalStaked;
+        uint256 rewardPerSecond;
+        uint256 lastRewardTime;
+        uint256 accRewardPerShare;
+        uint256 totalRewardDistributed;
+        bool isActive;
+    }
     
-    // Enhanced security features
-    bool public emergencyPaused;
-    uint256 public maxRewardRate = 1000; // 10% max reward rate (basis points)
-    uint256 public rewardCooldown = 1 hours; // Minimum time between reward claims
-    mapping(address => uint256) public lastRewardClaimTime;
-    uint256 public constant MAX_REWARD_PER_CLAIM = 10000e18; // 10K HLM max per claim
+    IERC20 public immutable stakingToken;
+    IERC20 public immutable rewardToken;
     
-    // Anti-manipulation
-    mapping(address => uint256) public stakeCount;
-    mapping(address => uint256) public lastStakeTime;
-    uint256 public constant STAKE_COOLDOWN = 300; // 5 minutes between stakes
-    uint256 public constant MAX_STAKES_PER_DAY = 10; // Max stakes per day per user
-
-    event Staked(address indexed user, uint256 amount, uint256 lockTime);
+    PoolInfo public poolInfo;
+    mapping(address => StakerInfo) public stakerInfo;
+    
+    uint256 public constant MIN_STAKE_AMOUNT = 1e16;
+    uint256 public constant MAX_LOCK_DURATION = 365 days;
+    uint256 public constant MIN_LOCK_DURATION = 1 days;
+    uint256 public constant MAX_LOCK_BOOST = 300; // 3x boost
+    uint256 public constant BOOST_PRECISION = 100;
+    
+    event Staked(address indexed user, uint256 amount, uint256 lockDuration);
     event Unstaked(address indexed user, uint256 amount);
-    event RewardAdded(address indexed rewarder, uint256 amount);
     event RewardClaimed(address indexed user, uint256 amount);
+    event RewardCompounded(address indexed user, uint256 amount);
     event Slashed(address indexed user, uint256 amount, string reason);
-    event EmergencyRecovery(address indexed token, address indexed to, uint256 amount);
-    event PendingRewardsClaimed(address indexed user, uint256 amount);
-    event StakingParametersUpdated(uint256 minStake, uint256 maxStake, uint256 lockPeriod);
-    event SlashPercentageUpdated(uint256 oldPercentage, uint256 newPercentage);
-    event StakeWithLock(address indexed user, uint256 amount, uint256 lockPeriod, uint256 lockUntil);
-    event LockPeriodSet(address indexed user, uint256 lockPeriod, uint256 lockUntil);
-    event EmergencyPausedEvent(address indexed caller);
-    event EmergencyResumed(address indexed caller);
-    event RewardRateLimited(address indexed user, uint256 requested, uint256 actual);
+    event PoolUpdated(uint256 rewardPerSecond, uint256 totalStaked);
+    event EmergencyPaused(address indexed pauser);
+    event EmergencyUnpaused(address indexed unpauser);
     
-    // Delegation events
-    event Delegated(address indexed delegator, address indexed validator, uint256 amount);
-    event Undelegated(address indexed delegator, address indexed validator, uint256 amount);
-    event CommissionRateSet(address indexed validator, uint256 commissionRate);
-    event CommissionClaimed(address indexed validator, uint256 amount);
-    event DelegatorRewardClaimed(address indexed delegator, uint256 amount);
-
+    error InvalidAmount();
+    error InvalidLockDuration();
+    error InsufficientStake();
+    error NoRewardsToClaim();
+    error LockNotExpired();
+    error PoolNotActive();
+    error InvalidPool();
+    error Unauthorized();
+    error ContractPaused();
+    
     constructor(
-        address _halomToken,
-        address _roleManager,
-        uint256 _rewardRate,
-        uint256 _lockPeriod,
-        uint256 _slashPercentage
+        address _stakingToken, 
+        address _roleManager, 
+        uint256 _rewardRate
     ) {
-        if (_halomToken == address(0)) revert ZeroAddress();
-        if (_roleManager == address(0)) revert ZeroAddress();
-        if (_rewardRate == 0) revert InvalidAmount();
-        if (_lockPeriod == 0) revert InvalidAmount();
-        if (_slashPercentage == 0 || _slashPercentage > MAX_SLASH_PERCENTAGE) revert SlashPercentageInvalid();
-
-        halomToken = IHalomToken(_halomToken);
-        roleManager = IHalomRoleManager(_roleManager);
-        rewardRate = _rewardRate;
-        lockPeriod = _lockPeriod;
-        slashPercentage = _slashPercentage;
+        if (_stakingToken == address(0) || _roleManager == address(0)) revert InvalidPool();
         
-        // Roles will be granted by deployment script, not in constructor
+        stakingToken = IERC20(_stakingToken);
+        rewardToken = IERC20(_stakingToken); // Same token for staking and rewards
+        
         _grantRole(DEFAULT_ADMIN_ROLE, _roleManager);
-        _grantRole(GOVERNOR_ROLE, _roleManager);
-        _grantRole(REWARDER_ROLE, _roleManager);
-        _grantRole(SLASHER_ROLE, _roleManager); // Governor can slash
-        _grantRole(PAUSER_ROLE, _roleManager);
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(STAKING_ADMIN_ROLE, _roleManager);
+        _grantRole(REWARD_MANAGER_ROLE, _roleManager);
+        _grantRole(SLASHER_ROLE, _roleManager);
         _grantRole(EMERGENCY_ROLE, _roleManager);
-    }
-
-    /**
-     * @dev Emergency pause staking
-     */
-    function emergencyPause() external onlyRole(EMERGENCY_ROLE) {
-        emergencyPaused = true;
-        _pause();
-        emit EmergencyPausedEvent(msg.sender);
-    }
-    
-    /**
-     * @dev Resume staking
-     */
-    function emergencyResume() external onlyRole(GOVERNOR_ROLE) {
-        emergencyPaused = false;
-        _unpause();
-        emit EmergencyResumed(msg.sender);
-    }
-    
-    /**
-     * @dev Set maximum reward rate
-     */
-    function setMaxRewardRate(uint256 newRate) external onlyRole(GOVERNOR_ROLE) {
-        if (newRate > 5000) revert RewardRateTooHigh(); // Max 50%
-        maxRewardRate = newRate;
-    }
-    
-    /**
-     * @dev Set reward cooldown
-     */
-    function setRewardCooldown(uint256 newCooldown) external onlyRole(GOVERNOR_ROLE) {
-        if (newCooldown > 24 hours) revert InvalidAmount(); // Max 24h
-        rewardCooldown = newCooldown;
-    }
-
-    /**
-     * @dev Calculate fourth root using Babylonian method
-     */
-    function fourthRoot(uint256 x) public pure returns (uint256) {
-        if (x == 0) return 0;
-        uint256 z = x;
-        uint256 y = (z + 3) / 4;
         
-        while (y < z) {
-            z = y;
-            y = (3 * z + x / (z * z * z)) / 4;
-        }
-        return z;
+        poolInfo = PoolInfo({
+            totalStaked: 0,
+            rewardPerSecond: _rewardRate,
+            lastRewardTime: block.timestamp,
+            accRewardPerShare: 0,
+            totalRewardDistributed: 0,
+            isActive: true
+        });
     }
-
-    /**
-     * @dev Get governance power (fourth root of stake)
-     */
-    function getGovernancePower(address user) public view returns (uint256) {
-        return fourthRoot(stakedBalance[user]);
-    }
-
-    /**
-     * @dev Update rewards with rebase awareness
-     */
-    modifier updateRewards(address _account) {
-        _updateRewards(_account);
+    
+    modifier onlyStakingAdmin() {
+        if (!hasRole(STAKING_ADMIN_ROLE, msg.sender)) revert Unauthorized();
         _;
-        rewardDebt[_account] = (fourthRootStake[_account] * rewardsPerFourthRoot) / 1e18;
     }
-
-    /**
-     * @dev Internal function to update rewards with rebase awareness
-     */
-    function _updateRewards(address _account) internal {
-        uint256 pending = (fourthRootStake[_account] * rewardsPerFourthRoot) / 1e18 - rewardDebt[_account];
-        uint256 mask = pending > 0 ? 1 : 0;
-        uint256 reward = pending * mask;
-        if (reward > 0) {
-            // Apply reward rate limiting
-            if (reward > MAX_REWARD_PER_CLAIM) {
-                reward = MAX_REWARD_PER_CLAIM;
-                emit RewardRateLimited(_account, pending, reward);
+    
+    modifier onlyRewardManager() {
+        if (!hasRole(REWARD_MANAGER_ROLE, msg.sender)) revert Unauthorized();
+        _;
+    }
+    
+    modifier onlySlasher() {
+        if (!hasRole(SLASHER_ROLE, msg.sender)) revert Unauthorized();
+        _;
+    }
+    
+    modifier onlyEmergency() {
+        if (!hasRole(EMERGENCY_ROLE, msg.sender)) revert Unauthorized();
+        _;
+    }
+    
+    modifier whenNotPausedStaking() {
+        if (paused()) revert ContractPaused();
+        _;
+    }
+    
+    modifier whenPoolActive() {
+        if (!poolInfo.isActive) revert PoolNotActive();
+        _;
+    }
+    
+    function stake(uint256 amount, uint256 lockDuration) external whenNotPausedStaking whenPoolActive nonReentrant {
+        if (amount < MIN_STAKE_AMOUNT) revert InvalidAmount();
+        if (lockDuration < MIN_LOCK_DURATION || lockDuration > MAX_LOCK_DURATION) revert InvalidLockDuration();
+        
+        _updatePool();
+        
+        StakerInfo storage staker = stakerInfo[msg.sender];
+        uint256 pendingReward = _calculatePendingReward(msg.sender);
+        
+        if (pendingReward > 0) {
+            staker.rewardDebt = staker.rewardDebt + pendingReward;
+        }
+        
+        uint256 lockBoost = GovernanceMath.calculateLockBoost(lockDuration, MAX_LOCK_DURATION, MAX_LOCK_BOOST);
+        uint256 effectiveAmount = amount * lockBoost / BOOST_PRECISION;
+        
+        staker.stakedAmount = staker.stakedAmount + effectiveAmount;
+        staker.lastClaimTime = block.timestamp;
+        staker.lockEndTime = block.timestamp + lockDuration;
+        staker.lockBoost = lockBoost;
+        staker.isActive = true;
+        
+        poolInfo.totalStaked = poolInfo.totalStaked + effectiveAmount;
+        
+        stakingToken.safeTransferFrom(msg.sender, address(this), amount);
+        
+        emit Staked(msg.sender, amount, lockDuration);
+    }
+    
+    function unstake(uint256 amount) external whenNotPausedStaking nonReentrant {
+        if (amount == 0) revert InvalidAmount();
+        
+        StakerInfo storage staker = stakerInfo[msg.sender];
+        if (staker.stakedAmount < amount) revert InsufficientStake();
+        if (block.timestamp < staker.lockEndTime) revert LockNotExpired();
+        
+        _updatePool();
+        
+        uint256 pendingReward = _calculatePendingReward(msg.sender);
+        if (pendingReward > 0) {
+            staker.rewardDebt = staker.rewardDebt + pendingReward;
+        }
+        
+        uint256 actualAmount = amount * BOOST_PRECISION / staker.lockBoost;
+        staker.stakedAmount = staker.stakedAmount - amount;
+        
+        if (staker.stakedAmount == 0) {
+            staker.isActive = false;
+            staker.lockBoost = 0;
+        }
+        
+        poolInfo.totalStaked = poolInfo.totalStaked - amount;
+        
+        stakingToken.safeTransfer(msg.sender, actualAmount);
+        
+        emit Unstaked(msg.sender, actualAmount);
+    }
+    
+    function claimReward() external whenNotPausedStaking nonReentrant {
+        _updatePool();
+        
+        uint256 pendingReward = _calculatePendingReward(msg.sender);
+        if (pendingReward == 0) revert NoRewardsToClaim();
+        
+        StakerInfo storage staker = stakerInfo[msg.sender];
+        staker.rewardDebt = staker.rewardDebt + pendingReward;
+        staker.lastClaimTime = block.timestamp;
+        
+        poolInfo.totalRewardDistributed = poolInfo.totalRewardDistributed + pendingReward;
+        
+        rewardToken.safeTransfer(msg.sender, pendingReward);
+        
+        emit RewardClaimed(msg.sender, pendingReward);
+    }
+    
+    function compound() external whenNotPausedStaking whenPoolActive nonReentrant {
+        _updatePool();
+        
+        uint256 pendingReward = _calculatePendingReward(msg.sender);
+        if (pendingReward == 0) revert NoRewardsToClaim();
+        
+        StakerInfo storage staker = stakerInfo[msg.sender];
+        staker.rewardDebt = staker.rewardDebt + pendingReward;
+        staker.stakedAmount = staker.stakedAmount + pendingReward;
+        staker.lastClaimTime = block.timestamp;
+        
+        poolInfo.totalStaked = poolInfo.totalStaked + pendingReward;
+        poolInfo.totalRewardDistributed = poolInfo.totalRewardDistributed + pendingReward;
+        
+        emit RewardCompounded(msg.sender, pendingReward);
+    }
+    
+    function slash(address user, uint256 amount, string calldata reason) external onlySlasher {
+        if (amount == 0) revert InvalidAmount();
+        
+        StakerInfo storage staker = stakerInfo[user];
+        if (staker.stakedAmount < amount) {
+            amount = staker.stakedAmount;
+        }
+        
+        if (amount > 0) {
+            uint256 actualAmount = amount * BOOST_PRECISION / staker.lockBoost;
+            staker.stakedAmount = staker.stakedAmount - amount;
+            
+            if (staker.stakedAmount == 0) {
+                staker.isActive = false;
+                staker.lockBoost = 0;
             }
             
-            SafeERC20.safeTransfer(IERC20(address(halomToken)), _account, reward);
-            emit RewardClaimed(_account, reward);
+            poolInfo.totalStaked = poolInfo.totalStaked - amount;
+            
+            stakingToken.safeTransfer(address(this), actualAmount);
+            
+            emit Slashed(user, actualAmount, reason);
         }
-    }
-
-    /**
-     * @dev Get current rebase index from token
-     */
-    function _getRebaseIndex() internal view returns (uint256) {
-        // This would need to be implemented based on your token's rebase mechanism
-        // For now, we'll use a simple timestamp-based approach
-        return block.timestamp / 1 days; // Daily rebase index
-    }
-
-    /**
-     * @dev Adjust rewards for rebase changes
-     */
-    function _adjustRewardsForRebase(address, uint256 _pendingRewards) internal view returns (uint256) {
-        // Get current token balance in contract
-        uint256 contractBalance = halomToken.balanceOf(address(this));
-        
-        // If contract balance is less than total staked, rebase occurred
-        if (contractBalance < totalStaked) {
-            // Calculate rebase factor
-            uint256 rebaseFactor = (contractBalance * 1e18) / totalStaked;
-            return (_pendingRewards * rebaseFactor) / 1e18;
-        }
-        
-        return _pendingRewards;
     }
     
-    /**
-     * @dev Check for stake manipulation
-     */
-    function _checkStakeManipulation(address user) internal view {
-        // Check stake frequency
-        if (block.timestamp < lastStakeTime[user] + STAKE_COOLDOWN) {
-            revert InvalidAmount();
-        }
-        
-        // Check daily stake limit
-        uint256 currentDay = block.timestamp / 1 days;
-        uint256 lastStakeDay = lastStakeTime[user] / 1 days;
-        
-        if (currentDay == lastStakeDay && stakeCount[user] >= MAX_STAKES_PER_DAY) {
-            revert InvalidAmount();
-        }
+    function setRewardRate(uint256 rewardPerSecond) external onlyRewardManager {
+        _updatePool();
+        poolInfo.rewardPerSecond = rewardPerSecond;
+        emit PoolUpdated(rewardPerSecond, poolInfo.totalStaked);
     }
-
-    /**
-     * @dev Stake tokens with a specific lock period
-     */
-    function stakeWithLock(
-        uint256 _amount,
-        uint256 _lockPeriod
-    ) external nonReentrant whenNotPaused updateRewards(msg.sender) {
-        if (emergencyPaused) revert EmergencyPaused();
-        if (_amount < minStakeAmount) revert AmountBelowMinimum();
-        if (_amount > maxStakeAmount) revert AmountAboveMaximum();
-        if (_lockPeriod < MIN_LOCK_PERIOD || _lockPeriod > MAX_LOCK_PERIOD) revert InvalidLockPeriod();
-        if (stakedBalance[msg.sender] + _amount > maxStakeAmount) revert StakeExceedsMaximum();
-        
-        _checkStakeManipulation(msg.sender);
-        
-        SafeERC20.safeTransferFrom(IERC20(address(halomToken)), msg.sender, address(this), _amount);
-        
-        // Update stake tracking
-        uint256 oldFourthRoot = fourthRootStake[msg.sender];
-        stakedBalance[msg.sender] += _amount;
-        totalStaked += _amount;
-        
-        uint256 newFourthRoot = fourthRoot(stakedBalance[msg.sender]);
-        fourthRootStake[msg.sender] = newFourthRoot;
-        totalFourthRootStake = totalFourthRootStake - oldFourthRoot + newFourthRoot;
-        
-        // Set lock period
-        userLockPeriod[msg.sender] = _lockPeriod;
-        lockUntil[msg.sender] = block.timestamp + _lockPeriod;
-        hasLockedStake[msg.sender] = true;
-        stakeTime[msg.sender] = block.timestamp;
-        
-        // Update manipulation tracking
-        lastStakeTime[msg.sender] = block.timestamp;
-        stakeCount[msg.sender]++;
-        
-        emit StakeWithLock(msg.sender, _amount, _lockPeriod, lockUntil[msg.sender]);
+    
+    function setPoolActive(bool isActive) external onlyStakingAdmin {
+        poolInfo.isActive = isActive;
     }
-
-    /**
-     * @dev Stake tokens with fourth root based rewards
-     * Note: This function preserves existing lock periods and cannot override them
-     */
-    function stake(uint256 _amount) external nonReentrant whenNotPaused updateRewards(msg.sender) {
-        require(_amount >= minStakeAmount, "Amount below minimum");
-        require(_amount <= maxStakeAmount, "Amount above maximum");
-        require(stakedBalance[msg.sender] + _amount <= maxStakeAmount, "Total stake would exceed maximum");
-        
-        // If user has no existing stake, require them to use stakeWithLock
-        if (stakedBalance[msg.sender] == 0) {
-            revert("Use stakeWithLock for initial stake");
-        }
-        
-        // If user has locked stake, preserve the existing lock period
-        if (hasLockedStake[msg.sender]) {
-            require(block.timestamp < lockUntil[msg.sender], "Lock period expired");
-        }
-        
-        SafeERC20.safeTransferFrom(IERC20(address(halomToken)), msg.sender, address(this), _amount);
-        
-        uint256 oldFourthRoot = fourthRootStake[msg.sender];
-        stakedBalance[msg.sender] += _amount;
-        totalStaked += _amount;
-        
-        // Calculate fourth root with boost
-        uint256 newFourthRoot = fourthRootWithBoost(stakedBalance[msg.sender], msg.sender);
-        fourthRootStake[msg.sender] = newFourthRoot;
-        totalFourthRootStake = totalFourthRootStake - oldFourthRoot + newFourthRoot;
-        
-        // Preserve existing lock period and stake time
-        if (!hasLockedStake[msg.sender]) {
-            stakeTime[msg.sender] = block.timestamp;
-        }
-        
-        emit Staked(msg.sender, _amount, block.timestamp);
-    }
-
-    /**
-     * @dev Unstake tokens (with lock period)
-     */
-    function unstake(uint256 _amount) external nonReentrant whenNotPaused updateRewards(msg.sender) {
-        require(_amount > 0, "Cannot unstake 0");
-        require(stakedBalance[msg.sender] >= _amount, "Insufficient staked balance");
-        
-        // Check lock period if user has locked stake
-        if (hasLockedStake[msg.sender]) {
-            if (block.timestamp < lockUntil[msg.sender]) revert LockPeriodNotExpired();
-        } else {
-            if (block.timestamp < stakeTime[msg.sender] + lockPeriod) revert LockPeriodNotExpired();
-        }
-        
-        uint256 oldFourthRoot = fourthRootStake[msg.sender];
-        stakedBalance[msg.sender] -= _amount;
-        totalStaked -= _amount;
-        
-        uint256 newFourthRoot = fourthRoot(stakedBalance[msg.sender]);
-        fourthRootStake[msg.sender] = newFourthRoot;
-        totalFourthRootStake = totalFourthRootStake - oldFourthRoot + newFourthRoot;
-        
-        // Reset lock period if all tokens are unstaked
-        if (stakedBalance[msg.sender] == 0) {
-            hasLockedStake[msg.sender] = false;
-            userLockPeriod[msg.sender] = 0;
-            lockUntil[msg.sender] = 0;
-        }
-        
-        SafeERC20.safeTransfer(IERC20(address(halomToken)), msg.sender, _amount);
-        
-        emit Unstaked(msg.sender, _amount);
-    }
-
-    /**
-     * @dev Add rewards to the pool (only rewarder)
-     */
-    function addRewards(uint256 _amount) external onlyRole(REWARDER_ROLE) {
-        require(_amount > 0, "Cannot add 0 rewards");
-        
-        if (totalFourthRootStake > 0) {
-            rewardsPerFourthRoot += (_amount * 1e18) / totalFourthRootStake;
-        } else {
-            pendingRewards += _amount;
-        }
-        
-        emit RewardAdded(msg.sender, _amount);
-    }
-
-    /**
-     * @dev Claim pending rewards for first staker
-     */
-    function claimPendingRewards() external nonReentrant {
-        require(pendingRewards > 0, "No pending rewards");
-        require(totalFourthRootStake > 0, "No stakers yet");
-        
-        uint256 amount = pendingRewards;
-        pendingRewards = 0;
-        
-        rewardsPerFourthRoot += (amount * 1e18) / totalFourthRootStake;
-        
-        emit PendingRewardsClaimed(msg.sender, amount);
-    }
-
-    /**
-     * @dev Claim rewards for a user
-     */
-    function claimRewards() external nonReentrant whenNotPaused updateRewards(msg.sender) {
-        // The updateRewards modifier handles the logic
-    }
-
-    /**
-     * @dev Slash user's stake (only slasher)
-     */
-    function slash(address _user, string memory _reason) external onlyRole(SLASHER_ROLE) {
-        require(_user != address(0), "Cannot slash zero address");
-        require(stakedBalance[_user] > 0, "User has no stake to slash");
-        
-        uint256 slashAmount = (stakedBalance[_user] * slashPercentage) / 10000;
-        uint256 remainingAmount = stakedBalance[_user] - slashAmount;
-        
-        // Update fourth root calculations
-        uint256 oldFourthRoot = fourthRootStake[_user];
-        stakedBalance[_user] = remainingAmount;
-        totalStaked -= slashAmount;
-        
-        uint256 newFourthRoot = fourthRoot(remainingAmount);
-        fourthRootStake[_user] = newFourthRoot;
-        totalFourthRootStake = totalFourthRootStake - oldFourthRoot + newFourthRoot;
-        
-        // Burn slashed tokens using the token's burnFrom function
-        IHalomToken(address(halomToken)).burnFrom(address(this), slashAmount);
-        
-        emit Slashed(_user, slashAmount, _reason);
-    }
-
-    /**
-     * @dev Update staking parameters (only governor)
-     */
-    function updateStakingParameters(
-        uint256 _minStakeAmount,
-        uint256 _maxStakeAmount,
-        uint256 _lockPeriod
-    ) external onlyRole(GOVERNOR_ROLE) {
-        require(_minStakeAmount <= _maxStakeAmount, "Min stake cannot exceed max stake");
-        require(_lockPeriod <= 365 days, "Lock period too long");
-        
-        minStakeAmount = _minStakeAmount;
-        maxStakeAmount = _maxStakeAmount;
-        lockPeriod = _lockPeriod;
-        
-        emit StakingParametersUpdated(_minStakeAmount, _maxStakeAmount, _lockPeriod);
-    }
-
-    /**
-     * @dev Update slash percentage (only governor)
-     */
-    function updateSlashPercentage(uint256 _newPercentage) external onlyRole(GOVERNOR_ROLE) {
-        require(_newPercentage <= MAX_SLASH_PERCENTAGE, "Slash percentage too high");
-        
-        uint256 oldPercentage = slashPercentage;
-        slashPercentage = _newPercentage;
-        
-        emit SlashPercentageUpdated(oldPercentage, _newPercentage);
-    }
-
-    /**
-     * @dev Emergency recovery function to withdraw tokens sent by mistake
-     * @param _token Token address to recover
-     * @param _to Address to send tokens to
-     * @param _amount Amount to recover
-     */
-    function emergencyRecovery(
-        address _token,
-        address _to,
-        uint256 _amount
-    ) external onlyRole(GOVERNOR_ROLE) {
-        require(_to != address(0), "Cannot recover to zero address");
-        require(_amount > 0, "Cannot recover 0 amount");
-        
-        // Prevent recovery of staked tokens
-        require(_token != address(halomToken), "Cannot recover staked tokens");
-        
-        IERC20(_token).safeTransfer(_to, _amount);
-        emit EmergencyRecovery(_token, _to, _amount);
-    }
-
-    /**
-     * @dev Pause staking (only pauser)
-     */
-    function pause() external onlyRole(PAUSER_ROLE) {
+    
+    function emergencyPause() external onlyEmergency {
         _pause();
+        emit EmergencyPaused(msg.sender);
     }
-
-    /**
-     * @dev Unpause staking (only governor)
-     */
-    function unpause() external onlyRole(GOVERNOR_ROLE) {
+    
+    function emergencyUnpause() external onlyEmergency {
         _unpause();
+        emit EmergencyUnpaused(msg.sender);
     }
-
-    /**
-     * @dev Get pending rewards for first staker
-     */
-    function getPendingRewards() external view returns (uint256) {
-        return pendingRewards;
-    }
-
-    /**
-     * @dev Get user's pending rewards
-     */
-    function getPendingRewardsForUser(address _user) public view returns (uint256) {
-        return (fourthRootStake[_user] * rewardsPerFourthRoot) / 1e18 - rewardDebt[_user];
-    }
-
-    /**
-     * @dev Get staking info for a user
-     */
-    function getStakingInfo(address _user) external view returns (
-        uint256 _stakedBalance,
-        uint256 _fourthRootStake,
-        uint256 _governancePower,
-        uint256 _stakeTime,
-        uint256 _pendingRewards
-    ) {
-        return (
-            stakedBalance[_user],
-            fourthRootStake[_user],
-            getGovernancePower(_user),
-            stakeTime[_user],
-            getPendingRewardsForUser(_user)
-        );
-    }
-
-    // Branchless min/max utility
-    function min(uint256 a, uint256 b) internal pure returns (uint256) {
-        // Branchless min: b ^ ((a ^ b) & ((a - b) >> 255))
-        unchecked {
-            return b ^ ((a ^ b) & ((a - b) >> 255));
-        }
-    }
-    function max(uint256 a, uint256 b) internal pure returns (uint256) {
-        // Branchless max: a ^ ((a ^ b) & ((a - b) >> 255))
-        unchecked {
-            return a ^ ((a ^ b) & ((a - b) >> 255));
-        }
-    }
-
-    /**
-     * @dev Calculate boost multiplier based on lock period (branchless)
-     */
-    function calculateBoostMultiplier(uint256 _lockPeriod) public pure returns (uint256) {
-        // Clamp lock period to [MIN_LOCK_PERIOD, MAX_LOCK_PERIOD] branchless
-        uint256 clamped = max(MIN_LOCK_PERIOD, min(_lockPeriod, MAX_LOCK_PERIOD));
-        uint256 months = clamped / 30 days;
-        uint256 boost = BOOST_BASE + (months * BOOST_PER_MONTH);
-        return boost; // Returns basis points (e.g., 1000 = 10%, 5000 = 50%)
-    }
-
-    /**
-     * @dev Get user's boost multiplier (branchless)
-     */
-    function getUserBoostMultiplier(address _user) public view returns (uint256) {
-        // Branchless: if hasLockedStake[_user] then calculateBoostMultiplier, else BOOST_BASE
-        uint256 locked = hasLockedStake[_user] ? 1 : 0;
-        uint256 boost = calculateBoostMultiplier(userLockPeriod[_user]);
-        return (locked * boost) + ((1 - locked) * BOOST_BASE);
-    }
-
-    /**
-     * @dev Calculate fourth root with boost applied (branchless)
-     */
-    function fourthRootWithBoost(uint256 _amount, address _user) public view returns (uint256) {
-        uint256 boostMultiplier = getUserBoostMultiplier(_user);
-        uint256 boostedAmount = (_amount * boostMultiplier) / 1000; // Apply boost
-        return fourthRoot(boostedAmount);
-    }
-
-    /**
-     * @dev Delegate tokens to a validator
-     */
-    function delegateToValidator(address _validator, uint256 _amount) external nonReentrant whenNotPaused {
-        require(_validator != address(0), "Cannot delegate to zero address");
-        require(_validator != msg.sender, "Cannot delegate to self");
-        require(_amount > 0, "Cannot delegate 0");
-        require(stakedBalance[msg.sender] >= _amount, "Insufficient staked balance");
+    
+    function _updatePool() internal {
+        PoolInfo storage pool = poolInfo;
+        if (block.timestamp <= pool.lastRewardTime) return;
         
-        // Remove previous delegation if exists
-        if (delegators[msg.sender] != address(0)) {
-            _undelegate(msg.sender, delegators[msg.sender], delegatedAmount[msg.sender]);
+        if (pool.totalStaked > 0 && pool.rewardPerSecond > 0) {
+            uint256 timeElapsed = block.timestamp - pool.lastRewardTime;
+            uint256 reward = timeElapsed * pool.rewardPerSecond;
+            pool.accRewardPerShare = pool.accRewardPerShare + (reward * 1e18 / pool.totalStaked);
         }
         
-        // Set new delegation
-        delegators[msg.sender] = _validator;
-        delegatedAmount[msg.sender] = _amount;
-        validatorTotalDelegated[_validator] += _amount;
-        
-        emit Delegated(msg.sender, _validator, _amount);
+        pool.lastRewardTime = block.timestamp;
     }
-
-    /**
-     * @dev Undelegate tokens from validator
-     */
-    function undelegateFromValidator() external nonReentrant whenNotPaused {
-        address validator = delegators[msg.sender];
-        require(validator != address(0), "No delegation found");
+    
+    function _calculatePendingReward(address user) internal view returns (uint256) {
+        StakerInfo memory staker = stakerInfo[user];
+        if (staker.stakedAmount == 0) return 0;
         
-        uint256 amount = delegatedAmount[msg.sender];
-        _undelegate(msg.sender, validator, amount);
+        PoolInfo memory pool = poolInfo;
+        uint256 accRewardPerShare = pool.accRewardPerShare;
         
-        emit Undelegated(msg.sender, validator, amount);
+        if (block.timestamp > pool.lastRewardTime && pool.totalStaked > 0 && pool.rewardPerSecond > 0) {
+            uint256 timeElapsed = block.timestamp - pool.lastRewardTime;
+            uint256 reward = timeElapsed * pool.rewardPerSecond;
+            accRewardPerShare = accRewardPerShare + (reward * 1e18 / pool.totalStaked);
+        }
+        
+        return (staker.stakedAmount * accRewardPerShare / 1e18) - staker.rewardDebt;
     }
-
-    /**
-     * @dev Internal function to handle undelegation
-     */
-    function _undelegate(address _delegator, address _validator, uint256 _amount) internal {
-        delegators[_delegator] = address(0);
-        delegatedAmount[_delegator] = 0;
-        validatorTotalDelegated[_validator] -= _amount;
+    
+    function getPendingReward(address user) external view returns (uint256) {
+        return _calculatePendingReward(user);
     }
-
-    /**
-     * @dev Set commission rate for validator (only governor or validator)
-     */
-    function setCommissionRate(uint256 _commissionRate) external {
-        require(_commissionRate <= MAX_COMMISSION_RATE, "Commission rate too high");
-        require(stakedBalance[msg.sender] > 0, "Only validators can set commission");
-        
-        validatorCommission[msg.sender] = _commissionRate;
-        emit CommissionRateSet(msg.sender, _commissionRate);
+    
+    function getStakerInfo(address user) external view returns (StakerInfo memory) {
+        return stakerInfo[user];
     }
-
-    /**
-     * @dev Claim earned commission (only validators)
-     */
-    function claimCommission() external nonReentrant {
-        uint256 earnedCommission = validatorEarnedCommission[msg.sender];
-        require(earnedCommission > 0, "No commission to claim");
-        
-        validatorEarnedCommission[msg.sender] = 0;
-        SafeERC20.safeTransfer(IERC20(address(halomToken)), msg.sender, earnedCommission);
-        
-        emit CommissionClaimed(msg.sender, earnedCommission);
+    
+    function getPoolInfo() external view returns (PoolInfo memory) {
+        return poolInfo;
     }
-
-    /**
-     * @dev Claim delegator rewards
-     */
-    function claimDelegatorRewards() external nonReentrant {
-        address validator = delegators[msg.sender];
-        require(validator != address(0), "No delegation found");
-        
-        uint256 pendingDelegatorRewards = _calculateDelegatorRewards(msg.sender);
-        require(pendingDelegatorRewards > 0, "No rewards to claim");
-        
-        delegatorLastClaimTime[msg.sender] = block.timestamp;
-        SafeERC20.safeTransfer(IERC20(address(halomToken)), msg.sender, pendingDelegatorRewards);
-        
-        emit DelegatorRewardClaimed(msg.sender, pendingDelegatorRewards);
+    
+    function supportsInterface(bytes4 interfaceId) public view virtual override(AccessControl) returns (bool) {
+        return super.supportsInterface(interfaceId);
     }
-
-    /**
-     * @dev Calculate delegator rewards
-     */
-    function _calculateDelegatorRewards(address _delegator) internal view returns (uint256) {
-        address validator = delegators[_delegator];
-        if (validator == address(0)) return 0;
+    
+    function addRewards(uint256 amount) external onlyRewardManager {
+        if (amount == 0) revert InvalidAmount();
         
-        uint256 userDelegatedAmount = delegatedAmount[_delegator];
-        uint256 userValidatorCommission = validatorCommission[validator];
+        rewardToken.safeTransferFrom(msg.sender, address(this), amount);
+        poolInfo.totalRewardDistributed = poolInfo.totalRewardDistributed + amount;
         
-        // Calculate rewards based on validator's performance and commission
-        // This is a simplified calculation - in practice, you'd track validator performance
-        uint256 timeSinceLastClaim = block.timestamp - delegatorLastClaimTime[_delegator];
-        uint256 localRewardRate = 1000; // 10% annual rate (simplified)
-        
-        uint256 rewards = (userDelegatedAmount * localRewardRate * timeSinceLastClaim) / (365 days * 10000);
-        
-        // Apply commission
-        uint256 commission = (rewards * userValidatorCommission) / COMMISSION_DENOMINATOR;
-        return rewards - commission;
+        emit PoolUpdated(poolInfo.rewardPerSecond, poolInfo.totalStaked);
     }
-
-    /**
-     * @dev Get delegation info for a user
-     */
-    function getDelegationInfo(address _user) external view returns (
-        address validator,
-        uint256 userDelegatedAmount,
-        uint256 userPendingRewards,
-        uint256 commissionRate
-    ) {
-        validator = delegators[_user];
-        userDelegatedAmount = delegatedAmount[_user];
-        userPendingRewards = _calculateDelegatorRewards(_user);
-        commissionRate = validator != address(0) ? validatorCommission[validator] : 0;
+    
+    function stakedBalance(address user) external view returns (uint256) {
+        return stakerInfo[user].stakedAmount;
     }
-
-    /**
-     * @dev Get validator info
-     */
-    function getValidatorInfo(address _validator) external view returns (
-        uint256 totalDelegated,
-        uint256 commissionRate,
-        uint256 earnedCommission
-    ) {
-        totalDelegated = validatorTotalDelegated[_validator];
-        commissionRate = validatorCommission[_validator];
-        earnedCommission = validatorEarnedCommission[_validator];
+    
+    function oracle() external pure returns (address) {
+        return address(0);
     }
-
-    function calculateRewards(address _user) public view returns (uint256) {
-        if (stakedBalance[_user] == 0) return 0;
-        
-        uint256 localRewardRate = 1000; // 10% annual rate (simplified)
-        uint256 timeStaked = block.timestamp - stakeTime[_user];
-        uint256 reward = (stakedBalance[_user] * localRewardRate * timeStaked) / (365 days * 10000);
-        
-        return reward;
+    
+    function treasury() external pure returns (address) {
+        return address(0);
     }
 } 
