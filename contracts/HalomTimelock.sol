@@ -92,7 +92,7 @@ contract HalomTimelock is TimelockController, ReentrancyGuard {
         return operationHash;
     }
     
-    function _isCriticalOperation(address target, bytes calldata data) internal pure returns (bool) {
+    function _isCriticalOperation(address /*target*/, bytes calldata data) internal pure returns (bool) {
         if (data.length < 4) return false;
         
         bytes4 selector = bytes4(data[:4]);
