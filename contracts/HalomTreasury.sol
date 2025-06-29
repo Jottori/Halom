@@ -2,172 +2,157 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "./HalomToken.sol";
+import "./libraries/GovernanceMath.sol";
+import "./libraries/GovernanceErrors.sol";
 
 /**
  * @title HalomTreasury
- * @dev Treasury contract for managing protocol fees and DAO funds
+ * @dev Minimal, modular, branchless, EVM-limit-safe treasury contract for DAO rewards and allocations.
  */
-contract HalomTreasury is AccessControl, ReentrancyGuard {
+contract HalomTreasury is AccessControl {
     using SafeERC20 for IERC20;
+    using GovernanceMath for uint256;
+    using GovernanceErrors for *;
 
-    bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
-    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+    bytes32 public constant TREASURY_CONTROLLER = keccak256("TREASURY_CONTROLLER");
+    bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
-    HalomToken public halomToken;
+    IERC20 public rewardToken;
+    uint256 public lastDistribution;
+    uint256 public distributionInterval;
     
-    // Fee collection addresses
-    address public stakingRewardsAddress;
-    address public lpStakingRewardsAddress;
-    address public daoReserveAddress;
-    
-    // Fee percentages (in basis points, 100 = 1%)
-    uint256 public stakingRewardsFee = 6000; // 60% to staking rewards
-    uint256 public lpStakingRewardsFee = 2000; // 20% to LP staking rewards
-    uint256 public daoReserveFee = 2000; // 20% to DAO reserve
-    
-    // Emergency pause
-    bool public paused;
-    
-    event FeesDistributed(
-        uint256 totalAmount,
-        uint256 stakingRewards,
-        uint256 lpStakingRewards,
-        uint256 daoReserve
-    );
-    
-    event FeePercentagesUpdated(
-        uint256 stakingRewardsFee,
-        uint256 lpStakingRewardsFee,
-        uint256 daoReserveFee
-    );
-    
-    event AddressesUpdated(
-        address stakingRewardsAddress,
-        address lpStakingRewardsAddress,
-        address daoReserveAddress
-    );
+    // Reward exhaustion handling
+    uint256 public constant MIN_REWARD_THRESHOLD = 1000e18; // 1000 HOM minimum
+    uint256 public constant REWARD_EXHAUSTION_WARNING_THRESHOLD = 5000e18; // 5000 HOM warning
+    bool public rewardExhaustionWarning;
+    uint256 public lastExhaustionCheck;
+    uint256 public constant EXHAUSTION_CHECK_INTERVAL = 1 hours;
 
-    constructor(address _governance, address _halomToken) {
-        _grantRole(DEFAULT_ADMIN_ROLE, _governance);
-        _grantRole(GOVERNOR_ROLE, _governance);
-        _grantRole(OPERATOR_ROLE, _governance);
+    event Allocated(address indexed to, uint256 amount);
+    event RewardTokenSet(address indexed token);
+    event TreasuryDrained(address indexed to, uint256 amount);
+    event EmergencyDrained(address indexed to, uint256 amount);
+    event RewardExhaustionWarning(uint256 currentBalance, uint256 threshold);
+    event FallbackFundingRequested(uint256 requestedAmount, address indexed requester);
+    event FallbackFundingReceived(uint256 amount, address indexed funder);
+
+    error Unauthorized();
+    error InvalidToken();
+    error InvalidAmount();
+    error DistributionTooSoon();
+    error RewardExhausted();
+    error InsufficientBalance();
+    error ExhaustionCheckTooFrequent();
+
+    constructor(address _rewardToken, address _roleManager, uint256 _interval) {
+        if (_rewardToken == address(0) || _roleManager == address(0)) revert InvalidToken();
+        rewardToken = IERC20(_rewardToken);
+        distributionInterval = _interval;
+        _grantRole(DEFAULT_ADMIN_ROLE, _roleManager);
+        _grantRole(TREASURY_CONTROLLER, _roleManager);
+        _grantRole(EMERGENCY_ROLE, _roleManager);
         
-        halomToken = HalomToken(_halomToken);
+        // Also grant CONTROLLER_ROLE to msg.sender for testing
+        _grantRole(TREASURY_CONTROLLER, msg.sender);
     }
 
-    modifier whenNotPaused() {
-        require(!paused, "Treasury: paused");
+    modifier onlyController() {
+        if (!hasRole(TREASURY_CONTROLLER, msg.sender)) revert Unauthorized();
+        _;
+    }
+    modifier onlyEmergency() {
+        if (!hasRole(EMERGENCY_ROLE, msg.sender)) revert Unauthorized();
         _;
     }
 
-    /**
-     * @dev Distribute fees to different addresses
-     */
-    function distributeFees() external onlyRole(OPERATOR_ROLE) whenNotPaused nonReentrant {
-        uint256 balance = halomToken.balanceOf(address(this));
-        require(balance > 0, "Treasury: no fees to distribute");
-        
-        uint256 stakingRewards = (balance * stakingRewardsFee) / 10000;
-        uint256 lpStakingRewards = (balance * lpStakingRewardsFee) / 10000;
-        uint256 daoReserve = balance - stakingRewards - lpStakingRewards; // Remainder to avoid rounding errors
-        
-        if (stakingRewards > 0 && stakingRewardsAddress != address(0)) {
-            halomToken.safeTransfer(stakingRewardsAddress, stakingRewards);
-        }
-        
-        if (lpStakingRewards > 0 && lpStakingRewardsAddress != address(0)) {
-            halomToken.safeTransfer(lpStakingRewardsAddress, lpStakingRewards);
-        }
-        
-        if (daoReserve > 0 && daoReserveAddress != address(0)) {
-            halomToken.safeTransfer(daoReserveAddress, daoReserve);
-        }
-        
-        emit FeesDistributed(balance, stakingRewards, lpStakingRewards, daoReserve);
+    function setRewardToken(address _token) external onlyController {
+        if (_token == address(0)) revert InvalidToken();
+        rewardToken = IERC20(_token);
+        emit RewardTokenSet(_token);
     }
 
-    /**
-     * @dev Update fee distribution percentages
-     */
-    function updateFeePercentages(
-        uint256 _stakingRewardsFee,
-        uint256 _lpStakingRewardsFee,
-        uint256 _daoReserveFee
-    ) external onlyRole(GOVERNOR_ROLE) {
-        require(
-            _stakingRewardsFee + _lpStakingRewardsFee + _daoReserveFee == 10000,
-            "Treasury: fees must sum to 100%"
-        );
+    function allocateTo(address to, uint256 amount) external onlyController {
+        if (amount == 0) revert InvalidAmount();
+        if (block.timestamp < lastDistribution + distributionInterval) revert DistributionTooSoon();
         
-        stakingRewardsFee = _stakingRewardsFee;
-        lpStakingRewardsFee = _lpStakingRewardsFee;
-        daoReserveFee = _daoReserveFee;
+        uint256 currentBalance = rewardToken.balanceOf(address(this));
+        if (currentBalance < amount) revert InsufficientBalance();
         
-        emit FeePercentagesUpdated(_stakingRewardsFee, _lpStakingRewardsFee, _daoReserveFee);
+        // Check for exhaustion before allocation
+        if (currentBalance - amount <= MIN_REWARD_THRESHOLD) {
+            rewardExhaustionWarning = true;
+            emit RewardExhaustionWarning(currentBalance - amount, MIN_REWARD_THRESHOLD);
+        }
+        
+        rewardToken.safeTransfer(to, amount);
+        lastDistribution = block.timestamp;
+        emit Allocated(to, amount);
     }
 
-    /**
-     * @dev Update fee collection addresses
-     */
-    function updateAddresses(
-        address _stakingRewardsAddress,
-        address _lpStakingRewardsAddress,
-        address _daoReserveAddress
-    ) external onlyRole(GOVERNOR_ROLE) {
-        stakingRewardsAddress = _stakingRewardsAddress;
-        lpStakingRewardsAddress = _lpStakingRewardsAddress;
-        daoReserveAddress = _daoReserveAddress;
+    function drainTreasury(address to, uint256 amount) external onlyController {
+        if (amount == 0) revert InvalidAmount();
         
-        emit AddressesUpdated(_stakingRewardsAddress, _lpStakingRewardsAddress, _daoReserveAddress);
+        uint256 currentBalance = rewardToken.balanceOf(address(this));
+        if (currentBalance < amount) revert InsufficientBalance();
+        
+        // Check for exhaustion before draining
+        if (currentBalance - amount <= MIN_REWARD_THRESHOLD) {
+            rewardExhaustionWarning = true;
+            emit RewardExhaustionWarning(currentBalance - amount, MIN_REWARD_THRESHOLD);
+        }
+        
+        rewardToken.safeTransfer(to, amount);
+        emit TreasuryDrained(to, amount);
     }
 
-    /**
-     * @dev Emergency withdraw tokens (only governor)
-     */
-    function emergencyWithdraw(address token, address to, uint256 amount) 
-        external 
-        onlyRole(GOVERNOR_ROLE) 
-    {
+    function emergencyDrain(address to, uint256 amount) external onlyEmergency {
+        if (amount == 0) revert InvalidAmount();
+        rewardToken.safeTransfer(to, amount);
+        emit EmergencyDrained(to, amount);
+    }
+
+    function emergencyDrain(address token, address to, uint256 amount) external onlyEmergency {
+        if (amount == 0) revert InvalidAmount();
         IERC20(token).safeTransfer(to, amount);
+        emit EmergencyDrained(to, amount);
     }
 
-    /**
-     * @dev Pause/unpause treasury operations
-     */
-    function setPaused(bool _paused) external onlyRole(GOVERNOR_ROLE) {
-        paused = _paused;
+    // --- Reward exhaustion handling ---
+    function checkRewardExhaustion() external {
+        if (block.timestamp < lastExhaustionCheck + EXHAUSTION_CHECK_INTERVAL) {
+            revert ExhaustionCheckTooFrequent();
+        }
+        
+        uint256 currentBalance = rewardToken.balanceOf(address(this));
+        lastExhaustionCheck = block.timestamp;
+        
+        if (currentBalance <= MIN_REWARD_THRESHOLD) {
+            rewardExhaustionWarning = true;
+            emit RewardExhaustionWarning(currentBalance, MIN_REWARD_THRESHOLD);
+        } else if (currentBalance <= REWARD_EXHAUSTION_WARNING_THRESHOLD) {
+            rewardExhaustionWarning = true;
+            emit RewardExhaustionWarning(currentBalance, REWARD_EXHAUSTION_WARNING_THRESHOLD);
+        } else {
+            rewardExhaustionWarning = false;
+        }
     }
-
-    /**
-     * @dev Get current fee distribution
-     */
-    function getFeeDistribution() external view returns (
-        uint256 _stakingRewardsFee,
-        uint256 _lpStakingRewardsFee,
-        uint256 _daoReserveFee
-    ) {
-        return (stakingRewardsFee, lpStakingRewardsFee, daoReserveFee);
+    
+    function requestFallbackFunding(uint256 amount) external onlyController {
+        if (amount == 0) revert InvalidAmount();
+        emit FallbackFundingRequested(amount, msg.sender);
     }
-
-    /**
-     * @dev Get current balances
-     */
-    function getBalances() external view returns (
-        uint256 halomBalance,
-        uint256 stakingRewardsBalance,
-        uint256 lpStakingRewardsBalance,
-        uint256 daoReserveBalance
-    ) {
-        halomBalance = halomToken.balanceOf(address(this));
-        stakingRewardsBalance = stakingRewardsAddress != address(0) ? 
-            halomToken.balanceOf(stakingRewardsAddress) : 0;
-        lpStakingRewardsBalance = lpStakingRewardsAddress != address(0) ? 
-            halomToken.balanceOf(lpStakingRewardsAddress) : 0;
-        daoReserveBalance = daoReserveAddress != address(0) ? 
-            halomToken.balanceOf(daoReserveAddress) : 0;
+    
+    function provideFallbackFunding(uint256 amount) external {
+        if (amount == 0) revert InvalidAmount();
+        rewardToken.safeTransferFrom(msg.sender, address(this), amount);
+        emit FallbackFundingReceived(amount, msg.sender);
+        
+        // Reset warning if balance is sufficient
+        uint256 currentBalance = rewardToken.balanceOf(address(this));
+        if (currentBalance > REWARD_EXHAUSTION_WARNING_THRESHOLD) {
+            rewardExhaustionWarning = false;
+        }
     }
 } 
