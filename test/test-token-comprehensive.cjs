@@ -14,13 +14,20 @@ describe("HalomToken Comprehensive Tests", function () {
     const HalomTimelock = await ethers.getContractFactory("HalomTimelock");
     const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
     const HalomTreasury = await ethers.getContractFactory("HalomTreasury");
+    const HalomOracle = await ethers.getContractFactory("HalomOracle");
+    const HalomStaking = await ethers.getContractFactory("HalomStaking");
+    const HalomRoleManager = await ethers.getContractFactory("HalomRoleManager");
 
     // HalomToken expects (admin, rebaseCaller)
     halomToken = await HalomToken.deploy(owner.address, owner.address);
     await halomToken.waitForDeployment();
 
+    // HalomOracle expects (governance, updater)
+    oracle = await HalomOracle.deploy(owner.address, owner.address);
+    await oracle.waitForDeployment();
+
     // HalomTimelock expects (minDelay, proposers, executors, admin)
-    const minDelay = 3600;
+    const minDelay = 86400; // 24 hours (minimum required)
     const proposers = [owner.address];
     const executors = [owner.address];
     timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);
@@ -29,6 +36,14 @@ describe("HalomToken Comprehensive Tests", function () {
     // HalomTreasury expects (rewardToken, roleManager, interval)
     treasury = await HalomTreasury.deploy(await halomToken.getAddress(), owner.address, 3600);
     await treasury.waitForDeployment();
+
+    // HalomStaking expects (stakingToken, roleManager, rewardRate)
+    staking = await HalomStaking.deploy(await halomToken.getAddress(), owner.address, 2000);
+    await staking.waitForDeployment();
+
+    // HalomRoleManager expects no parameters
+    roleManager = await HalomRoleManager.deploy();
+    await roleManager.waitForDeployment();
 
     // HalomGovernor expects (token, timelock, votingDelay, votingPeriod, proposalThreshold, quorumPercent)
     governor = await HalomGovernor.deploy(

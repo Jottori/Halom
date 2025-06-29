@@ -35,7 +35,7 @@ describe("HalomTimelock Comprehensive Tests", function () {
     staking = await HalomStaking.deploy(await halomToken.getAddress(), await roleManager.getAddress(), 2000); // stakingToken, roleManager, rewardRate
     
     // Deploy timelock
-    const minDelay = 3600;
+    const minDelay = 86400; // 24 hours (minimum required)
     const proposers = [owner.address];
     const executors = [owner.address];
     timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);
@@ -351,7 +351,7 @@ describe("HalomTimelock Comprehensive Tests", function () {
   describe("MinDelay Management", function () {
     it("Should return correct minDelay", async function () {
       const minDelay = await timelock.getMinDelay();
-      expect(minDelay).to.equal(3600);
+      expect(minDelay).to.equal(86400);
     });
 
     it("Should allow admin to update minDelay", async function () {
@@ -613,7 +613,7 @@ describe("HalomTimelock Core Tests", function () {
     // Deploy token first with required constructor arguments
     halomToken = await HalomToken.deploy(owner.address, owner.address);
     
-    const minDelay = 3600;
+    const minDelay = 86400; // 24 hours (minimum required)
     const proposers = [owner.address];
     const executors = [owner.address];
     timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);

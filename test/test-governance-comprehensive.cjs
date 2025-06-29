@@ -24,7 +24,7 @@ describe("HalomGovernor Comprehensive Tests", function () {
     await halomToken.waitForDeployment();
 
     // HalomTimelock expects (minDelay, proposers, executors, admin)
-    const minDelay = 3600;
+    const minDelay = 86400; // 24 hours (minimum required)
     const proposers = [owner.address];
     const executors = [owner.address];
     timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);
@@ -482,7 +482,7 @@ describe("HalomGovernor Edge Cases & Security", function () {
     const HalomTreasury = await ethers.getContractFactory("HalomTreasury");
     const HalomRoleManager = await ethers.getContractFactory("HalomRoleManager");
     halomToken = await HalomToken.deploy(owner.address, owner.address);
-    const minDelay = 3600; // 1 hour minimum
+    const minDelay = 86400; // 24 hours (minimum required)
     const proposers = [owner.address];
     const executors = [owner.address];
     timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);
@@ -693,7 +693,7 @@ describe("HalomGovernor Critical Missing Tests", function () {
     await halomToken.waitForDeployment();
 
     // HalomTimelock expects (minDelay, proposers, executors, admin)
-    const minDelay = 3600;
+    const minDelay = 86400; // 24 hours (minimum required)
     const proposers = [owner.address];
     const executors = [owner.address];
     timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);

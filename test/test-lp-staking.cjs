@@ -97,6 +97,9 @@ describe('HalomLPStaking', function () {
     const pendingRewards = await lpStaking.getPendingRewardsForUser(user1.address);
     expect(pendingRewards).to.be.gt(0);
     
+    // Wait for lock period to expire
+    await time.increase(86400); // 24 hours (lock period)
+    
     // User unstakes
     await lpStaking.connect(user1).unstakeLP(ethers.parseEther("500"));
     
@@ -136,8 +139,8 @@ describe('HalomLPStaking', function () {
     await halomToken.connect(rewarder).approve(await lpStaking.getAddress(), rewardAmount);
     await lpStaking.connect(rewarder).addRewards(rewardAmount);
 
-    // Növeljük az időt, hogy reward járjon
-    await time.increase(3600); // 1 óra
+    // Increase time to generate rewards
+    await time.increase(3600); // 1 hour
 
     // Check pending rewards
     const pendingRewards = await lpStaking.getPendingRewardsForUser(user1.address);

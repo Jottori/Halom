@@ -71,7 +71,7 @@ describe('HalomStaking Delegation System', function () {
     await halomToken.connect(owner).setExcludedFromLimits(user3.address, true);
 
     // Deploy TimelockController
-    const minDelay = 3600; // 1 hour minimum
+    const minDelay = 86400; // 24 hours (minimum required)
     const proposers = [owner.address];
     const executors = [owner.address];
     const HalomTimelock = await ethers.getContractFactory('HalomTimelock');

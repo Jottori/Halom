@@ -37,11 +37,11 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
     await staking.waitForDeployment();
 
     // Deploy reward token
-    rewardToken = await MockERC20.deploy("Reward Token", "RWD");
+    rewardToken = await MockERC20.deploy("Reward Token", "RWD", ethers.parseEther("1000000"));
     await rewardToken.waitForDeployment();
 
     // Deploy Timelock
-    const minDelay = 3600;
+    const minDelay = 86400; // 24 hours (minimum required)
     const proposers = [owner.address];
     const executors = [owner.address];
     timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);
@@ -172,7 +172,7 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       
       // Update to different token
       const newRewardToken = await ethers.getContractFactory("MockERC20");
-      const newToken = await newRewardToken.deploy("New Reward", "NEW");
+      const newToken = await newRewardToken.deploy("New Reward", "NEW", ethers.parseEther("1000000"));
       await newToken.waitForDeployment();
       
       await treasury.connect(owner).setRewardToken(await newToken.getAddress());

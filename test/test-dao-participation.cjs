@@ -23,7 +23,7 @@ describe('DAO Participation and Voting Quota Tests', function () {
     await oracle.waitForDeployment();
 
     // Deploy Timelock
-    const minDelay = 3600;
+    const minDelay = 86400; // 24 hours (minimum required)
     const proposers = [owner.address];
     const executors = [owner.address];
     timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);

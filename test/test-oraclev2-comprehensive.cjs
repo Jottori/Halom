@@ -3,16 +3,27 @@ const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("HalomOracleV2 Comprehensive Tests", function () {
-  let oracle, owner, user1, user2, user3;
+  let oracle, halomToken, governor, updater, owner, user1, user2, user3;
 
   beforeEach(async function () {
     [owner, user1, user2, user3] = await ethers.getSigners();
+
+    // Deploy required contracts first
+    const HalomToken = await ethers.getContractFactory("HalomToken");
+    const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
+    const HalomTimelock = await ethers.getContractFactory("HalomTimelock");
+    
+    halomToken = await HalomToken.deploy(owner.address, owner.address);
+    const minDelay = 86400; // 24 hours (minimum required)
+    const timelock = await HalomTimelock.deploy(minDelay, [owner.address], [owner.address], owner.address);
+    governor = await HalomGovernor.deploy(await halomToken.getAddress(), await timelock.getAddress(), 1, 10, 0, 4);
+    updater = user1; // Use user1 as updater
 
     const HalomOracleV2 = await ethers.getContractFactory("HalomOracleV2");
     oracle = await HalomOracleV2.deploy(
       await halomToken.getAddress(),
       await governor.getAddress(),
-      await updater.getAddress(),
+      updater.address,
       1000000, // Smaller value to prevent overflow
       1000000  // Smaller value to prevent overflow
     );

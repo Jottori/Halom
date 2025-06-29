@@ -22,7 +22,7 @@ describe("HalomGovernor Critical Missing Features", function () {
     halomToken = await HalomToken.deploy(owner.address, owner.address);
     await halomToken.waitForDeployment();
 
-    const minDelay = 3600;
+    const minDelay = 86400; // 24 hours (minimum required)
     const proposers = [owner.address];
     const executors = [owner.address];
     timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);

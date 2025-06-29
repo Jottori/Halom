@@ -20,7 +20,7 @@ describe("HalomGovernor Enhanced Tests", function () {
     const HalomRoleManager = await ethers.getContractFactory("HalomRoleManager");
 
     oracle = await HalomOracle.deploy(owner.address, 1);
-    const minDelay = 3600; // 1 hour minimum
+    const minDelay = 86400; // 24 hours (minimum required)
     const proposers = [owner.address];
     const executors = [owner.address];
     timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);
