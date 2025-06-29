@@ -55,11 +55,13 @@ describe("HalomGovernor Complete Flow Tests", function () {
     );
     await governor.waitForDeployment();
 
-    // Setup roles
-    await halomToken.grantRole(halomToken.GOVERNOR_ROLE, await governor.getAddress());
-    await halomToken.grantRole(await halomToken.REBASER_ROLE(), await oracle.getAddress());
-    await halomToken.grantRole(halomToken.MINTER_ROLE, await staking.getAddress());
-    await halomToken.grantRole(halomToken.MINTER_ROLE, await treasury.getAddress());
+    // Setup roles properly
+    const DEFAULT_ADMIN_ROLE = await halomToken.DEFAULT_ADMIN_ROLE();
+    const MINTER_ROLE = await halomToken.MINTER_ROLE();
+    const REBASE_CALLER = await halomToken.REBASE_CALLER();
+    
+    await halomToken.grantRole(MINTER_ROLE, owner.address);
+    await halomToken.grantRole(REBASE_CALLER, owner.address);
 
     await staking.grantRole(await staking.DEFAULT_ADMIN_ROLE(), owner.address);
     await staking.grantRole(await staking.REWARD_MANAGER_ROLE(), await halomToken.getAddress());

@@ -87,7 +87,7 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
     // Mint reward tokens to treasury
     await rewardToken.mint(await treasury.getAddress(), ethers.parseEther("1000000"));
 
-    // Users stake tokens
+    // Users stake tokens - ensure they have enough balance first
     await halomToken.connect(user1).approve(await staking.getAddress(), ethers.parseEther("100000"));
     await halomToken.connect(user2).approve(await staking.getAddress(), ethers.parseEther("100000"));
     await halomToken.connect(user3).approve(await staking.getAddress(), ethers.parseEther("100000"));

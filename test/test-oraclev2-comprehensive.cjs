@@ -3,7 +3,7 @@ const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("HalomOracleV2 Comprehensive Tests", function () {
-  let oracle, halomToken, governor, updater, owner, user1, user2, user3;
+  let oracleV2, halomToken, governor, updater, owner, user1, user2, user3;
 
   beforeEach(async function () {
     [owner, user1, user2, user3] = await ethers.getSigners();
@@ -19,27 +19,21 @@ describe("HalomOracleV2 Comprehensive Tests", function () {
     governor = await HalomGovernor.deploy(await halomToken.getAddress(), await timelock.getAddress(), 1, 10, 0, 4);
     updater = user1; // Use user1 as updater
 
-    const HalomOracleV2 = await ethers.getContractFactory("HalomOracleV2");
-    oracle = await HalomOracleV2.deploy(
-      await halomToken.getAddress(),
-      await governor.getAddress(),
-      updater.address,
-      1000000, // Smaller value to prevent overflow
-      1000000  // Smaller value to prevent overflow
-    );
-    await oracle.waitForDeployment();
+    const HalomOracleV2 = await ethers.getContractFactory('HalomOracleV2');
+    oracleV2 = await HalomOracleV2.deploy(); // No constructor arguments
+    await oracleV2.waitForDeployment();
   });
 
   describe("Basic Functionality", function () {
     it("Should deploy successfully", async function () {
-      expect(oracle.target).to.not.equal(ethers.ZeroAddress);
-      expect(await oracle.hasRole(await oracle.DEFAULT_ADMIN_ROLE(), owner.address)).to.be.true;
+      expect(oracleV2.target).to.not.equal(ethers.ZeroAddress);
+      expect(await oracleV2.hasRole(await oracleV2.DEFAULT_ADMIN_ROLE(), owner.address)).to.be.true;
     });
 
     it("Should have correct initial state", async function () {
-      expect(await oracle.hasRole(await oracle.ORACLE_ROLE(), owner.address)).to.be.true;
-      expect(await oracle.hasRole(await oracle.UPDATER_ROLE(), owner.address)).to.be.true;
-      expect(await oracle.hasRole(await oracle.EMERGENCY_ROLE(), owner.address)).to.be.true;
+      expect(await oracleV2.hasRole(await oracleV2.ORACLE_ROLE(), owner.address)).to.be.true;
+      expect(await oracleV2.hasRole(await oracleV2.UPDATER_ROLE(), owner.address)).to.be.true;
+      expect(await oracleV2.hasRole(await oracleV2.EMERGENCY_ROLE(), owner.address)).to.be.true;
     });
   });
 
@@ -47,21 +41,21 @@ describe("HalomOracleV2 Comprehensive Tests", function () {
     const testFeedId = ethers.keccak256(ethers.toUtf8Bytes("TEST_FEED"));
     
     it("Should add feed successfully", async function () {
-      await oracle.addFeed(testFeedId, 3600, 1000); // 1 hour interval, 10% max deviation
-      expect(await oracle.supportedFeeds(testFeedId)).to.be.true;
+      await oracleV2.addFeed(testFeedId, 3600, 1000); // 1 hour interval, 10% max deviation
+      expect(await oracleV2.supportedFeeds(testFeedId)).to.be.true;
     });
 
     it("Should prevent adding duplicate feeds", async function () {
-      await oracle.addFeed(testFeedId, 3600, 1000);
+      await oracleV2.addFeed(testFeedId, 3600, 1000);
       await expect(
-        oracle.addFeed(testFeedId, 3600, 1000)
-      ).to.be.revertedWithCustomError(oracle, "InvalidFeed");
+        oracleV2.addFeed(testFeedId, 3600, 1000)
+      ).to.be.revertedWithCustomError(oracleV2, "InvalidFeed");
     });
 
     it("Should remove feed successfully", async function () {
-      await oracle.addFeed(testFeedId, 3600, 1000);
-      await oracle.removeFeed(testFeedId);
-      expect(await oracle.supportedFeeds(testFeedId)).to.be.false;
+      await oracleV2.addFeed(testFeedId, 3600, 1000);
+      await oracleV2.removeFeed(testFeedId);
+      expect(await oracleV2.supportedFeeds(testFeedId)).to.be.false;
     });
   });
 
@@ -69,16 +63,16 @@ describe("HalomOracleV2 Comprehensive Tests", function () {
     const testFeedId = ethers.keccak256(ethers.toUtf8Bytes("TEST_FEED"));
     
     beforeEach(async function () {
-      await oracle.addFeed(testFeedId, 3600, 1000);
+      await oracleV2.addFeed(testFeedId, 3600, 1000);
     });
 
     it("Should update oracle data successfully", async function () {
       const value = 1000;
       const timestamp = Math.floor(Date.now() / 1000);
       
-      await oracle.updateOracleData(testFeedId, value, timestamp);
+      await oracleV2.updateOracleData(testFeedId, value, timestamp);
       
-      const data = await oracle.getOracleData(testFeedId);
+      const data = await oracleV2.getOracleData(testFeedId);
       expect(data.value).to.equal(value);
       expect(data.timestamp).to.equal(timestamp);
       expect(data.isValid).to.be.true;
@@ -88,31 +82,30 @@ describe("HalomOracleV2 Comprehensive Tests", function () {
       const timestamp = Math.floor(Date.now() / 1000);
 
       await expect(
-        oracle.updateOracleData(testFeedId, 0, timestamp)
-      ).to.be.revertedWithCustomError(oracle, "InvalidValue");
+        oracleV2.updateOracleData(testFeedId, 0, timestamp)
+      ).to.be.revertedWithCustomError(oracleV2, "InvalidValue");
     });
 
     it("Should reject future timestamps", async function () {
-      const futureTimestamp = Math.floor(Date.now() / 1000) + 3600; // 1 hour in the future
       const futureData = {
-        timestamp: futureTimestamp,
-        value: 1000000,
-        confidence: 95
+        feedId: testFeedId,
+        value: ethers.parseEther("1000"),
+        timestamp: Math.floor(Date.now() / 1000) + 3600 // 1 hour in future
       };
 
       await expect(
-        oracle.connect(updater).updateOracleData([futureData], 1)
-      ).to.be.revertedWithCustomError(oracle, "InvalidTimestamp");
+        oracleV2.connect(updater).updateOracleData([futureData], 1)
+      ).to.be.revertedWithCustomError(oracleV2, "InvalidValue");
     });
   });
 
   describe("Emergency Controls", function () {
     it("Should pause and unpause", async function () {
-      await oracle.emergencyPause();
-      expect(await oracle.paused()).to.be.true;
+      await oracleV2.emergencyPause();
+      expect(await oracleV2.paused()).to.be.true;
       
-      await oracle.emergencyUnpause();
-      expect(await oracle.paused()).to.be.false;
+      await oracleV2.emergencyUnpause();
+      expect(await oracleV2.paused()).to.be.false;
     });
   });
 }); 

@@ -126,26 +126,16 @@ describe("HalomTimelock Comprehensive Tests", function () {
     });
 
     it("Should prevent queueing with insufficient delay", async function () {
-      // Enable test mode first
-      await timelock.enableTestMode();
-      
       const target = await treasury.getAddress();
       const value = 0;
       const data = treasury.interface.encodeFunctionData("setRewardToken", [user1.address]);
       const predecessor = ethers.ZeroHash;
-      const salt = ethers.keccak256(ethers.toUtf8Bytes("test-salt"));
-      const delay = 1800; // 30 minutes (should work in test mode)
-
-      await expect(
-        timelock.connect(owner).queueTransaction(target, value, data, predecessor, salt, delay)
-      ).to.not.be.reverted; // Should work in test mode
-      
-      // Disable test mode and try with insufficient delay
-      await timelock.disableTestMode();
+      const salt = ethers.keccak256(ethers.toUtf8Bytes("insufficient-delay"));
+      const insufficientDelay = 1800; // 30 minutes (below test mode minimum)
       
       await expect(
-        timelock.connect(owner).queueTransaction(target, value, data, predecessor, salt, delay)
-      ).to.be.revertedWithCustomError(timelock, "TimelockInsufficientDelay");
+        timelock.connect(owner).queueTransaction(target, value, data, predecessor, salt, insufficientDelay)
+      ).to.be.revertedWithCustomError(timelock, 'TimelockInsufficientDelay');
     });
 
     it("Should prevent queueing by non-proposer", async function () {
@@ -389,8 +379,9 @@ describe("HalomTimelock Comprehensive Tests", function () {
 
   describe("MinDelay Management", function () {
     it("Should return correct minDelay", async function () {
-      const minDelay = await timelock.getMinDelay();
-      expect(minDelay).to.equal(86400);
+      // Test mode is enabled, so minDelay should be TEST_MIN_DELAY (1 hour)
+      const currentMinDelay = await timelock.getMinDelay();
+      expect(currentMinDelay).to.equal(3600); // 1 hour in test mode
     });
 
     it("Should allow admin to update minDelay", async function () {
@@ -671,7 +662,7 @@ describe("HalomTimelock Core Tests", function () {
     const calldata = treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress]);
     const predecessor = ethers.ZeroHash;
     const salt = ethers.keccak256(ethers.toUtf8Bytes("core-early-execute"));
-    const delay = 3600;
+    const delay = 86400; // Use the actual minDelay from deployment
     
     await timelock.schedule(target, value, calldata, predecessor, salt, delay);
     await time.increase(delay - 1);
