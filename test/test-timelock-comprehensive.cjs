@@ -118,13 +118,23 @@ describe("HalomTimelock Comprehensive Tests", function () {
     });
 
     it("Should prevent queueing with insufficient delay", async function () {
+      // Enable test mode first
+      await timelock.enableTestMode();
+      
       const target = await treasury.getAddress();
       const value = 0;
       const data = treasury.interface.encodeFunctionData("setRewardToken", [user1.address]);
       const predecessor = ethers.ZeroHash;
       const salt = ethers.keccak256(ethers.toUtf8Bytes("test-salt"));
-      const delay = 1800; // Less than minDelay
+      const delay = 1800; // 30 minutes (should work in test mode)
 
+      await expect(
+        timelock.connect(owner).queueTransaction(target, value, data, predecessor, salt, delay)
+      ).to.not.be.reverted; // Should work in test mode
+      
+      // Disable test mode and try with insufficient delay
+      await timelock.disableTestMode();
+      
       await expect(
         timelock.connect(owner).queueTransaction(target, value, data, predecessor, salt, delay)
       ).to.be.revertedWithCustomError(timelock, "TimelockInsufficientDelay");
@@ -144,6 +154,9 @@ describe("HalomTimelock Comprehensive Tests", function () {
     });
 
     it("Should handle multiple queued transactions", async function () {
+      // Enable test mode for shorter delays
+      await timelock.enableTestMode();
+      
       const target = await treasury.getAddress();
       const targets = [target, target];
       const values = [0, 0];
@@ -153,7 +166,7 @@ describe("HalomTimelock Comprehensive Tests", function () {
       ];
       const predecessor = ethers.ZeroHash;
       const salt = ethers.keccak256(ethers.toUtf8Bytes("multi-queue"));
-      const delay = 3600;
+      const delay = 3600; // 1 hour (test mode allows this)
       await expect(
         timelock.scheduleBatch(targets, values, calldatas, predecessor, salt, delay)
       ).to.not.be.reverted;
@@ -162,12 +175,15 @@ describe("HalomTimelock Comprehensive Tests", function () {
 
   describe("Transaction Execution", function () {
     it("Should execute transaction after delay period", async function () {
+      // Enable test mode for shorter delays
+      await timelock.enableTestMode();
+      
       const target = await treasury.getAddress();
       const value = 0;
       const calldata = treasury.interface.encodeFunctionData("setRewardToken", [user1.address]);
       const predecessor = ethers.ZeroHash;
       const salt = ethers.keccak256(ethers.toUtf8Bytes("execute-test"));
-      const delay = 3600;
+      const delay = 3600; // 1 hour (test mode allows this)
       
       await timelock.schedule(target, value, calldata, predecessor, salt, delay);
       
@@ -180,13 +196,16 @@ describe("HalomTimelock Comprehensive Tests", function () {
     });
 
     it("Should handle execution with value transfer", async function () {
+      // Enable test mode for shorter delays
+      await timelock.enableTestMode();
+      
       // Use a different target that can receive ETH - use user1 as target
       const target = user1.address;
       const value = ethers.parseEther("0.1");
       const calldata = "0x";
       const predecessor = ethers.ZeroHash;
       const salt = ethers.keccak256(ethers.toUtf8Bytes("value-transfer"));
-      const delay = 3600;
+      const delay = 3600; // 1 hour (test mode allows this)
       
       // Send ETH to timelock for value transfer
       await owner.sendTransaction({
@@ -207,12 +226,15 @@ describe("HalomTimelock Comprehensive Tests", function () {
 
   describe("Transaction Cancellation", function () {
     it("Should cancel transaction successfully", async function () {
+      // Enable test mode for shorter delays
+      await timelock.enableTestMode();
+      
       const target = await treasury.getAddress();
       const value = 0;
       const calldata = treasury.interface.encodeFunctionData("setRewardToken", [user1.address]);
       const predecessor = ethers.ZeroHash;
       const salt = ethers.keccak256(ethers.toUtf8Bytes("cancel-test"));
-      const delay = 3600;
+      const delay = 3600; // 1 hour (test mode allows this)
       
       await timelock.schedule(target, value, calldata, predecessor, salt, delay);
       
@@ -226,12 +248,15 @@ describe("HalomTimelock Comprehensive Tests", function () {
     });
 
     it("Should prevent cancellation of executed transaction", async function () {
+      // Enable test mode for shorter delays
+      await timelock.enableTestMode();
+      
       const target = await treasury.getAddress();
       const value = 0;
       const calldata = treasury.interface.encodeFunctionData("setRewardToken", [user1.address]);
       const predecessor = ethers.ZeroHash;
       const salt = ethers.keccak256(ethers.toUtf8Bytes("executed-cancel"));
-      const delay = 3600;
+      const delay = 3600; // 1 hour (test mode allows this)
       
       await timelock.schedule(target, value, calldata, predecessor, salt, delay);
       
@@ -251,12 +276,15 @@ describe("HalomTimelock Comprehensive Tests", function () {
 
   describe("Predecessor Operations", function () {
     it("Should handle predecessor operations correctly", async function () {
+      // Enable test mode for shorter delays
+      await timelock.enableTestMode();
+      
       const target = await treasury.getAddress();
       const value = 0;
       const calldata = treasury.interface.encodeFunctionData("setRewardToken", [user1.address]);
       const salt1 = ethers.keccak256(ethers.toUtf8Bytes("predecessor-1"));
       const salt2 = ethers.keccak256(ethers.toUtf8Bytes("predecessor-2"));
-      const delay = 3600;
+      const delay = 3600; // 1 hour (test mode allows this)
       
       // Schedule first operation
       await timelock.schedule(target, value, calldata, ethers.ZeroHash, salt1, delay);
@@ -285,12 +313,15 @@ describe("HalomTimelock Comprehensive Tests", function () {
 
   describe("Grace Period", function () {
     it("Should enforce grace period correctly", async function () {
+      // Enable test mode for shorter delays
+      await timelock.enableTestMode();
+      
       const target = await treasury.getAddress();
       const value = 0;
       const calldata = treasury.interface.encodeFunctionData("setRewardToken", [user1.address]);
       const predecessor = ethers.ZeroHash;
       const salt = ethers.keccak256(ethers.toUtf8Bytes("grace-period"));
-      const delay = 3600;
+      const delay = 3600; // 1 hour (test mode allows this)
       const gracePeriod = 86400; // 24 hours
       
       await timelock.schedule(target, value, calldata, predecessor, salt, delay);

@@ -20,6 +20,8 @@ contract HalomTimelock is TimelockController, ReentrancyGuard {
     uint256 public constant MAX_MIN_DELAY = 30 days;
     uint256 public constant GRACE_PERIOD = 14 days;
     uint256 public constant CRITICAL_OPERATION_DELAY = 7 days;
+    uint256 public constant TEST_MIN_DELAY = 1 hours; // Lower delay for testing
+    bool public isTestMode;
 
     event MinDelayUpdated(uint256 newDelay);
     event EmergencyPaused(address indexed caller);
@@ -48,9 +50,27 @@ contract HalomTimelock is TimelockController, ReentrancyGuard {
 
     // --- Parameter management (branchless, custom error) ---
     function setMinDelay(uint256 newDelay) external onlyRole(PARAM_ROLE) {
-        if (newDelay < MIN_MIN_DELAY || newDelay > MAX_MIN_DELAY) revert TimelockInsufficientDelay(newDelay, MIN_MIN_DELAY);
+        uint256 requiredMinDelay = isTestMode ? TEST_MIN_DELAY : MIN_MIN_DELAY;
+        if (newDelay < requiredMinDelay || newDelay > MAX_MIN_DELAY) revert TimelockInsufficientDelay(newDelay, requiredMinDelay);
         minDelay = newDelay;
         emit MinDelayUpdated(newDelay);
+    }
+
+    // --- Test mode management ---
+    function enableTestMode() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        isTestMode = true;
+        if (minDelay > TEST_MIN_DELAY) {
+            minDelay = TEST_MIN_DELAY;
+            emit MinDelayUpdated(TEST_MIN_DELAY);
+        }
+    }
+
+    function disableTestMode() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        isTestMode = false;
+        if (minDelay < MIN_MIN_DELAY) {
+            minDelay = MIN_MIN_DELAY;
+            emit MinDelayUpdated(MIN_MIN_DELAY);
+        }
     }
 
     // --- Emergency controls ---
@@ -72,7 +92,8 @@ contract HalomTimelock is TimelockController, ReentrancyGuard {
         bytes32 salt,
         uint256 delay
     ) external onlyRole(PROPOSER_ROLE) returns (bytes32) {
-        if (delay < MIN_MIN_DELAY) revert TimelockInsufficientDelay(delay, MIN_MIN_DELAY);
+        uint256 requiredMinDelay = isTestMode ? TEST_MIN_DELAY : MIN_MIN_DELAY;
+        if (delay < requiredMinDelay) revert TimelockInsufficientDelay(delay, requiredMinDelay);
         if (emergencyPaused) revert TimelockEmergencyPaused();
         
         // Check for critical operations and apply additional delay

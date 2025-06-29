@@ -60,6 +60,7 @@ contract HalomOracleV3 is AccessControl, ReentrancyGuard, Pausable {
     uint256 public constant MIN_UPDATE_INTERVAL = 1 hours;
     uint256 public constant MAX_UPDATE_INTERVAL = 24 hours;
     uint256 public constant MIN_VALID_FEEDS = 3; // Increased from 2 to 3 for median
+    uint256 public constant MIN_WEIGHTED_AVERAGE_FEEDS = 2; // Minimum feeds for weighted average
     uint256 public constant MAX_WEIGHT = 100; // Maximum weight per feed
     uint256 public constant MIN_CONFIDENCE = 50; // Minimum confidence for valid data
     uint256 public constant MAX_DEVIATION_FOR_CONSENSUS = 5e16; // 5% deviation for consensus
@@ -246,8 +247,24 @@ contract HalomOracleV3 is AccessControl, ReentrancyGuard, Pausable {
         }
         
         if (validFeeds < MIN_VALID_FEEDS) {
-            // Not enough valid feeds, use fallback if available
-            if (fallbackActive) {
+            // Not enough valid feeds, check if we can use weighted average
+            if (validFeeds >= MIN_WEIGHTED_AVERAGE_FEEDS) {
+                // Use weighted average as fallback
+                uint256 finalValue = weightedSum / totalWeight;
+                uint256 finalConfidence = totalConfidence / validFeeds;
+                
+                aggregatedData[feedIds[0]] = AggregatedData({
+                    weightedValue: finalValue,
+                    totalWeight: totalWeight,
+                    validFeeds: validFeeds,
+                    timestamp: latestTimestamp,
+                    isValid: true,
+                    confidence: finalConfidence
+                });
+                
+                emit AggregatedDataUpdated(feedIds[0], finalValue, totalWeight, validFeeds);
+            } else if (fallbackActive) {
+                // Use fallback value if available
                 aggregatedData[feedIds[0]] = AggregatedData({
                     weightedValue: fallbackValue,
                     totalWeight: 100,

@@ -108,11 +108,7 @@ async function main() {
   // Deploy HalomOracleV2 (multi-node consensus)
   console.log('\n8. Deploying HalomOracleV2...');
   const HalomOracleV2 = await ethers.getContractFactory('HalomOracleV2');
-  const oracle = await HalomOracleV2.deploy(
-    await governor.getAddress(),
-    deployer.address, // updater
-    deployer.address  // pauser
-  );
+  const oracle = await HalomOracleV2.deploy();
   await oracle.waitForDeployment();
   console.log('HalomOracleV2 deployed to:', await oracle.getAddress());
 

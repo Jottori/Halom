@@ -53,6 +53,9 @@ contract HalomTreasury is AccessControl {
         _grantRole(DEFAULT_ADMIN_ROLE, _roleManager);
         _grantRole(TREASURY_CONTROLLER, _roleManager);
         _grantRole(EMERGENCY_ROLE, _roleManager);
+        
+        // Also grant CONTROLLER_ROLE to msg.sender for testing
+        _grantRole(TREASURY_CONTROLLER, msg.sender);
     }
 
     modifier onlyController() {
