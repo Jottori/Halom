@@ -32,38 +32,32 @@ describe("HalomGovernor Enhanced Tests", function () {
     const proposalThreshold = 0;
     const quorumPercent = 4;
     governor = await HalomGovernor.deploy(
-      halomToken.address,
-      timelock.address,
+      await halomToken.getAddress(),
+      await timelock.getAddress(),
       1, // votingDelay
       10, // votingPeriod
       0, // proposalThreshold
       4 // quorumPercent
     );
     
-    staking = await HalomStaking.deploy(halomToken.address, oracle.address);
-    treasury = await HalomTreasury.deploy(halomToken.address, 3600);
     roleManager = await HalomRoleManager.deploy();
+    staking = await HalomStaking.deploy(await halomToken.getAddress(), await roleManager.getAddress(), ethers.parseEther("0.1"));
+    treasury = await HalomTreasury.deploy(await halomToken.getAddress(), await roleManager.getAddress(), 3600);
 
     // Setup roles
-    await halomToken.grantRole(halomToken.GOVERNOR_ROLE, governor.target);
-    await halomToken.grantRole(halomToken.REBASE_CALLER, oracle.target);
-    await halomToken.grantRole(halomToken.STAKING_CONTRACT_ROLE(), staking.target);
-    await halomToken.grantRole(halomToken.SLASHER_ROLE(), governor.target);
-    await halomToken.grantRole(halomToken.TREASURY_CONTROLLER(), governor.target);
-    await halomToken.grantRole(halomToken.PAUSER_ROLE, governor.target);
+    await halomToken.grantRole(await halomToken.REBASE_CALLER(), await oracle.getAddress());
+    await halomToken.grantRole(await halomToken.STAKING_CONTRACT_ROLE(), await staking.getAddress());
 
-    await staking.grantRole(staking.GOVERNOR_ROLE, governor.target);
-    await staking.grantRole(staking.STAKING_CONTRACT_ROLE(), staking.target);
-    await staking.grantRole(staking.REWARDER_ROLE(), halomToken.target);
+    await staking.grantRole(await staking.STAKING_ADMIN_ROLE(), owner.address);
+    await staking.grantRole(await staking.DEFAULT_ADMIN_ROLE(), owner.address);
+    await staking.grantRole(await staking.REWARD_MANAGER_ROLE(), await halomToken.getAddress());
 
-    await treasury.grantRole(treasury.GOVERNOR_ROLE, governor.target);
-    await treasury.grantRole(treasury.TREASURY_CONTROLLER(), governor.target);
-
+    await treasury.grantRole(await treasury.DEFAULT_ADMIN_ROLE(), owner.address);
     await roleManager.grantRole(await roleManager.DEFAULT_ADMIN_ROLE(), owner.address);
 
     // Grant timelock executor role
-    await timelock.grantRole(await timelock.EXECUTOR_ROLE(), governor.target);
-    await timelock.grantRole(await timelock.PROPOSER_ROLE(), governor.target);
+    await timelock.grantRole(await timelock.EXECUTOR_ROLE(), await governor.getAddress());
+    await timelock.grantRole(await timelock.PROPOSER_ROLE(), await governor.getAddress());
 
     // Mint tokens to users for testing
     await halomToken.mint(user1.address, ethers.parseEther("1000000"));
@@ -75,13 +69,13 @@ describe("HalomGovernor Enhanced Tests", function () {
     await halomToken.mint(delegate2.address, ethers.parseEther("1000000"));
 
     // Users stake tokens to get voting power
-    await halomToken.connect(user1).approve(staking.target, ethers.parseEther("100000"));
-    await halomToken.connect(user2).approve(staking.target, ethers.parseEther("100000"));
-    await halomToken.connect(user3).approve(staking.target, ethers.parseEther("100000"));
-    await halomToken.connect(user4).approve(staking.target, ethers.parseEther("100000"));
-    await halomToken.connect(user5).approve(staking.target, ethers.parseEther("100000"));
-    await halomToken.connect(delegate1).approve(staking.target, ethers.parseEther("100000"));
-    await halomToken.connect(delegate2).approve(staking.target, ethers.parseEther("100000"));
+    await halomToken.connect(user1).approve(await staking.getAddress(), ethers.parseEther("100000"));
+    await halomToken.connect(user2).approve(await staking.getAddress(), ethers.parseEther("100000"));
+    await halomToken.connect(user3).approve(await staking.getAddress(), ethers.parseEther("100000"));
+    await halomToken.connect(user4).approve(await staking.getAddress(), ethers.parseEther("100000"));
+    await halomToken.connect(user5).approve(await staking.getAddress(), ethers.parseEther("100000"));
+    await halomToken.connect(delegate1).approve(await staking.getAddress(), ethers.parseEther("100000"));
+    await halomToken.connect(delegate2).approve(await staking.getAddress(), ethers.parseEther("100000"));
 
     await staking.connect(user1).stake(ethers.parseEther("100000"), 30);
     await staking.connect(user2).stake(ethers.parseEther("100000"), 30);

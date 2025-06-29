@@ -20,8 +20,11 @@ describe("HalomOracleV2 Comprehensive Tests", function () {
     updater = user1; // Use user1 as updater
 
     const HalomOracleV2 = await ethers.getContractFactory('HalomOracleV2');
-    oracleV2 = await HalomOracleV2.deploy(); // No constructor arguments
+    oracleV2 = await HalomOracleV2.deploy(); // No constructor arguments needed
     await oracleV2.waitForDeployment();
+    
+    // Grant UPDATER_ROLE to user1 for testing
+    await oracleV2.grantRole(await oracleV2.UPDATER_ROLE(), updater.address);
   });
 
   describe("Basic Functionality", function () {
@@ -70,7 +73,7 @@ describe("HalomOracleV2 Comprehensive Tests", function () {
       const value = 1000;
       const timestamp = Math.floor(Date.now() / 1000);
       
-      await oracleV2.updateOracleData(testFeedId, value, timestamp);
+      await oracleV2.connect(updater).updateOracleData(testFeedId, value, timestamp);
       
       const data = await oracleV2.getOracleData(testFeedId);
       expect(data.value).to.equal(value);
@@ -82,19 +85,16 @@ describe("HalomOracleV2 Comprehensive Tests", function () {
       const timestamp = Math.floor(Date.now() / 1000);
 
       await expect(
-        oracleV2.updateOracleData(testFeedId, 0, timestamp)
+        oracleV2.connect(updater).updateOracleData(testFeedId, 0, timestamp)
       ).to.be.revertedWithCustomError(oracleV2, "InvalidValue");
     });
 
     it("Should reject future timestamps", async function () {
-      const futureData = {
-        feedId: testFeedId,
-        value: ethers.parseEther("1000"),
-        timestamp: Math.floor(Date.now() / 1000) + 3600 // 1 hour in future
-      };
+      const futureTimestamp = Math.floor(Date.now() / 1000) + 3600; // 1 hour in future
+      const value = 1000; // Use a smaller value instead of ethers.parseEther("1000")
 
       await expect(
-        oracleV2.connect(updater).updateOracleData([futureData], 1)
+        oracleV2.connect(updater).updateOracleData(testFeedId, value, futureTimestamp)
       ).to.be.revertedWithCustomError(oracleV2, "InvalidValue");
     });
   });

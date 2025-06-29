@@ -1,63 +1,352 @@
-name: Halom Protocol CI
+name: Halom CI/CD Pipeline
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '18'
+  SOLIDITY_VERSION: '0.8.20'
 
 jobs:
-  build:
+  # Security and Quality Checks
+  security-audit:
+    name: Security Audit
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Slither security analysis
+        run: |
+          pip3 install slither-analyzer
+          slither . --json slither-report.json || true
+
+      - name: Upload security report
+        uses: actions/upload-artifact@v4
+        with:
+          name: slither-report
+          path: slither-report.json
+
+  # Code Quality and Linting
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Check code formatting
+        run: npm run format:check
+
+      - name: Run Solhint
+        run: npx solhint 'contracts/**/*.sol'
+
+  # Unit Tests
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        test-file:
+          - test/test-token-comprehensive.cjs
+          - test/test-staking-comprehensive.cjs
+          - test/test-treasury-comprehensive.cjs
+          - test/test-oracle-comprehensive.cjs
+          - test/test-oraclev2-comprehensive.cjs
+          - test/test-governance-comprehensive.cjs
+          - test/test-timelock-comprehensive.cjs
+          - test/test-lp-staking.cjs
+          - test/test-delegation.cjs
+          - test/test-dao-participation.cjs
+          - test/test-reward-treasury-sync.cjs
+          - test/test-secure-roles.cjs
 
     steps:
-    - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Use Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18.x'
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
-    - name: Install Dependencies
-      run: npm install
+      - name: Install dependencies
+        run: npm ci
 
-    - name: Compile Contracts
-      run: npx hardhat compile
+      - name: Run specific test file
+        run: npx hardhat test ${{ matrix.test-file }} --verbose
 
-    - name: Run Linter
-      run: npx hardhat check
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.test-file }}
+          path: |
+            coverage/
+            test-results/
 
-    - name: Run tests
-      run: npx hardhat test
+  # Integration Tests
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Run solhint (Solidity linter)
-      run: npx solhint 'contracts/**/*.sol'
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
-    - name: Run ESLint (JS/TS linter)
-      run: npx eslint '**/*.{js,ts}' --max-warnings=0 || true
+      - name: Install dependencies
+        run: npm ci
 
-    - name: Run Solidity Coverage
-      run: npx hardhat coverage
+      - name: Run all tests
+        run: npm test
 
-    - name: Upload Solidity Coverage Report
-      uses: actions/upload-artifact@v4
-      with:
-        name: solidity-coverage-report
-        path: coverage/lcov.info
+      - name: Generate coverage report
+        run: npx hardhat coverage
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
 
-    - name: Install Python dependencies
-      run: pip install -r requirements.txt
+  # Contract Compilation and Validation
+  contract-compilation:
+    name: Contract Compilation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Run Python Coverage
-      run: pytest --cov=offchain --cov-report=xml
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
-    - name: Upload Python Coverage Report
-      uses: actions/upload-artifact@v4
-      with:
-        name: python-coverage-report
-        path: coverage.xml 
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile contracts
+        run: npx hardhat compile
+
+      - name: Validate contract artifacts
+        run: |
+          if [ ! -d "artifacts" ]; then
+            echo "❌ Contract compilation failed - no artifacts directory"
+            exit 1
+          fi
+          echo "✅ Contract compilation successful"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-artifacts
+          path: artifacts/
+
+  # Gas Optimization Analysis
+  gas-analysis:
+    name: Gas Analysis
+    runs-on: ubuntu-latest
+    needs: [contract-compilation]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-artifacts
+          path: artifacts/
+
+      - name: Run gas analysis
+        run: npx hardhat test --gas-report
+
+  # Deployment Validation
+  deployment-validation:
+    name: Deployment Validation
+    runs-on: ubuntu-latest
+    needs: [integration-tests, gas-analysis]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-artifacts
+          path: artifacts/
+
+      - name: Validate deployment scripts
+        run: |
+          # Check if deployment scripts exist and are valid
+          if [ ! -f "scripts/deploy.js" ]; then
+            echo "❌ Main deployment script not found"
+            exit 1
+          fi
+          if [ ! -f "scripts/deploy_governance.js" ]; then
+            echo "❌ Governance deployment script not found"
+            exit 1
+          fi
+          echo "✅ Deployment scripts validated"
+
+      - name: Run deployment simulation
+        run: npx hardhat run scripts/deploy.js --network hardhat
+
+  # Documentation Generation
+  documentation:
+    name: Generate Documentation
+    runs-on: ubuntu-latest
+    needs: [contract-compilation]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-artifacts
+          path: artifacts/
+
+      - name: Generate documentation
+        run: |
+          # Generate contract documentation
+          npx hardhat docgen
+          
+          # Generate deployment guide
+          echo "# Deployment Guide" > DEPLOYMENT.md
+          echo "## Prerequisites" >> DEPLOYMENT.md
+          echo "- Node.js ${{ env.NODE_VERSION }}" >> DEPLOYMENT.md
+          echo "- Solidity ${{ env.SOLIDITY_VERSION }}" >> DEPLOYMENT.md
+          echo "" >> DEPLOYMENT.md
+          echo "## Deployment Steps" >> DEPLOYMENT.md
+          echo "1. Install dependencies: \`npm ci\`" >> DEPLOYMENT.md
+          echo "2. Compile contracts: \`npx hardhat compile\`" >> DEPLOYMENT.md
+          echo "3. Deploy contracts: \`npx hardhat run scripts/deploy.js --network <network>\`" >> DEPLOYMENT.md
+
+      - name: Upload documentation
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation
+          path: |
+            docs/
+            DEPLOYMENT.md
+
+  # Final Status Check
+  status-check:
+    name: Pipeline Status
+    runs-on: ubuntu-latest
+    needs: [security-audit, code-quality, integration-tests, deployment-validation, documentation]
+    if: always()
+    steps:
+      - name: Check pipeline status
+        run: |
+          echo "🔍 Pipeline Status Report"
+          echo "=========================="
+          
+          if [ "${{ needs.security-audit.result }}" == "success" ]; then
+            echo "✅ Security Audit: PASSED"
+          else
+            echo "❌ Security Audit: FAILED"
+          fi
+          
+          if [ "${{ needs.code-quality.result }}" == "success" ]; then
+            echo "✅ Code Quality: PASSED"
+          else
+            echo "❌ Code Quality: FAILED"
+          fi
+          
+          if [ "${{ needs.integration-tests.result }}" == "success" ]; then
+            echo "✅ Integration Tests: PASSED"
+          else
+            echo "❌ Integration Tests: FAILED"
+          fi
+          
+          if [ "${{ needs.deployment-validation.result }}" == "success" ]; then
+            echo "✅ Deployment Validation: PASSED"
+          else
+            echo "⚠️  Deployment Validation: SKIPPED (not on main branch)"
+          fi
+          
+          if [ "${{ needs.documentation.result }}" == "success" ]; then
+            echo "✅ Documentation: PASSED"
+          else
+            echo "❌ Documentation: FAILED"
+          fi
+          
+          echo ""
+          echo "📊 Overall Status: ${{ job.status }}"
+
+      - name: Pipeline Summary
+        if: always()
+        run: |
+          echo "## 🚀 Halom CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Audit | ${{ needs.security-audit.result == 'success' && '✅ PASSED' || '❌ FAILED' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Code Quality | ${{ needs.code-quality.result == 'success' && '✅ PASSED' || '❌ FAILED' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Integration Tests | ${{ needs.integration-tests.result == 'success' && '✅ PASSED' || '❌ FAILED' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deployment Validation | ${{ needs.deployment-validation.result == 'success' && '✅ PASSED' || '⚠️ SKIPPED' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Documentation | ${{ needs.documentation.result == 'success' && '✅ PASSED' || '❌ FAILED' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Overall Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY 

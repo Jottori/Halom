@@ -23,7 +23,7 @@ describe("HalomOracle Comprehensive Tests", function () {
     await oracle.connect(owner).grantRole(await oracle.ORACLE_UPDATER_ROLE(), dataProvider.address);
     
     // Grant REBASE_CALLER role to oracle contract
-    await halomToken.connect(owner).grantRole(halomToken.REBASE_CALLER, await oracle.getAddress());
+    await halomToken.connect(owner).grantRole(await halomToken.REBASE_CALLER(), await oracle.getAddress());
     
     // Set halom token in oracle
     await oracle.connect(owner).setHalomToken(await halomToken.getAddress());

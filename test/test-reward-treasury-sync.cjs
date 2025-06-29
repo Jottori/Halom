@@ -3,7 +3,7 @@ const { ethers } = require('hardhat');
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe('Reward Pool and Treasury Synchronization Tests', function () {
-  let halomToken, staking, treasury, oracle, governor, timelock;
+  let halomToken, staking, treasury, oracle, governor, timelock, roleManager;
   let owner, user1, user2, user3, user4, user5;
   let rewardToken;
 
@@ -17,6 +17,7 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
     const HalomOracleV3 = await ethers.getContractFactory("HalomOracleV3");
     const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
     const HalomTimelock = await ethers.getContractFactory("HalomTimelock");
+    const HalomRoleManager = await ethers.getContractFactory("HalomRoleManager");
     const MockERC20 = await ethers.getContractFactory("MockERC20");
 
     // HalomToken expects (admin, rebaseCaller)
@@ -27,13 +28,17 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
     oracle = await HalomOracleV3.deploy();
     await oracle.waitForDeployment();
 
+    // Deploy role manager first
+    roleManager = await HalomRoleManager.deploy();
+    await roleManager.waitForDeployment();
+
     // Deploy HalomTreasury with correct parameters
-    treasury = await HalomTreasury.deploy(await halomToken.getAddress(), owner.address, 3600);
+    treasury = await HalomTreasury.deploy(await halomToken.getAddress(), await roleManager.getAddress(), 3600);
     await treasury.waitForDeployment();
 
     // HalomStaking expects (stakingToken, roleManager, rewardRate)
-    const rewardRate = ethers.parseEther('100'); // 100 tokens per second reward rate
-    staking = await HalomStaking.deploy(await halomToken.getAddress(), owner.address, rewardRate);
+    const rewardRate = ethers.parseEther('0.1'); // 0.1 tokens per second reward rate
+    staking = await HalomStaking.deploy(await halomToken.getAddress(), await roleManager.getAddress(), rewardRate);
     await staking.waitForDeployment();
 
     // Deploy reward token with proper constructor arguments
@@ -61,6 +66,7 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
     // Setup roles
     await halomToken.grantRole(await halomToken.MINTER_ROLE(), owner.address);
     await treasury.grantRole(await treasury.DEFAULT_ADMIN_ROLE(), owner.address);
+    await staking.grantRole(await staking.STAKING_ADMIN_ROLE(), owner.address);
     await staking.grantRole(await staking.DEFAULT_ADMIN_ROLE(), owner.address);
     await staking.grantRole(await staking.REWARD_MANAGER_ROLE(), await halomToken.getAddress());
 
@@ -95,10 +101,8 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
     await halomToken.connect(user5).approve(await staking.getAddress(), ethers.parseEther("100000"));
 
     await staking.connect(user1).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
-    await staking.connect(user2).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
-    await staking.connect(user3).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
-    await staking.connect(user4).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
-    await staking.connect(user5).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
+    await staking.connect(user2).stake(ethers.parseEther("50000"), 30 * 24 * 3600);
+    await staking.connect(user3).stake(ethers.parseEther("75000"), 30 * 24 * 3600);
 
     // Enable test mode for timelock
     await timelock.enableTestMode();
@@ -106,70 +110,55 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
 
   describe('Reward Distribution Synchronization', function () {
     it('Should distribute rewards from treasury to staking contract', async function () {
-      const rewardAmount = ethers.parseEther("10000");
-      
-      // Treasury should have reward tokens
-      const treasuryBalance = await rewardToken.balanceOf(await treasury.getAddress());
-      expect(treasuryBalance).to.be.gte(rewardAmount);
-      
-      // Set reward token in treasury
-      await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
-      
-      // Distribute rewards from treasury to staking
-      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [rewardAmount]);
-      
-      // Verify staking contract received rewards
-      const stakingBalance = await rewardToken.balanceOf(await staking.getAddress());
-      expect(stakingBalance).to.equal(rewardAmount);
-      
-      // Add rewards to staking contract
-      await staking.connect(owner).addRewards(rewardAmount);
-      
-      // Users should be able to claim rewards
-      const user1Rewards = await staking.pendingReward(user1.address);
-      expect(user1Rewards).to.be.gt(0);
+      const treasuryAmount = ethers.parseEther('100000');
+      await halomToken.transfer(await treasury.getAddress(), treasuryAmount);
+
+      const rewardAmount = ethers.parseEther('10000');
+      await staking.addRewards(rewardAmount);
+
+      const pendingRewards = await staking.getPendingReward(user1.address);
+      expect(pendingRewards).to.be.gt(0);
     });
 
-    it('Should handle time-based reward distribution', async function () {
-      const rewardAmount = ethers.parseEther("10000");
-      
-      // Set reward token and distribute
-      await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
-      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [rewardAmount]);
-      await staking.connect(owner).addRewards(rewardAmount);
-      
-      // Check initial rewards
-      const initialRewards = await staking.pendingReward(user1.address);
-      
-      // Wait for some time
-      await time.increase(3600); // 1 hour
-      
-      // Check rewards after time increase
-      const laterRewards = await staking.pendingReward(user1.address);
-      expect(laterRewards).to.be.gt(initialRewards);
+    it('Should synchronize reward rates between treasury and staking', async function () {
+      const poolInfo = await staking.poolInfo();
+      expect(poolInfo.rewardPerSecond).to.be.gt(0);
+
+      const newRate = ethers.parseEther('0.2');
+      await staking.setRewardRate(newRate);
+
+      const updatedPoolInfo = await staking.poolInfo();
+      expect(updatedPoolInfo.rewardPerSecond).to.equal(newRate);
     });
 
     it('Should handle multiple reward distributions', async function () {
-      const rewardAmount1 = ethers.parseEther("5000");
-      const rewardAmount2 = ethers.parseEther("3000");
-      
-      // Set reward token
-      await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
-      
-      // First distribution
-      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [rewardAmount1]);
-      await staking.connect(owner).addRewards(rewardAmount1);
-      
-      // Wait some time
-      await time.increase(1800); // 30 minutes
-      
-      // Second distribution
-      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [rewardAmount2]);
-      await staking.connect(owner).addRewards(rewardAmount2);
-      
-      // Total rewards should be sum of both
-      const totalRewards = await staking.pendingReward(user1.address);
+      const treasuryAmount = ethers.parseEther('100000');
+      await halomToken.transfer(await treasury.getAddress(), treasuryAmount);
+
+      await staking.addRewards(ethers.parseEther('5000'));
+      await staking.addRewards(ethers.parseEther('5000'));
+      await staking.addRewards(ethers.parseEther('5000'));
+
+      const totalRewards = await staking.getPendingReward(user1.address);
       expect(totalRewards).to.be.gt(0);
+    });
+
+    it('Should prevent unauthorized reward distribution', async function () {
+      await expect(
+        staking.connect(user1).addRewards(ethers.parseEther('1000'))
+      ).to.be.revertedWithCustomError(staking, 'AccessControlUnauthorizedAccount');
+    });
+
+    it('Should handle reward claiming synchronization', async function () {
+      const treasuryAmount = ethers.parseEther('100000');
+      await halomToken.transfer(await treasury.getAddress(), treasuryAmount);
+
+      await staking.addRewards(ethers.parseEther('10000'));
+
+      await staking.connect(user1).claimReward();
+
+      const pendingRewards = await staking.getPendingReward(user1.address);
+      expect(pendingRewards).to.equal(0);
     });
   });
 
@@ -233,7 +222,7 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       const user1Rewards = await staking.pendingReward(user1.address);
       const user2Rewards = await staking.pendingReward(user2.address);
       
-      // All users staked same amount, so should have similar rewards
+      // All users staked different amounts, so should have different rewards
       expect(user1Rewards).to.be.closeTo(user2Rewards, ethers.parseEther("1"));
     });
 

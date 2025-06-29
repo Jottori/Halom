@@ -11,12 +11,13 @@ describe("HalomToken Simple Tests", function () {
     const HalomToken = await ethers.getContractFactory("HalomToken");
     const HalomOracle = await ethers.getContractFactory("HalomOracle");
 
-    // Deploy oracle first
-    oracle = await HalomOracle.deploy(owner.address, 31337); // chainId for hardhat network
-    
-    // Deploy token with correct constructor arguments
+    // Deploy token first
     halomToken = await HalomToken.deploy(owner.address, owner.address);
     await halomToken.waitForDeployment();
+    
+    // Deploy oracle with correct constructor arguments
+    oracle = await HalomOracle.deploy(owner.address, 31337); // chainId for hardhat network
+    await oracle.waitForDeployment();
     
     // Grant MINTER_ROLE to owner for testing
     await halomToken.grantRole(await halomToken.MINTER_ROLE(), owner.address);
@@ -144,32 +145,22 @@ describe("HalomToken Simple Tests", function () {
       ).to.be.revertedWithCustomError(halomToken, "AccessControlUnauthorizedAccount");
     });
 
-    it("Should allow governor to set max rebase delta", async function () {
-      const newDelta = 500;
-      await halomToken.connect(owner).setMaxRebaseDelta(newDelta);
-      expect(await halomToken.maxRebaseDelta()).to.equal(newDelta);
+    it("Should allow admin to set anti-whale limits", async function () {
+      const newMaxTransfer = ethers.parseEther("10000");
+      const newMaxWallet = ethers.parseEther("100000");
+      await halomToken.connect(owner).setAntiWhaleLimits(newMaxTransfer, newMaxWallet);
+      expect(await halomToken.maxTransferAmount()).to.equal(newMaxTransfer);
+      expect(await halomToken.maxWalletAmount()).to.equal(newMaxWallet);
     });
 
-    it("Should prevent non-governor from setting max rebase delta", async function () {
+    it("Should prevent non-admin from setting anti-whale limits", async function () {
       await expect(
-        halomToken.connect(user1).setMaxRebaseDelta(500)
+        halomToken.connect(user1).setAntiWhaleLimits(ethers.parseEther("1000"), ethers.parseEther("10000"))
       ).to.be.revertedWithCustomError(halomToken, "AccessControlUnauthorizedAccount");
     });
   });
 
   describe("Edge Cases", function () {
-    it("Should prevent setting max rebase delta to zero", async function () {
-      await expect(
-        halomToken.connect(owner).setMaxRebaseDelta(0)
-      ).to.be.revertedWithCustomError(halomToken, "InvalidRebaseDelta");
-    });
-
-    it("Should prevent setting max rebase delta above maximum", async function () {
-      await expect(
-        halomToken.connect(owner).setMaxRebaseDelta(1100) // Above 10%
-      ).to.be.revertedWithCustomError(halomToken, "RebaseDeltaTooHigh");
-    });
-
     it("Should handle transfers after rebase", async function () {
       const transferAmount = ethers.parseEther("1000");
       

@@ -57,9 +57,9 @@ describe("HalomToken Comprehensive Tests", function () {
     await governor.waitForDeployment();
 
     // Setup roles
-    await halomToken.grantRole(halomToken.GOVERNOR_ROLE, owner.address);
+    await halomToken.grantRole(await halomToken.MINTER_ROLE(), owner.address);
     await halomToken.grantRole(await halomToken.REBASER_ROLE(), owner.address);
-    await halomToken.grantRole(halomToken.MINTER_ROLE, owner.address);
+    await halomToken.grantRole(await halomToken.REBASE_CALLER(), owner.address);
 
     await staking.grantRole(await staking.DEFAULT_ADMIN_ROLE(), owner.address);
     await staking.grantRole(await staking.REWARD_MANAGER_ROLE(), await halomToken.getAddress());

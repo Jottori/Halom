@@ -31,15 +31,15 @@ describe("HalomGovernor Complete Flow Tests", function () {
     oracle = await HalomOracle.deploy(owner.address, 1);
     await oracle.waitForDeployment();
 
-    const rewardRate = ethers.parseEther("0.1");
-    staking = await HalomStaking.deploy(await halomToken.getAddress(), owner.address, 2000);
-    await staking.waitForDeployment();
-
-    treasury = await HalomTreasury.deploy(await halomToken.getAddress(), owner.address, 3600);
-    await treasury.waitForDeployment();
-
     roleManager = await HalomRoleManager.deploy();
     await roleManager.waitForDeployment();
+
+    const rewardRate = ethers.parseEther("0.1");
+    staking = await HalomStaking.deploy(await halomToken.getAddress(), await roleManager.getAddress(), rewardRate);
+    await staking.waitForDeployment();
+
+    treasury = await HalomTreasury.deploy(await halomToken.getAddress(), await roleManager.getAddress(), 3600);
+    await treasury.waitForDeployment();
 
     const votingDelay = 1;
     const votingPeriod = 10;
@@ -63,10 +63,12 @@ describe("HalomGovernor Complete Flow Tests", function () {
     await halomToken.grantRole(MINTER_ROLE, owner.address);
     await halomToken.grantRole(REBASE_CALLER, owner.address);
 
+    await staking.grantRole(await staking.STAKING_ADMIN_ROLE(), owner.address);
     await staking.grantRole(await staking.DEFAULT_ADMIN_ROLE(), owner.address);
     await staking.grantRole(await staking.REWARD_MANAGER_ROLE(), await halomToken.getAddress());
 
-    await treasury.grantRole(await treasury.DEFAULT_ADMIN_ROLE(), owner.address);
+    // Treasury role setup - owner already has DEFAULT_ADMIN_ROLE from constructor
+    await treasury.grantRole(await treasury.TREASURY_CONTROLLER(), owner.address);
     await roleManager.grantRole(await roleManager.DEFAULT_ADMIN_ROLE(), owner.address);
 
     await timelock.grantRole(await timelock.EXECUTOR_ROLE(), await governor.getAddress());

@@ -22,6 +22,11 @@
     "lint:fix": "npx solhint 'contracts/**/*.sol' --fix",
     "lint:js": "npx eslint scripts/**/*.js test/**/*.js hardhat.config.js --max-warnings=0",
     "lint:js:fix": "npx eslint scripts/**/*.js test/**/*.js hardhat.config.js --fix",
+    "format": "npx prettier --write 'contracts/**/*.sol' 'scripts/**/*.js' 'test/**/*.js'",
+    "format:check": "npx prettier --check 'contracts/**/*.sol' 'scripts/**/*.js' 'test/**/*.js'",
+    "docgen": "npx hardhat docgen",
+    "gas-report": "npx hardhat test --gas-report",
+    "security-check": "npx hardhat test test/security-audit-tests.cjs",
     "test:security": "npx hardhat test test/security-audit-tests.js",
     "test:oracle": "npx hardhat test test/test-oracle.js",
     "test:staking": "npx hardhat test test/test-staking.js",
@@ -51,6 +56,8 @@
     "globals": "^15.12.0",
     "hardhat": "^2.22.1",
     "hardhat-gas-reporter": "^2.3.0",
+    "prettier": "^3.3.3",
+    "prettier-plugin-solidity": "^1.4.2",
     "solidity-coverage": "^0.8.5"
   }
 }
