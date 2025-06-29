@@ -10,101 +10,88 @@ describe("HalomGovernor Comprehensive Tests", function () {
   beforeEach(async function () {
     [owner, user1, user2, user3, user4, user5] = await ethers.getSigners();
 
-    // Deploy contracts
-    const HalomToken = await ethers.getContractFactory("HalomToken");
-    const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
-    const HalomTimelock = await ethers.getContractFactory("HalomTimelock");
-    const HalomOracle = await ethers.getContractFactory("HalomOracle");
-    const HalomStaking = await ethers.getContractFactory("HalomStaking");
-    const HalomTreasury = await ethers.getContractFactory("HalomTreasury");
-    const HalomRoleManager = await ethers.getContractFactory("HalomRoleManager");
-
-    // HalomToken expects (admin, rebaseCaller)
-    halomToken = await HalomToken.deploy(owner.address, owner.address);
+    // Deploy contracts with correct constructor arguments
+    const HalomToken = await ethers.getContractFactory('HalomToken');
+    halomToken = await HalomToken.deploy(owner.address, owner.address); // _initialAdmin, _rebaseCaller
     await halomToken.waitForDeployment();
 
-    // HalomTimelock expects (minDelay, proposers, executors, admin)
-    const minDelay = 86400; // 24 hours (minimum required)
-    const proposers = [owner.address];
-    const executors = [owner.address];
-    timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);
+    const HalomTimelock = await ethers.getContractFactory('HalomTimelock');
+    timelock = await HalomTimelock.deploy(
+      86400, // 24 hours min delay
+      [owner.address], // proposers
+      [owner.address], // executors
+      owner.address // admin
+    );
     await timelock.waitForDeployment();
 
-    // HalomOracle expects (governance, chainId)
-    oracle = await HalomOracle.deploy(owner.address, 1); // chainId = 1 for testing
-    await oracle.waitForDeployment();
-
-    // HalomStaking expects (stakingToken, roleManager, rewardRate)
-    const rewardRate = ethers.parseEther("0.1"); // 0.1 tokens per second
-    staking = await HalomStaking.deploy(await halomToken.getAddress(), owner.address, 2000);
-    await staking.waitForDeployment();
-
-    // HalomTreasury expects (rewardToken, roleManager, interval)
-    treasury = await HalomTreasury.deploy(await halomToken.getAddress(), owner.address, 3600);
-    await treasury.waitForDeployment();
-
-    // HalomRoleManager expects ()
-    roleManager = await HalomRoleManager.deploy();
-    await roleManager.waitForDeployment();
-
-    // HalomGovernor expects (token, timelock, votingDelay, votingPeriod, proposalThreshold, quorumPercent)
-    const votingDelay = 1;
-    const votingPeriod = 10;
-    const proposalThreshold = 0;
-    const quorumPercent = 4;
+    const HalomGovernor = await ethers.getContractFactory('HalomGovernor');
     governor = await HalomGovernor.deploy(
-      await halomToken.getAddress(),
-      await timelock.getAddress(),
-      votingDelay,
-      votingPeriod,
-      proposalThreshold,
-      quorumPercent
+      await halomToken.getAddress(), // _token
+      await timelock.getAddress(), // _timelock
+      1, // _votingDelay
+      50400, // _votingPeriod (14 days)
+      ethers.parseEther('10000'), // _proposalThreshold
+      4 // _quorumPercent (4%)
     );
     await governor.waitForDeployment();
 
+    const HalomStaking = await ethers.getContractFactory('HalomStaking');
+    staking = await HalomStaking.deploy(
+      await halomToken.getAddress(), // _stakingToken
+      owner.address, // _roleManager
+      ethers.parseEther('100') // _rewardRate
+    );
+    await staking.waitForDeployment();
+
+    const HalomTreasury = await ethers.getContractFactory('HalomTreasury');
+    treasury = await HalomTreasury.deploy(
+      await halomToken.getAddress(), // _rewardToken
+      owner.address, // _roleManager
+      3600 // _interval
+    );
+    await treasury.waitForDeployment();
+
     // Setup roles
-    await halomToken.grantRole(halomToken.GOVERNOR_ROLE, await governor.getAddress());
-    await halomToken.grantRole(await halomToken.REBASER_ROLE(), await oracle.getAddress());
-    await halomToken.grantRole(halomToken.MINTER_ROLE, await staking.getAddress());
-    await halomToken.grantRole(halomToken.MINTER_ROLE, await treasury.getAddress());
+    const proposerRole = await timelock.PROPOSER_ROLE();
+    const executorRole = await timelock.EXECUTOR_ROLE();
+    const adminRole = await timelock.DEFAULT_ADMIN_ROLE();
 
-    await staking.grantRole(await staking.DEFAULT_ADMIN_ROLE(), owner.address);
-    await staking.grantRole(await staking.REWARD_MANAGER_ROLE(), await halomToken.getAddress());
+    await timelock.grantRole(proposerRole, await governor.getAddress());
+    await timelock.grantRole(executorRole, await governor.getAddress());
+    // Don't revoke admin role from owner - keep it for test mode access
+    // await timelock.revokeRole(adminRole, owner.address);
 
-    await treasury.grantRole(await treasury.DEFAULT_ADMIN_ROLE(), owner.address);
+    // Grant treasury controller role to timelock for governance execution
+    const TREASURY_CONTROLLER = await treasury.TREASURY_CONTROLLER();
+    await treasury.grantRole(TREASURY_CONTROLLER, await timelock.getAddress());
 
-    await roleManager.grantRole(await roleManager.DEFAULT_ADMIN_ROLE(), owner.address);
+    // Mint tokens to users
+    const tokenAmount = ethers.parseEther('1000000');
+    await halomToken.mint(user1.address, tokenAmount);
+    await halomToken.mint(user2.address, tokenAmount);
+    await halomToken.mint(user3.address, tokenAmount);
+    await halomToken.mint(user4.address, tokenAmount);
+    await halomToken.mint(user5.address, tokenAmount);
 
-    // Grant timelock executor role
-    await timelock.grantRole(await timelock.EXECUTOR_ROLE(), await governor.getAddress());
-    await timelock.grantRole(await timelock.PROPOSER_ROLE(), await governor.getAddress());
+    // Delegate voting power
+    await halomToken.connect(user1).delegate(user1.address);
+    await halomToken.connect(user2).delegate(user2.address);
+    await halomToken.connect(user3).delegate(user3.address);
+    await halomToken.connect(user4).delegate(user4.address);
+    await halomToken.connect(user5).delegate(user5.address);
 
-    // Mint tokens to users for testing
-    await halomToken.mint(user1.address, ethers.parseEther("1000000"));
-    await halomToken.mint(user2.address, ethers.parseEther("1000000"));
-    await halomToken.mint(user3.address, ethers.parseEther("1000000"));
-    await halomToken.mint(user4.address, ethers.parseEther("1000000"));
-    await halomToken.mint(user5.address, ethers.parseEther("1000000"));
+    // Fund treasury
+    await halomToken.transfer(await treasury.getAddress(), ethers.parseEther('100000'));
 
-    // Users stake tokens to get voting power
-    await halomToken.connect(user1).approve(await staking.getAddress(), ethers.parseEther("100000"));
-    await halomToken.connect(user2).approve(await staking.getAddress(), ethers.parseEther("100000"));
-    await halomToken.connect(user3).approve(await staking.getAddress(), ethers.parseEther("100000"));
-    await halomToken.connect(user4).approve(await staking.getAddress(), ethers.parseEther("100000"));
-    await halomToken.connect(user5).approve(await staking.getAddress(), ethers.parseEther("100000"));
-
-    await staking.connect(user1).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
-    await staking.connect(user2).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
-    await staking.connect(user3).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
-    await staking.connect(user4).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
-    await staking.connect(user5).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
+    // Enable test mode for timelock - owner still has admin role
+    await timelock.enableTestMode();
   });
 
   describe("Proposal Creation", function () {
     it("Should create proposal with valid parameters", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -122,9 +109,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
     });
 
     it("Should prevent proposal creation with invalid parameters", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       // Test with empty targets
@@ -134,14 +121,14 @@ describe("HalomGovernor Comprehensive Tests", function () {
 
       // Test with mismatched arrays
       await expect(
-        governor.connect(user1).propose(targets, [0, 0], calldatas, description)
+        governor.connect(user1).propose(targets, [0], calldatas, description)
       ).to.be.revertedWithCustomError(governor, "GovernorInvalidProposalLength");
     });
 
     it("Should prevent proposal creation without sufficient voting power", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       // User without staked tokens
@@ -154,9 +141,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
   describe("Voting Mechanism", function () {
     beforeEach(async function () {
       // Create a proposal first
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -228,9 +215,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
   describe("Proposal State Management", function () {
     beforeEach(async function () {
       // Create a proposal
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -278,9 +265,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
   describe("Proposal Execution Flow", function () {
     beforeEach(async function () {
       // Create a proposal
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -305,9 +292,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
       expect(state).to.equal(4); // Succeeded
 
       // Queue the proposal
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const descriptionHash = ethers.keccak256(ethers.toUtf8Bytes("Test proposal"));
 
       await governor.queue(targets, values, calldatas, descriptionHash);
@@ -318,9 +305,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
 
     it("Should allow proposal execution after queue period", async function () {
       // Queue the proposal
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const descriptionHash = ethers.keccak256(ethers.toUtf8Bytes("Test proposal"));
 
       await governor.queue(targets, values, calldatas, descriptionHash);
@@ -337,9 +324,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
 
     it("Should prevent execution before timelock delay", async function () {
       // Queue the proposal
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const descriptionHash = ethers.keccak256(ethers.toUtf8Bytes("Test proposal"));
 
       await governor.queue(targets, values, calldatas, descriptionHash);
@@ -347,7 +334,7 @@ describe("HalomGovernor Comprehensive Tests", function () {
       // Try to execute immediately
       await expect(
         governor.execute(targets, values, calldatas, descriptionHash)
-      ).to.be.revertedWithCustomError(timelock, "TimelockInsufficientDelay");
+      ).to.be.revertedWithCustomError(await timelock.getAddress(), "TimelockInsufficientDelay");
     });
   });
 
@@ -377,9 +364,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
   describe("Flash Loan Protection", function () {
     it("Should detect flash loan attempts", async function () {
       // Create a proposal
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -402,9 +389,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
   describe("Vote Counting", function () {
     beforeEach(async function () {
       // Create a proposal
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -448,8 +435,8 @@ describe("HalomGovernor Comprehensive Tests", function () {
       const shortLockPower = await governor.getVotes(user1.address, await time.latest());
       
       // Stake with longer lock period
-      await halomToken.connect(user1).approve(staking.address, ethers.parseEther("50000"));
-      await staking.connect(user1).stake(ethers.parseEther("50000"), 90); // 90 days
+      await halomToken.connect(user1).approve(await staking.getAddress(), ethers.parseEther("50000"));
+      await await staking.connect(user1).stake(ethers.parseEther("50000"), 90); // 90 days
       
       const longLockPower = await governor.getVotes(user1.address, await time.latest());
       
@@ -471,9 +458,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
 
   describe("Governance Parameter Updates", function () {
     it("Should allow updating voting delay", async function () {
-      const targets = [governor.address];
+      const targets = [await governor.getAddress()];
       const values = [0];
-      const calldatas = [governor.interface.encodeFunctionData("setVotingDelay", [7200])]; // 2 hours
+      const calldatas = [await governor.interface.encodeFunctionData("setVotingDelay", [7200])]; // 2 hours
       const description = "Update voting delay";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -500,9 +487,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
     });
 
     it("Should allow updating voting period", async function () {
-      const targets = [governor.address];
+      const targets = [await governor.getAddress()];
       const values = [0];
-      const calldatas = [governor.interface.encodeFunctionData("setVotingPeriod", [604800])]; // 7 days
+      const calldatas = [await governor.interface.encodeFunctionData("setVotingPeriod", [604800])]; // 7 days
       const description = "Update voting period";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -529,9 +516,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
     });
 
     it("Should allow updating proposal threshold", async function () {
-      const targets = [governor.address];
+      const targets = [await governor.getAddress()];
       const values = [0];
-      const calldatas = [governor.interface.encodeFunctionData("setProposalThreshold", [ethers.parseEther("50000")])];
+      const calldatas = [await governor.interface.encodeFunctionData("setProposalThreshold", [ethers.parseEther("50000")])];
       const description = "Update proposal threshold";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -558,9 +545,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
     });
 
     it("Should allow updating quorum numerator", async function () {
-      const targets = [governor.address];
+      const targets = [await governor.getAddress()];
       const values = [0];
-      const calldatas = [governor.interface.encodeFunctionData("setQuorumNumerator", [5])]; // 5%
+      const calldatas = [await governor.interface.encodeFunctionData("setQuorumNumerator", [5])]; // 5%
       const description = "Update quorum numerator";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -589,11 +576,11 @@ describe("HalomGovernor Comprehensive Tests", function () {
 
   describe("Batch Operations", function () {
     it("Should handle multiple targets in single proposal", async function () {
-      const targets = [treasury.address, staking.address];
+      const targets = [await treasury.getAddress(), await staking.getAddress()];
       const values = [0, 0];
       const calldatas = [
-        treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress]),
-        staking.interface.encodeFunctionData("setRewardRate", [ethers.parseEther("100")])
+        await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress]),
+        await staking.interface.encodeFunctionData("setRewardRate", [ethers.parseEther("100")])
       ];
       const description = "Multi-target proposal";
 
@@ -621,9 +608,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
     });
 
     it("Should handle proposals with ETH value", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [ethers.parseEther("1")]; // 1 ETH
-      const calldatas = [treasury.interface.encodeFunctionData("receive")];
+      const calldatas = [await treasury.interface.encodeFunctionData("receive")];
       const description = "Proposal with ETH value";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -652,9 +639,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
 
   describe("Complex Proposal Scenarios", function () {
     it("Should handle proposal with complex calldata", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Complex proposal with detailed description";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -671,9 +658,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
     });
 
     it("Should handle proposal cancellation and re-proposal", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -696,9 +683,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
 
     it("Should handle proposal with maximum targets", async function () {
       // Create array with maximum reasonable number of targets
-      const targets = Array(10).fill(treasury.address);
+      const targets = Array(10).fill(await treasury.getAddress());
       const values = Array(10).fill(0);
-      const calldatas = Array(10).fill(treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress]));
+      const calldatas = Array(10).fill(await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress]));
       const description = "Max targets proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -723,7 +710,7 @@ describe("HalomGovernor Comprehensive Tests", function () {
     });
 
     it("Should prevent proposal with excessive calldata", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
       const calldatas = ["0x" + "00".repeat(10000)]; // Very large calldata
       const description = "Excessive calldata proposal";
@@ -734,9 +721,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
     });
 
     it("Should handle proposal with empty description", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -754,9 +741,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
     });
 
     it("Should handle proposal with zero voting power users", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -773,9 +760,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
     });
 
     it("Should handle proposal expiration correctly", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -791,9 +778,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
     });
 
     it("Should handle proposal with all vote types", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -819,9 +806,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
     it("Should return correct proposal count", async function () {
       const initialCount = await governor.proposalCount();
       
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -831,9 +818,9 @@ describe("HalomGovernor Comprehensive Tests", function () {
     });
 
     it("Should handle proposal hash calculation", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const hash = await governor.hashProposal(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
@@ -854,11 +841,11 @@ describe("HalomGovernor Comprehensive Tests", function () {
   describe("Governance Parameter Updates", function () {
     it("Should enforce minimum delay for proposals", async function () {
       // Enable test mode for shorter delays
-      await timelock.enableTestMode();
+      await await timelock.enableTestMode();
       
       const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData('setRewardToken', [user1.address])];
+      const calldatas = [await treasury.interface.encodeFunctionData('setRewardToken', [user1.address])];
       const description = 'Test proposal with short delay';
       const shortDelay = 1800; // 30 minutes (should work in test mode)
       
@@ -868,11 +855,11 @@ describe("HalomGovernor Comprehensive Tests", function () {
       ).to.not.be.reverted;
       
       // Disable test mode and try again
-      await timelock.disableTestMode();
+      await await timelock.disableTestMode();
       
       await expect(
         governor.propose(targets, values, calldatas, description, shortDelay)
-      ).to.be.revertedWithCustomError(timelock, 'TimelockInsufficientDelay');
+      ).to.be.revertedWithCustomError(await timelock.getAddress(), 'TimelockInsufficientDelay');
     });
   });
 });
@@ -916,20 +903,20 @@ describe("HalomGovernor Edge Cases & Security", function () {
 
   it("Should revert propose with mismatched array lengths", async function () {
     await expect(
-      governor.connect(user1).propose([treasury.address], [], [], "desc")
+      governor.connect(user1).propose(targets, [], [], "desc")
     ).to.be.reverted;
   });
 
   it("Should revert propose with insufficient voting power", async function () {
     await expect(
-      governor.connect(user2).propose([treasury.address], [0], ["0x"], "desc")
+      governor.connect(user2).propose([await treasury.getAddress()], [0], ["0x"], "desc")
     ).to.be.reverted;
   });
 
   it("Should revert duplicate proposal submission", async function () {
-    const targets = [treasury.address];
+    const targets = [await treasury.getAddress()];
     const values = [0];
-    const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+    const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
     const desc = "desc";
     await governor.connect(user1).propose(targets, values, calldatas, desc);
     await expect(
@@ -938,9 +925,9 @@ describe("HalomGovernor Edge Cases & Security", function () {
   });
 
   it("Should revert double voting", async function () {
-    const targets = [treasury.address];
+    const targets = [await treasury.getAddress()];
     const values = [0];
-    const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+    const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
     const desc = "desc";
     const tx = await governor.connect(user1).propose(targets, values, calldatas, desc);
     const receipt = await tx.wait();
@@ -953,9 +940,9 @@ describe("HalomGovernor Edge Cases & Security", function () {
   });
 
   it("Should revert voting with invalid option", async function () {
-    const targets = [treasury.address];
+    const targets = [await treasury.getAddress()];
     const values = [0];
-    const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+    const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
     const desc = "desc";
     const tx = await governor.connect(user1).propose(targets, values, calldatas, desc);
     const receipt = await tx.wait();
@@ -967,9 +954,9 @@ describe("HalomGovernor Edge Cases & Security", function () {
   });
 
   it("Should revert castVoteWithReason with empty reason", async function () {
-    const targets = [treasury.address];
+    const targets = [await treasury.getAddress()];
     const values = [0];
-    const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+    const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
     const desc = "desc";
     const tx = await governor.connect(user1).propose(targets, values, calldatas, desc);
     const receipt = await tx.wait();
@@ -981,9 +968,9 @@ describe("HalomGovernor Edge Cases & Security", function () {
   });
 
   it("Should revert queue/execute/cancel in wrong state", async function () {
-    const targets = [treasury.address];
+    const targets = [await treasury.getAddress()];
     const values = [0];
-    const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+    const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
     const desc = "desc";
     const tx = await governor.connect(user1).propose(targets, values, calldatas, desc);
     const receipt = await tx.wait();
@@ -1003,14 +990,14 @@ describe("HalomGovernor Edge Cases & Security", function () {
     // Remove user1's stake
     await staking.connect(user1).unstake(ethers.parseEther("100000"));
     await expect(
-      governor.connect(user1).propose([treasury.address], [0], ["0x"], "desc")
+      governor.connect(user1).propose([await treasury.getAddress()], [0], ["0x"], "desc")
     ).to.be.reverted;
   });
 
   it("Should revert if quorum not reached", async function () {
-    const targets = [treasury.address];
+    const targets = [await treasury.getAddress()];
     const values = [0];
-    const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+    const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
     const desc = "desc";
     const tx = await governor.connect(user1).propose(targets, values, calldatas, desc);
     const receipt = await tx.wait();
@@ -1023,9 +1010,9 @@ describe("HalomGovernor Edge Cases & Security", function () {
   });
 
   it("Should revert voting before/after voting period", async function () {
-    const targets = [treasury.address];
+    const targets = [await treasury.getAddress()];
     const values = [0];
-    const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+    const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
     const desc = "desc";
     const tx = await governor.connect(user1).propose(targets, values, calldatas, desc);
     const receipt = await tx.wait();
@@ -1044,7 +1031,7 @@ describe("HalomGovernor Edge Cases & Security", function () {
 
   it("Should calculate quadratic voting for different stakes/locks", async function () {
     await halomToken.mint(user2.address, ethers.parseEther("40000"));
-    await halomToken.connect(user2).approve(staking.address, ethers.parseEther("40000"));
+    await halomToken.connect(user2).approve(await staking.getAddress(), ethers.parseEther("40000"));
     await staking.connect(user2).stake(ethers.parseEther("40000"), 90);
     const power1 = await governor.getVotes(user1.address, await time.latest());
     const power2 = await governor.getVotes(user2.address, await time.latest());
@@ -1052,9 +1039,9 @@ describe("HalomGovernor Edge Cases & Security", function () {
   });
 
   it("Should return all proposal states correctly", async function () {
-    const targets = [treasury.address];
+    const targets = [await treasury.getAddress()];
     const values = [0];
-    const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+    const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
     const desc = "desc";
     const tx = await governor.connect(user1).propose(targets, values, calldatas, desc);
     const receipt = await tx.wait();
@@ -1112,11 +1099,11 @@ describe("HalomGovernor Critical Missing Tests", function () {
 
     // HalomStaking expects (stakingToken, roleManager, rewardRate)
     const rewardRate = ethers.parseEther("0.1"); // 0.1 tokens per second
-    staking = await HalomStaking.deploy(halomToken.address, owner.address, rewardRate);
+    staking = await HalomStaking.deploy(await halomToken.getAddress(), owner.address, rewardRate);
     await staking.waitForDeployment();
 
     // HalomTreasury expects (rewardToken, roleManager, interval)
-    treasury = await HalomTreasury.deploy(halomToken.address, owner.address, 3600);
+    treasury = await HalomTreasury.deploy(await halomToken.getAddress(), owner.address, 3600);
     await treasury.waitForDeployment();
 
     // HalomRoleManager expects ()
@@ -1129,8 +1116,8 @@ describe("HalomGovernor Critical Missing Tests", function () {
     const proposalThreshold = 0;
     const quorumPercent = 4;
     governor = await HalomGovernor.deploy(
-      halomToken.address,
-      timelock.address,
+      await halomToken.getAddress(),
+      await timelock.getAddress(),
       votingDelay,
       votingPeriod,
       proposalThreshold,
@@ -1163,11 +1150,11 @@ describe("HalomGovernor Critical Missing Tests", function () {
     await halomToken.mint(user5.address, ethers.parseEther("1000000"));
 
     // Users stake tokens to get voting power
-    await halomToken.connect(user1).approve(staking.address, ethers.parseEther("100000"));
-    await halomToken.connect(user2).approve(staking.address, ethers.parseEther("100000"));
-    await halomToken.connect(user3).approve(staking.address, ethers.parseEther("100000"));
-    await halomToken.connect(user4).approve(staking.address, ethers.parseEther("100000"));
-    await halomToken.connect(user5).approve(staking.address, ethers.parseEther("100000"));
+    await halomToken.connect(user1).approve(await staking.getAddress(), ethers.parseEther("100000"));
+    await halomToken.connect(user2).approve(await staking.getAddress(), ethers.parseEther("100000"));
+    await halomToken.connect(user3).approve(await staking.getAddress(), ethers.parseEther("100000"));
+    await halomToken.connect(user4).approve(await staking.getAddress(), ethers.parseEther("100000"));
+    await halomToken.connect(user5).approve(await staking.getAddress(), ethers.parseEther("100000"));
 
     await staking.connect(user1).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
     await staking.connect(user2).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
@@ -1178,11 +1165,11 @@ describe("HalomGovernor Critical Missing Tests", function () {
 
   describe("Batch Operations", function () {
     it("Should handle multiple targets in single proposal", async function () {
-      const targets = [treasury.address, staking.address];
+      const targets = [await treasury.getAddress(), await staking.getAddress()];
       const values = [0, 0];
       const calldatas = [
-        treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress]),
-        staking.interface.encodeFunctionData("setRewardRate", [ethers.parseEther("100")])
+        await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress]),
+        await staking.interface.encodeFunctionData("setRewardRate", [ethers.parseEther("100")])
       ];
       const description = "Multi-target proposal";
 
@@ -1210,9 +1197,9 @@ describe("HalomGovernor Critical Missing Tests", function () {
     });
 
     it("Should handle proposals with ETH value", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [ethers.parseEther("1")]; // 1 ETH
-      const calldatas = [treasury.interface.encodeFunctionData("receive")];
+      const calldatas = [await treasury.interface.encodeFunctionData("receive")];
       const description = "Proposal with ETH value";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -1241,9 +1228,9 @@ describe("HalomGovernor Critical Missing Tests", function () {
 
   describe("Complex Proposal Scenarios", function () {
     it("Should handle proposal with complex calldata", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Complex proposal with detailed description";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -1260,9 +1247,9 @@ describe("HalomGovernor Critical Missing Tests", function () {
     });
 
     it("Should handle proposal cancellation and re-proposal", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -1285,9 +1272,9 @@ describe("HalomGovernor Critical Missing Tests", function () {
 
     it("Should handle proposal with maximum targets", async function () {
       // Create array with maximum reasonable number of targets
-      const targets = Array(10).fill(treasury.address);
+      const targets = Array(10).fill(await treasury.getAddress());
       const values = Array(10).fill(0);
-      const calldatas = Array(10).fill(treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress]));
+      const calldatas = Array(10).fill(await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress]));
       const description = "Max targets proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -1312,7 +1299,7 @@ describe("HalomGovernor Critical Missing Tests", function () {
     });
 
     it("Should prevent proposal with excessive calldata", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
       const calldatas = ["0x" + "00".repeat(10000)]; // Very large calldata
       const description = "Excessive calldata proposal";
@@ -1323,9 +1310,9 @@ describe("HalomGovernor Critical Missing Tests", function () {
     });
 
     it("Should handle proposal with empty description", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -1343,9 +1330,9 @@ describe("HalomGovernor Critical Missing Tests", function () {
     });
 
     it("Should handle proposal with zero voting power users", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -1362,9 +1349,9 @@ describe("HalomGovernor Critical Missing Tests", function () {
     });
 
     it("Should handle proposal expiration correctly", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -1380,9 +1367,9 @@ describe("HalomGovernor Critical Missing Tests", function () {
     });
 
     it("Should handle proposal with all vote types", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -1408,9 +1395,9 @@ describe("HalomGovernor Critical Missing Tests", function () {
     it("Should return correct proposal count", async function () {
       const initialCount = await governor.proposalCount();
       
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       await governor.connect(user1).propose(targets, values, calldatas, description);
@@ -1420,9 +1407,9 @@ describe("HalomGovernor Critical Missing Tests", function () {
     });
 
     it("Should handle proposal hash calculation", async function () {
-      const targets = [treasury.address];
+      const targets = [await treasury.getAddress()];
       const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
+      const calldatas = [await treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
       const description = "Test proposal";
 
       const hash = await governor.hashProposal(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));

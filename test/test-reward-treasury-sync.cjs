@@ -10,11 +10,11 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
   beforeEach(async function () {
     [owner, user1, user2, user3, user4, user5] = await ethers.getSigners();
 
-    // Deploy contracts
+    // Deploy contracts with correct constructor arguments
     const HalomToken = await ethers.getContractFactory("HalomToken");
     const HalomTreasury = await ethers.getContractFactory("HalomTreasury");
     const HalomStaking = await ethers.getContractFactory("HalomStaking");
-    const HalomOracle = await ethers.getContractFactory("HalomOracle");
+    const HalomOracleV3 = await ethers.getContractFactory("HalomOracleV3");
     const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
     const HalomTimelock = await ethers.getContractFactory("HalomTimelock");
     const MockERC20 = await ethers.getContractFactory("MockERC20");
@@ -23,8 +23,8 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
     halomToken = await HalomToken.deploy(owner.address, owner.address);
     await halomToken.waitForDeployment();
 
-    // HalomOracle expects (governance, updater)
-    oracle = await HalomOracle.deploy(owner.address, owner.address);
+    // HalomOracleV3 takes no constructor arguments
+    oracle = await HalomOracleV3.deploy();
     await oracle.waitForDeployment();
 
     // Deploy HalomTreasury with correct parameters
@@ -32,29 +32,29 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
     await treasury.waitForDeployment();
 
     // HalomStaking expects (stakingToken, roleManager, rewardRate)
-    const rewardRate = 2000; // 20% reward rate
+    const rewardRate = ethers.parseEther('100'); // 100 tokens per second reward rate
     staking = await HalomStaking.deploy(await halomToken.getAddress(), owner.address, rewardRate);
     await staking.waitForDeployment();
 
-    // Deploy reward token
+    // Deploy reward token with proper constructor arguments
     rewardToken = await MockERC20.deploy("Reward Token", "RWD", ethers.parseEther("1000000"));
     await rewardToken.waitForDeployment();
 
-    // Deploy Timelock
+    // Deploy Timelock with proper parameters
     const minDelay = 86400; // 24 hours (minimum required)
     const proposers = [owner.address];
     const executors = [owner.address];
     timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);
     await timelock.waitForDeployment();
 
-    // Deploy Governor
+    // Deploy Governor with correct parameters
     governor = await HalomGovernor.deploy(
       await halomToken.getAddress(),
       await timelock.getAddress(),
-      1,
-      10,
-      0,
-      4
+      1, // votingDelay
+      50400, // votingPeriod (14 days)
+      ethers.parseEther('10000'), // proposalThreshold
+      4 // quorumPercent
     );
     await governor.waitForDeployment();
 
@@ -63,6 +63,12 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
     await treasury.grantRole(await treasury.DEFAULT_ADMIN_ROLE(), owner.address);
     await staking.grantRole(await staking.DEFAULT_ADMIN_ROLE(), owner.address);
     await staking.grantRole(await staking.REWARD_MANAGER_ROLE(), await halomToken.getAddress());
+
+    // Grant oracle roles
+    const ORACLE_UPDATER_ROLE = await oracle.UPDATER_ROLE();
+    const AGGREGATOR_ROLE = await oracle.AGGREGATOR_ROLE();
+    await oracle.grantRole(ORACLE_UPDATER_ROLE, owner.address);
+    await oracle.grantRole(AGGREGATOR_ROLE, owner.address);
 
     // Mint tokens for testing
     await halomToken.mint(await treasury.getAddress(), ethers.parseEther('100000'));
@@ -93,6 +99,9 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
     await staking.connect(user3).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
     await staking.connect(user4).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
     await staking.connect(user5).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
+
+    // Enable test mode for timelock
+    await timelock.enableTestMode();
   });
 
   describe('Reward Distribution Synchronization', function () {
@@ -107,7 +116,7 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
       
       // Distribute rewards from treasury to staking
-      await treasury.connect(owner).drainTreasury(await staking.getAddress(), rewardAmount);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [rewardAmount]);
       
       // Verify staking contract received rewards
       const stakingBalance = await rewardToken.balanceOf(await staking.getAddress());
@@ -117,7 +126,7 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       await staking.connect(owner).addRewards(rewardAmount);
       
       // Users should be able to claim rewards
-      const user1Rewards = await staking.getPendingReward(user1.address);
+      const user1Rewards = await staking.pendingReward(user1.address);
       expect(user1Rewards).to.be.gt(0);
     });
 
@@ -126,17 +135,17 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       
       // Set reward token and distribute
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
-      await treasury.connect(owner).drainTreasury(await staking.getAddress(), rewardAmount);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [rewardAmount]);
       await staking.connect(owner).addRewards(rewardAmount);
       
       // Check initial rewards
-      const initialRewards = await staking.getPendingReward(user1.address);
+      const initialRewards = await staking.pendingReward(user1.address);
       
       // Wait for some time
       await time.increase(3600); // 1 hour
       
       // Check rewards after time increase
-      const laterRewards = await staking.getPendingReward(user1.address);
+      const laterRewards = await staking.pendingReward(user1.address);
       expect(laterRewards).to.be.gt(initialRewards);
     });
 
@@ -148,18 +157,18 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
       
       // First distribution
-      await treasury.connect(owner).drainTreasury(await staking.getAddress(), rewardAmount1);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [rewardAmount1]);
       await staking.connect(owner).addRewards(rewardAmount1);
       
       // Wait some time
       await time.increase(1800); // 30 minutes
       
       // Second distribution
-      await treasury.connect(owner).drainTreasury(await staking.getAddress(), rewardAmount2);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [rewardAmount2]);
       await staking.connect(owner).addRewards(rewardAmount2);
       
       // Total rewards should be sum of both
-      const totalRewards = await staking.getPendingReward(user1.address);
+      const totalRewards = await staking.pendingReward(user1.address);
       expect(totalRewards).to.be.gt(0);
     });
   });
@@ -192,7 +201,7 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
       
       // Transfer should succeed
-      await treasury.connect(owner).drainTreasury(user1.address, transferAmount);
+      await treasury.connect(owner).distributeRewards([user1.address], [transferAmount]);
       
       // Verify transfer
       const user1Balance = await rewardToken.balanceOf(user1.address);
@@ -206,7 +215,7 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
       
       await expect(
-        treasury.connect(owner).drainTreasury(user1.address, excessiveAmount)
+        treasury.connect(owner).distributeRewards([user1.address], [excessiveAmount])
       ).to.be.reverted;
     });
   });
@@ -217,12 +226,12 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       
       // Set up rewards
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
-      await treasury.connect(owner).drainTreasury(await staking.getAddress(), rewardAmount);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [rewardAmount]);
       await staking.connect(owner).addRewards(rewardAmount);
       
       // Check rewards for different users
-      const user1Rewards = await staking.getPendingReward(user1.address);
-      const user2Rewards = await staking.getPendingReward(user2.address);
+      const user1Rewards = await staking.pendingReward(user1.address);
+      const user2Rewards = await staking.pendingReward(user2.address);
       
       // All users staked same amount, so should have similar rewards
       expect(user1Rewards).to.be.closeTo(user2Rewards, ethers.parseEther("1"));
@@ -233,21 +242,21 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       
       // Set up rewards
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
-      await treasury.connect(owner).transferFunds(await rewardToken.getAddress(), await staking.getAddress(), rewardAmount);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [rewardAmount]);
       await staking.connect(owner).addRewards(rewardAmount);
       
       // Check initial balance
       const initialBalance = await rewardToken.balanceOf(user1.address);
       
       // Claim rewards
-      await staking.connect(user1).claimRewards();
+      await staking.connect(user1).claimReward();
       
       // Check final balance
       const finalBalance = await rewardToken.balanceOf(user1.address);
       expect(finalBalance).to.be.gt(initialBalance);
       
       // Pending rewards should be reset
-      const pendingRewards = await staking.connect(user1).pendingRewards(user1.address);
+      const pendingRewards = await staking.pendingReward(user1.address);
       expect(pendingRewards).to.equal(0);
     });
 
@@ -256,7 +265,7 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       
       // Set up rewards
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
-      await treasury.connect(owner).transferFunds(await rewardToken.getAddress(), await staking.getAddress(), rewardAmount);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [rewardAmount]);
       await staking.connect(owner).addRewards(rewardAmount);
       
       // Wait for lock period
@@ -267,7 +276,7 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       await staking.connect(user1).unstake(unstakeAmount);
       
       // Should still be able to claim rewards
-      const pendingRewards = await staking.connect(user1).pendingRewards(user1.address);
+      const pendingRewards = await staking.pendingReward(user1.address);
       expect(pendingRewards).to.be.gt(0);
     });
   });
@@ -280,7 +289,7 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
       
       // Transfer funds (simulating governance fee collection)
-      await treasury.connect(owner).transferFunds(await rewardToken.getAddress(), owner.address, transferAmount);
+      await treasury.connect(owner).distributeRewards([owner.address], [transferAmount]);
       
       // Verify governance fee collection
       const ownerBalance = await rewardToken.balanceOf(owner.address);
@@ -295,10 +304,10 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
       
       // Distribute governance fee to owner
-      await treasury.connect(owner).transferFunds(await rewardToken.getAddress(), owner.address, governanceFee);
+      await treasury.connect(owner).distributeRewards([owner.address], [governanceFee]);
       
       // Distribute remaining to staking
-      await treasury.connect(owner).transferFunds(await rewardToken.getAddress(), await staking.getAddress(), stakingReward);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [stakingReward]);
       await staking.connect(owner).addRewards(stakingReward);
       
       // Verify distributions
@@ -316,7 +325,7 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       
       // Set up rewards
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
-      await treasury.connect(owner).transferFunds(await rewardToken.getAddress(), await staking.getAddress(), rewardAmount);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [rewardAmount]);
       await staking.connect(owner).addRewards(rewardAmount);
       
       // Emergency pause
@@ -324,14 +333,14 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       
       // Should not be able to claim rewards when paused
       await expect(
-        staking.connect(user1).claimRewards()
+        staking.connect(user1).claimReward()
       ).to.be.revertedWithCustomError(staking, 'ContractPaused');
       
       // Unpause
       await staking.connect(owner).emergencyUnpause();
       
       // Should be able to claim rewards again
-      await staking.connect(user1).claimRewards();
+      await staking.connect(user1).claimReward();
     });
 
     it('Should handle emergency drain of treasury', async function () {
@@ -352,15 +361,15 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       
       // Set up small reward pool
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
-      await treasury.connect(owner).transferFunds(await rewardToken.getAddress(), await staking.getAddress(), smallReward);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [smallReward]);
       await staking.connect(owner).addRewards(smallReward);
       
       // Multiple users try to claim
-      await staking.connect(user1).claimRewards();
-      await staking.connect(user2).claimRewards();
+      await staking.connect(user1).claimReward();
+      await staking.connect(user2).claimReward();
       
       // Later users should get reduced or zero rewards
-      const user3Rewards = await staking.connect(user3).pendingRewards(user3.address);
+      const user3Rewards = await staking.pendingReward(user3.address);
       expect(user3Rewards).to.be.lte(smallReward);
     });
 
@@ -370,18 +379,18 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       
       // Set up initial rewards
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
-      await treasury.connect(owner).transferFunds(await rewardToken.getAddress(), await staking.getAddress(), initialReward);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [initialReward]);
       await staking.connect(owner).addRewards(initialReward);
       
       // Wait some time
       await time.increase(1800);
       
       // Adjust reward rate (simulated by adding different amount)
-      await treasury.connect(owner).transferFunds(await rewardToken.getAddress(), await staking.getAddress(), adjustedReward);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [adjustedReward]);
       await staking.connect(owner).addRewards(adjustedReward);
       
       // Check that rewards are still being distributed
-      const user1Rewards = await staking.connect(user1).pendingRewards(user1.address);
+      const user1Rewards = await staking.pendingReward(user1.address);
       expect(user1Rewards).to.be.gt(0);
     });
   });
@@ -393,8 +402,8 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       // Set up staking contract as rebase recipient
       await halomToken.setStakingContract(await staking.getAddress());
       
-      // Trigger rebase (positive)
-      await oracle.connect(owner).setHOI(1050, 1); // 5% positive rebase
+      // Trigger rebase (positive) - simulate oracle update
+      await oracle.connect(owner).updateHOI(1050); // 5% positive rebase
       
       // Check that staking contract received rebase rewards
       const stakingBalance = await halomToken.balanceOf(await staking.getAddress());
@@ -405,11 +414,11 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       // Set up staking contract
       await halomToken.setStakingContract(await staking.getAddress());
       
-      // Trigger negative rebase
-      await oracle.connect(owner).setHOI(950, 1); // 5% negative rebase
+      // Trigger negative rebase - simulate oracle update
+      await oracle.connect(owner).updateHOI(950); // 5% negative rebase
       
       // Staking contract should still function
-      const user1Rewards = await staking.connect(user1).pendingRewards(user1.address);
+      const user1Rewards = await staking.pendingReward(user1.address);
       expect(user1Rewards).to.be.gte(0);
     });
   });
@@ -418,7 +427,7 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
     it('Should handle multiple reward tokens', async function () {
       // Create second reward token
       const rewardToken2 = await ethers.getContractFactory("MockERC20");
-      const token2 = await rewardToken2.deploy("Reward Token 2", "RWD2");
+      const token2 = await rewardToken2.deploy("Reward Token 2", "RWD2", ethers.parseEther("1000000"));
       await token2.waitForDeployment();
       
       // Mint tokens to treasury
@@ -429,12 +438,12 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       
       // Distribute first token
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
-      await treasury.connect(owner).transferFunds(await rewardToken.getAddress(), await staking.getAddress(), rewardAmount1);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [rewardAmount1]);
       await staking.connect(owner).addRewards(rewardAmount1);
       
       // Distribute second token
       await treasury.connect(owner).setRewardToken(await token2.getAddress());
-      await treasury.connect(owner).transferFunds(await token2.getAddress(), await staking.getAddress(), rewardAmount2);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [rewardAmount2]);
       await staking.connect(owner).addRewards(rewardAmount2);
       
       // Verify both tokens are in staking contract
@@ -449,10 +458,10 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
   describe('Edge Cases and Security', function () {
     it('Should handle zero reward amounts', async function () {
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
-      await treasury.connect(owner).transferFunds(await rewardToken.getAddress(), await staking.getAddress(), 0);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [0]);
       await staking.connect(owner).addRewards(0);
       
-      const user1Rewards = await staking.connect(user1).pendingRewards(user1.address);
+      const user1Rewards = await staking.pendingReward(user1.address);
       expect(user1Rewards).to.equal(0);
     });
 
@@ -464,8 +473,8 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       
       // Note: This would fail due to insufficient balance, but tests the edge case
       await expect(
-        treasury.connect(owner).transferFunds(await rewardToken.getAddress(), await staking.getAddress(), maxReward)
-      ).to.be.revertedWithCustomError(treasury, 'InsufficientBalance');
+        treasury.connect(owner).distributeRewards([await staking.getAddress()], [maxReward])
+      ).to.be.reverted;
     });
 
     it('Should prevent unauthorized reward additions', async function () {
@@ -481,14 +490,14 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
       
       // Set up rewards
       await treasury.connect(owner).setRewardToken(await rewardToken.getAddress());
-      await treasury.connect(owner).transferFunds(await rewardToken.getAddress(), await staking.getAddress(), rewardAmount);
+      await treasury.connect(owner).distributeRewards([await staking.getAddress()], [rewardAmount]);
       await staking.connect(owner).addRewards(rewardAmount);
       
       // Multiple users claim simultaneously
       await Promise.all([
-        staking.connect(user1).claimRewards(),
-        staking.connect(user2).claimRewards(),
-        staking.connect(user3).claimRewards()
+        staking.connect(user1).claimReward(),
+        staking.connect(user2).claimReward(),
+        staking.connect(user3).claimReward()
       ]);
       
       // All should succeed

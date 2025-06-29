@@ -9,9 +9,9 @@ describe('Critical Fixes Validation', function () {
   beforeEach(async function () {
     [owner, user1, user2, user3, user4, user5] = await ethers.getSigners();
 
-    // Deploy contracts
+    // Deploy contracts with correct constructor arguments
     const HalomToken = await ethers.getContractFactory('HalomToken');
-    halomToken = await HalomToken.deploy();
+    halomToken = await HalomToken.deploy(owner.address, owner.address); // _initialAdmin, _rebaseCaller
     await halomToken.waitForDeployment();
 
     const HalomTimelock = await ethers.getContractFactory('HalomTimelock');
@@ -25,29 +25,33 @@ describe('Critical Fixes Validation', function () {
 
     const HalomGovernor = await ethers.getContractFactory('HalomGovernor');
     governor = await HalomGovernor.deploy(
-      halomToken.address,
-      timelock.address
+      await halomToken.getAddress(), // _token
+      await timelock.getAddress(), // _timelock
+      1, // _votingDelay
+      50400, // _votingPeriod (14 days)
+      ethers.parseEther('10000'), // _proposalThreshold
+      4 // _quorumPercent (4%)
     );
     await governor.waitForDeployment();
 
     const HalomStaking = await ethers.getContractFactory('HalomStaking');
     staking = await HalomStaking.deploy(
-      halomToken.address,
-      ethers.parseEther('100'), // reward rate
-      3600 // reward interval
+      await halomToken.getAddress(), // _stakingToken
+      owner.address, // _roleManager
+      ethers.parseEther('100') // _rewardRate
     );
     await staking.waitForDeployment();
 
     const HalomTreasury = await ethers.getContractFactory('HalomTreasury');
     treasury = await HalomTreasury.deploy(
-      halomToken.address,
-      owner.address, // role manager
-      3600 // distribution interval
+      await halomToken.getAddress(), // _rewardToken
+      owner.address, // _roleManager
+      3600 // _interval
     );
     await treasury.waitForDeployment();
 
     const HalomOracleV3 = await ethers.getContractFactory('HalomOracleV3');
-    oracleV3 = await HalomOracleV3.deploy();
+    oracleV3 = await HalomOracleV3.deploy(); // Constructor takes no parameters
     await oracleV3.waitForDeployment();
 
     // Setup roles
@@ -55,9 +59,10 @@ describe('Critical Fixes Validation', function () {
     const executorRole = await timelock.EXECUTOR_ROLE();
     const adminRole = await timelock.DEFAULT_ADMIN_ROLE();
 
-    await timelock.grantRole(proposerRole, governor.address);
-    await timelock.grantRole(executorRole, governor.address);
-    await timelock.revokeRole(adminRole, owner.address);
+    await timelock.grantRole(proposerRole, await governor.getAddress());
+    await timelock.grantRole(executorRole, await governor.getAddress());
+    // Don't revoke admin role from owner - keep it for test mode access
+    // await timelock.revokeRole(adminRole, owner.address);
 
     // Grant oracle roles
     const ORACLE_UPDATER_ROLE = await oracleV3.UPDATER_ROLE();
@@ -67,7 +72,7 @@ describe('Critical Fixes Validation', function () {
 
     // Grant treasury controller role to timelock for governance execution
     const TREASURY_CONTROLLER = await treasury.TREASURY_CONTROLLER();
-    await treasury.grantRole(TREASURY_CONTROLLER, timelock.address);
+    await treasury.grantRole(TREASURY_CONTROLLER, await timelock.getAddress());
 
     // Mint tokens to users
     const tokenAmount = ethers.parseEther('1000000');
@@ -85,9 +90,9 @@ describe('Critical Fixes Validation', function () {
     await halomToken.connect(user5).delegate(user5.address);
 
     // Fund treasury
-    await halomToken.transfer(treasury.address, ethers.parseEther('100000'));
+    await halomToken.transfer(await treasury.getAddress(), ethers.parseEther('100000'));
 
-    // Enable test mode for timelock
+    // Enable test mode for timelock - owner still has admin role
     await timelock.enableTestMode();
   });
 
@@ -127,14 +132,14 @@ describe('Critical Fixes Validation', function () {
     });
 
     it('Should prevent single node manipulation with deviation checks', async function () {
-      const feedId1 = ethers.keccak256(ethers.toUtf8Bytes("HOI_FEED_1"));
-      const feedId2 = ethers.keccak256(ethers.toUtf8Bytes("HOI_FEED_2"));
-      const feedId3 = ethers.keccak256(ethers.toUtf8Bytes("HOI_FEED_3"));
+      const feedId1 = ethers.keccak256(ethers.toUtf8Bytes("HOI_FEED_MANIPULATION_1"));
+      const feedId2 = ethers.keccak256(ethers.toUtf8Bytes("HOI_FEED_MANIPULATION_2"));
+      const feedId3 = ethers.keccak256(ethers.toUtf8Bytes("HOI_FEED_MANIPULATION_3"));
 
       // Add feeds with different weights
-      await oracleV3.addFeed(feedId1, 3600, ethers.parseEther('0.1'), 50);
-      await oracleV3.addFeed(feedId2, 3600, ethers.parseEther('0.1'), 25);
-      await oracleV3.addFeed(feedId3, 3600, ethers.parseEther('0.1'), 25);
+      await oracleV3.addFeed(feedId1, 3600, 10, 50); // 10% max deviation
+      await oracleV3.addFeed(feedId2, 3600, 10, 25); // 10% max deviation
+      await oracleV3.addFeed(feedId3, 3600, 10, 25); // 10% max deviation
 
       const currentTime = Math.floor(Date.now() / 1000);
       // One feed with extreme value (manipulation attempt)
@@ -154,8 +159,12 @@ describe('Critical Fixes Validation', function () {
     });
 
     it('Should fall back to weighted average when insufficient feeds for median', async function () {
-      const feedId1 = ethers.keccak256(ethers.toUtf8Bytes("HOI_FEED_1"));
-      const feedId2 = ethers.keccak256(ethers.toUtf8Bytes("HOI_FEED_2"));
+      const feedId1 = ethers.keccak256(ethers.toUtf8Bytes("HOI_FEED_WEIGHTED_1"));
+      const feedId2 = ethers.keccak256(ethers.toUtf8Bytes("HOI_FEED_WEIGHTED_2"));
+
+      // Add feeds first
+      await oracleV3.addFeed(feedId1, 3600, 10, 50);
+      await oracleV3.addFeed(feedId2, 3600, 10, 25);
 
       // Only 2 feeds (below MIN_CONSENSUS_FEEDS = 3)
       const currentTime = Math.floor(Date.now() / 1000);
@@ -169,11 +178,15 @@ describe('Critical Fixes Validation', function () {
       
       // Should use weighted average instead of median
       expect(aggregatedData.validFeeds).to.equal(2);
-      expect(aggregatedData.weightedValue).to.be.closeTo(ethers.parseEther('1057'), ethers.parseEther('10')); // Weighted average
+      // Weighted average: (1000 * 50 + 1100 * 25) / (50 + 25) = 1033.33...
+      expect(aggregatedData.weightedValue).to.be.closeTo(ethers.parseEther('1033.33'), ethers.parseEther('10'));
     });
 
     it('Should prevent aggregation with insufficient feeds', async function () {
-      const feedId1 = ethers.keccak256(ethers.toUtf8Bytes("HOI_FEED_1"));
+      const feedId1 = ethers.keccak256(ethers.toUtf8Bytes("HOI_FEED_INSUFFICIENT_1"));
+
+      // Add feed but don't update data
+      await oracleV3.addFeed(feedId1, 3600, 10, 50);
 
       // Try to aggregate with insufficient feeds (should fail)
       await expect(
@@ -242,17 +255,17 @@ describe('Critical Fixes Validation', function () {
       const data = treasury.interface.encodeFunctionData("setRewardToken", [user1.address]);
       const predecessor = ethers.ZeroHash;
       const salt = ethers.keccak256(ethers.toUtf8Bytes("test-salt"));
-      const shortDelay = 1800; // 30 minutes (below 24-hour minimum but above test minimum)
+      const testDelay = 3600; // 1 hour (minimum for test mode)
       
       await expect(
-        timelock.queueTransaction(target, value, data, predecessor, salt, shortDelay)
+        timelock.queueTransaction(target, value, data, predecessor, salt, testDelay)
       ).to.not.be.reverted; // Should work in test mode
       
-      // Disable test mode and try again
+      // Disable test mode and try again with same delay
       await timelock.disableTestMode();
       
       await expect(
-        timelock.queueTransaction(target, value, data, predecessor, salt, shortDelay)
+        timelock.queueTransaction(target, value, data, predecessor, salt, testDelay)
       ).to.be.revertedWithCustomError(timelock, 'TimelockInsufficientDelay');
     });
 

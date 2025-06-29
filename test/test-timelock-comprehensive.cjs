@@ -4,79 +4,87 @@ const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("HalomTimelock Comprehensive Tests", function () {
   let timelock, halomToken, governor, staking, treasury;
-  let owner, user1, user2, user3;
+  let owner, user1, user2, user3, user4, user5;
   let operationHash, operationHash2;
 
   beforeEach(async function () {
-    [owner, user1, user2, user3] = await ethers.getSigners();
+    [owner, user1, user2, user3, user4, user5] = await ethers.getSigners();
 
-    // Deploy contracts
-    const HalomToken = await ethers.getContractFactory("HalomToken");
-    const HalomTimelock = await ethers.getContractFactory("HalomTimelock");
-    const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
-    const HalomOracle = await ethers.getContractFactory("HalomOracle");
-    const HalomStaking = await ethers.getContractFactory("HalomStaking");
-    const HalomTreasury = await ethers.getContractFactory("HalomTreasury");
-    const HalomRoleManager = await ethers.getContractFactory("HalomRoleManager");
+    // Deploy contracts with correct constructor arguments
+    const HalomToken = await ethers.getContractFactory('HalomToken');
+    halomToken = await HalomToken.deploy(owner.address, owner.address); // _initialAdmin, _rebaseCaller
+    await halomToken.waitForDeployment();
 
-    // Deploy token first
-    halomToken = await HalomToken.deploy(owner.address, owner.address);
-    
-    // Deploy role manager
-    const roleManager = await HalomRoleManager.deploy();
-    
-    // Deploy treasury with owner as roleManager so owner can grant roles
-    treasury = await HalomTreasury.deploy(await halomToken.getAddress(), owner.address, 3600);
-    
-    // Deploy oracle with correct constructor arguments
-    oracle = await HalomOracle.deploy(owner.address, 31337); // governance, chainId
-    
-    // Deploy staking with correct constructor arguments
-    staking = await HalomStaking.deploy(await halomToken.getAddress(), await roleManager.getAddress(), 2000); // stakingToken, roleManager, rewardRate
-    
-    // Deploy timelock
-    const minDelay = 86400; // 24 hours (minimum required)
-    const proposers = [owner.address];
-    const executors = [owner.address];
-    timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);
-    
-    // Deploy governor with correct constructor arguments
-    governor = await HalomGovernor.deploy(
-      await halomToken.getAddress(), // token
-      await timelock.getAddress(), // timelock
-      1, // votingDelay
-      45818, // votingPeriod
-      ethers.parseEther("1000000"), // proposalThreshold
-      3 // quorumPercent
+    const HalomTimelock = await ethers.getContractFactory('HalomTimelock');
+    timelock = await HalomTimelock.deploy(
+      86400, // 24 hours min delay
+      [owner.address], // proposers
+      [owner.address], // executors
+      owner.address // admin
     );
+    await timelock.waitForDeployment();
 
-    // Setup roles - use owner for all role grants since roleManager is a contract
-    await timelock.grantRole(await timelock.PROPOSER_ROLE(), await governor.getAddress());
-    await timelock.grantRole(await timelock.EXECUTOR_ROLE(), await governor.getAddress());
-    await timelock.grantRole(await timelock.CANCELLER_ROLE(), owner.address);
+    const HalomGovernor = await ethers.getContractFactory('HalomGovernor');
+    governor = await HalomGovernor.deploy(
+      await halomToken.getAddress(), // _token
+      await timelock.getAddress(), // _timelock
+      1, // _votingDelay
+      50400, // _votingPeriod (14 days)
+      ethers.parseEther('10000'), // _proposalThreshold
+      4 // _quorumPercent (4%)
+    );
+    await governor.waitForDeployment();
 
-    await halomToken.grantRole(await halomToken.DEFAULT_ADMIN_ROLE(), await governor.getAddress());
-    await halomToken.grantRole(await halomToken.REBASER_ROLE(), await oracle.getAddress());
-    await halomToken.grantRole(await halomToken.MINTER_ROLE(), await staking.getAddress());
-    await halomToken.grantRole(await halomToken.MINTER_ROLE(), await treasury.getAddress());
+    const HalomStaking = await ethers.getContractFactory('HalomStaking');
+    staking = await HalomStaking.deploy(
+      await halomToken.getAddress(), // _stakingToken
+      owner.address, // _roleManager
+      ethers.parseEther('100') // _rewardRate
+    );
+    await staking.waitForDeployment();
 
-    // Staking roles are already set up in constructor with roleManager as admin
-    // No need to grant additional roles
+    const HalomTreasury = await ethers.getContractFactory('HalomTreasury');
+    treasury = await HalomTreasury.deploy(
+      await halomToken.getAddress(), // _rewardToken
+      owner.address, // _roleManager
+      3600 // _interval
+    );
+    await treasury.waitForDeployment();
 
-    // Treasury roles are already set up in constructor with roleManager as admin
-    // No need to grant additional roles
+    // Setup roles
+    const proposerRole = await timelock.PROPOSER_ROLE();
+    const executorRole = await timelock.EXECUTOR_ROLE();
+    const adminRole = await timelock.DEFAULT_ADMIN_ROLE();
 
-    // Grant treasury roles since owner is now the roleManager
-    await treasury.grantRole(await treasury.TREASURY_CONTROLLER(), await timelock.getAddress());
-    await treasury.grantRole(await treasury.EMERGENCY_ROLE(), owner.address);
+    await timelock.grantRole(proposerRole, await governor.getAddress());
+    await timelock.grantRole(executorRole, await governor.getAddress());
+    // Don't revoke admin role from owner - keep it for test mode access
+    // await timelock.revokeRole(adminRole, owner.address);
 
-    await oracle.grantRole(await oracle.DEFAULT_ADMIN_ROLE(), owner.address);
-    await oracle.grantRole(await oracle.ORACLE_UPDATER_ROLE(), owner.address);
+    // Grant treasury controller role to timelock for governance execution
+    const TREASURY_CONTROLLER = await treasury.TREASURY_CONTROLLER();
+    await treasury.grantRole(TREASURY_CONTROLLER, await timelock.getAddress());
 
-    // Mint tokens to treasury for value transfers
-    await halomToken.mint(await treasury.getAddress(), ethers.parseEther("1000"));
-    
-    // Treasury doesn't have receive/fallback function, so no ETH transfer needed
+    // Mint tokens to users
+    const tokenAmount = ethers.parseEther('1000000');
+    await halomToken.mint(user1.address, tokenAmount);
+    await halomToken.mint(user2.address, tokenAmount);
+    await halomToken.mint(user3.address, tokenAmount);
+    await halomToken.mint(user4.address, tokenAmount);
+    await halomToken.mint(user5.address, tokenAmount);
+
+    // Delegate voting power
+    await halomToken.connect(user1).delegate(user1.address);
+    await halomToken.connect(user2).delegate(user2.address);
+    await halomToken.connect(user3).delegate(user3.address);
+    await halomToken.connect(user4).delegate(user4.address);
+    await halomToken.connect(user5).delegate(user5.address);
+
+    // Fund treasury
+    await halomToken.transfer(await treasury.getAddress(), ethers.parseEther('100000'));
+
+    // Enable test mode for timelock - owner still has admin role
+    await timelock.enableTestMode();
 
     // Setup operation hashes
     operationHash = ethers.keccak256(

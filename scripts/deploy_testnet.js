@@ -31,41 +31,48 @@ async function main() {
   // Deploy HalomToken
   console.log('\n1. Deploying HalomToken...');
   const HalomToken = await ethers.getContractFactory('HalomToken');
-  const halomToken = await HalomToken.deploy(deployer.address, deployer.address);
+  const halomToken = await HalomToken.deploy(deployer.address, deployer.address); // _initialAdmin, _rebaseCaller
   await halomToken.waitForDeployment();
   console.log('HalomToken deployed to:', await halomToken.getAddress());
 
-  // Deploy Mock Tokens for testing
-  console.log('\n2. Deploying Mock Tokens...');
+  // Deploy mock tokens
+  console.log('\n2. Deploying mock tokens...');
   const MockERC20 = await ethers.getContractFactory('MockERC20');
-
-  const mockUSDC = await MockERC20.deploy('USDC', 'USDC', 6);
+  const mockUSDC = await MockERC20.deploy('Mock USDC', 'USDC', 6);
   await mockUSDC.waitForDeployment();
   console.log('Mock USDC deployed to:', await mockUSDC.getAddress());
 
-  const mockUSDT = await MockERC20.deploy('USDT', 'USDT', 6);
+  const mockUSDT = await MockERC20.deploy('Mock USDT', 'USDT', 6);
   await mockUSDT.waitForDeployment();
   console.log('Mock USDT deployed to:', await mockUSDT.getAddress());
 
-  const mockDAI = await MockERC20.deploy('DAI', 'DAI', 18);
+  const mockDAI = await MockERC20.deploy('Mock DAI', 'DAI', 18);
   await mockDAI.waitForDeployment();
   console.log('Mock DAI deployed to:', await mockDAI.getAddress());
 
-  // Deploy TimelockController
-  console.log('\n3. Deploying TimelockController...');
-  const proposers = []; // Will be set after governor deployment
-  const executors = []; // Will be set after governor deployment
-  const admin = deployer.address;
-
-  const TimelockController = await ethers.getContractFactory('TimelockController');
-  const timelock = await TimelockController.deploy(timelockDelay, proposers, executors, admin);
+  // Deploy HalomTimelock
+  console.log('\n3. Deploying HalomTimelock...');
+  const HalomTimelock = await ethers.getContractFactory('HalomTimelock');
+  const timelock = await HalomTimelock.deploy(
+    timelockDelay, // minDelay
+    [deployer.address], // proposers
+    [deployer.address], // executors
+    deployer.address // admin
+  );
   await timelock.waitForDeployment();
-  console.log('TimelockController deployed to:', await timelock.getAddress());
+  console.log('HalomTimelock deployed to:', await timelock.getAddress());
 
   // Deploy HalomGovernor
   console.log('\n4. Deploying HalomGovernor...');
   const HalomGovernor = await ethers.getContractFactory('HalomGovernor');
-  const governor = await HalomGovernor.deploy(await halomToken.getAddress(), await timelock.getAddress());
+  const governor = await HalomGovernor.deploy(
+    await halomToken.getAddress(), // _token
+    await timelock.getAddress(), // _timelock
+    1, // _votingDelay
+    50400, // _votingPeriod (14 days)
+    ethers.parseEther('10000'), // _proposalThreshold
+    4 // _quorumPercent (4%)
+  );
   await governor.waitForDeployment();
   console.log('HalomGovernor deployed to:', await governor.getAddress());
 
@@ -73,11 +80,9 @@ async function main() {
   console.log('\n5. Deploying HalomStaking...');
   const HalomStaking = await ethers.getContractFactory('HalomStaking');
   const staking = await HalomStaking.deploy(
-    await halomToken.getAddress(),
-    await governor.getAddress(),
-    2000, // rewardRate
-    30 * 24 * 60 * 60, // lockPeriod (30 days)
-    5000 // slashPercentage (50%)
+    await halomToken.getAddress(), // _stakingToken
+    deployer.address, // _roleManager
+    rewardRate // _rewardRate
   );
   await staking.waitForDeployment();
   console.log('HalomStaking deployed to:', await staking.getAddress());
@@ -86,10 +91,10 @@ async function main() {
   console.log('\n6. Deploying HalomLPStaking...');
   const HalomLPStaking = await ethers.getContractFactory('HalomLPStaking');
   const lpStaking = await HalomLPStaking.deploy(
-    await mockUSDC.getAddress(), // LP token (using mock USDC)
-    await halomToken.getAddress(),
-    await governor.getAddress(),
-    2000 // rewardRate
+    await mockUSDC.getAddress(), // _lpToken (using mock USDC as LP token)
+    await halomToken.getAddress(), // _rewardToken
+    deployer.address, // _roleManager
+    ethers.parseEther('50') // _rewardRate
   );
   await lpStaking.waitForDeployment();
   console.log('HalomLPStaking deployed to:', await lpStaking.getAddress());
@@ -98,9 +103,9 @@ async function main() {
   console.log('\n7. Deploying HalomTreasury...');
   const HalomTreasury = await ethers.getContractFactory('HalomTreasury');
   const treasury = await HalomTreasury.deploy(
-    await halomToken.getAddress(),
-    await mockUSDC.getAddress(), // Using mock USDC as stablecoin
-    await governor.getAddress()
+    await halomToken.getAddress(), // _rewardToken
+    deployer.address, // _roleManager
+    3600 // _interval
   );
   await treasury.waitForDeployment();
   console.log('HalomTreasury deployed to:', await treasury.getAddress());
@@ -108,7 +113,7 @@ async function main() {
   // Deploy HalomOracleV2 (multi-node consensus)
   console.log('\n8. Deploying HalomOracleV2...');
   const HalomOracleV2 = await ethers.getContractFactory('HalomOracleV2');
-  const oracle = await HalomOracleV2.deploy();
+  const oracle = await HalomOracleV2.deploy(); // Constructor takes no parameters
   await oracle.waitForDeployment();
   console.log('HalomOracleV2 deployed to:', await oracle.getAddress());
 
