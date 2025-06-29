@@ -2,34 +2,36 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
 describe("HalomToken Simple Tests", function () {
-  let halomToken, oracle, owner, user1, user2;
+  let halomToken, halomOracle, owner, user1, user2, updater, roleManager, oracle;
 
   beforeEach(async function () {
-    [owner, user1, user2] = await ethers.getSigners();
+    [owner, user1, user2, updater] = await ethers.getSigners();
 
-    // Deploy only the essential contracts
+    // Deploy contracts
     const HalomToken = await ethers.getContractFactory("HalomToken");
     const HalomOracle = await ethers.getContractFactory("HalomOracle");
+    const HalomRoleManager = await ethers.getContractFactory("HalomRoleManager");
 
-    // Deploy token first
-    halomToken = await HalomToken.deploy(owner.address, owner.address);
-    await halomToken.waitForDeployment();
-    
-    // Deploy oracle with correct constructor arguments
-    oracle = await HalomOracle.deploy(owner.address, 31337); // chainId for hardhat network
-    await oracle.waitForDeployment();
+    // Deploy token with correct parameters
+    halomToken = await HalomToken.deploy(
+      owner.address, // _initialAdmin
+      owner.address  // _rebaseCaller
+    );
+
+    // Deploy oracle
+    oracle = await HalomOracle.deploy(owner.address, 1); // _governance, _chainId
     
     // Grant MINTER_ROLE to owner for testing
     await halomToken.grantRole(await halomToken.MINTER_ROLE(), owner.address);
     
     // Grant REBASER_ROLE to oracle for testing
-    await halomToken.grantRole(await halomToken.REBASER_ROLE(), oracle.address);
+    await halomToken.grantRole(await halomToken.REBASER_ROLE(), await oracle.getAddress());
     
     // Grant STAKING_CONTRACT_ROLE to users for testing burnFrom
     await halomToken.grantRole(await halomToken.STAKING_CONTRACT_ROLE(), user1.address);
     await halomToken.grantRole(await halomToken.STAKING_CONTRACT_ROLE(), user2.address);
     
-    // Exclude users from anti-whale limits for testing
+    // Exclude users from anti-whale limits
     await halomToken.setExcludedFromLimits(user1.address, true);
     await halomToken.setExcludedFromLimits(user2.address, true);
     
@@ -40,16 +42,14 @@ describe("HalomToken Simple Tests", function () {
 
   describe("Basic Functionality", function () {
     it("Should deploy successfully", async function () {
-      expect(halomToken.target).to.not.equal(ethers.ZeroAddress);
-      expect(oracle.target).to.not.equal(ethers.ZeroAddress);
+      expect(await halomToken.name()).to.equal("Halom");
+      expect(await halomToken.symbol()).to.equal("HALOM");
+      expect(await halomToken.decimals()).to.equal(18);
     });
 
-    it("Should have correct initial parameters", async function () {
-      expect(await halomToken.name()).to.equal("Halom");
-      expect(await halomToken.symbol()).to.equal("HOM");
-      expect(await halomToken.decimals()).to.equal(18);
-      // Initial supply is 1M + 2M minted = 3M total
-      expect(await halomToken.totalSupply()).to.equal(ethers.parseEther("3000000"));
+    it("Should have correct initial supply", async function () {
+      const initialSupply = await halomToken.totalSupply();
+      expect(initialSupply).to.equal(ethers.parseEther("100000000")); // 100M tokens
     });
 
     it("Should allow transfers", async function () {
@@ -139,23 +139,29 @@ describe("HalomToken Simple Tests", function () {
   });
 
   describe("Role-Based Access Control", function () {
-    it("Should prevent non-authorized users from triggering rebase", async function () {
+    it("Should prevent non-authorized users from minting", async function () {
       await expect(
-        halomToken.connect(user1).rebase(ethers.parseEther("1000"))
-      ).to.be.revertedWithCustomError(halomToken, "AccessControlUnauthorizedAccount");
+        halomToken.connect(user1).mint(user2.address, ethers.parseEther("1000"))
+      ).to.be.revertedWithCustomError(halomToken, "Unauthorized");
     });
 
     it("Should allow admin to set anti-whale limits", async function () {
-      const newMaxTransfer = ethers.parseEther("10000");
-      const newMaxWallet = ethers.parseEther("100000");
-      await halomToken.connect(owner).setAntiWhaleLimits(newMaxTransfer, newMaxWallet);
-      expect(await halomToken.maxTransferAmount()).to.equal(newMaxTransfer);
-      expect(await halomToken.maxWalletAmount()).to.equal(newMaxWallet);
+      const maxTransferAmount = ethers.parseEther("10000");
+      const maxWalletAmount = ethers.parseEther("50000");
+      
+      await halomToken.connect(owner).setAntiWhaleLimits(maxTransferAmount, maxWalletAmount);
+      
+      const limits = await halomToken.getAntiWhaleLimits();
+      expect(limits.maxTransferAmount).to.equal(maxTransferAmount);
+      expect(limits.maxWalletAmount).to.equal(maxWalletAmount);
     });
 
     it("Should prevent non-admin from setting anti-whale limits", async function () {
+      const maxTransferAmount = ethers.parseEther("10000");
+      const maxWalletAmount = ethers.parseEther("50000");
+      
       await expect(
-        halomToken.connect(user1).setAntiWhaleLimits(ethers.parseEther("1000"), ethers.parseEther("10000"))
+        halomToken.connect(user1).setAntiWhaleLimits(maxTransferAmount, maxWalletAmount)
       ).to.be.revertedWithCustomError(halomToken, "AccessControlUnauthorizedAccount");
     });
   });

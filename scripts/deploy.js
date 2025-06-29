@@ -65,9 +65,7 @@ async function main() {
   const halomStaking = await HalomStaking.deploy(
     halomTokenAddress,
     GOVERNOR, // roleManager address
-    2000, // rewardRate
-    30 * 24 * 60 * 60, // lockPeriod (30 days)
-    5000 // slashPercentage (50%)
+    2000 // rewardRate
   );
   await halomStaking.waitForDeployment();
   const halomStakingAddress = await halomStaking.getAddress();
@@ -138,17 +136,17 @@ async function main() {
   /**
    * @dev This allows the token contract to add rewards to the staking contract
    */
-  const REWARDER_ROLE = await halomStaking.REWARDER_ROLE();
+  const REWARDER_ROLE = halomStaking.REWARDER_ROLE;
   await halomStaking.grantRole(REWARDER_ROLE, halomTokenAddress);
   console.log('REWARDER_ROLE granted to token contract in staking.');
 
   // --- 12. Grant REWARDER_ROLE to governor in LP staking ---
-  const lpStakingRewarderRole = await halomLPStaking.REWARDER_ROLE();
+  const lpStakingRewarderRole = halomLPStaking.REWARDER_ROLE;
   await halomLPStaking.grantRole(lpStakingRewarderRole, GOVERNOR);
   console.log('REWARDER_ROLE granted to governor in LP staking.');
 
   // --- 13. Grant SLASHER_ROLE to governor in staking ---
-  const SLASHER_ROLE = await halomStaking.SLASHER_ROLE();
+  const SLASHER_ROLE = halomStaking.SLASHER_ROLE;
   await halomStaking.grantRole(SLASHER_ROLE, GOVERNOR);
   console.log('SLASHER_ROLE granted to governor in staking.');
 

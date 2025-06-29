@@ -1,0 +1,4 @@
+2025-06-29 19:55:02,234 - __main__ - ERROR - Failed to initialize Web3: Could not connect to RPC URL: https://testnet.era.zksync.dev
+2025-06-29 19:55:02,235 - __main__ - ERROR - Fatal error: Could not connect to RPC URL: https://testnet.era.zksync.dev
+2025-06-29 19:59:58,184 - __main__ - ERROR - Failed to initialize Web3: Could not connect to RPC URL: https://testnet.era.zksync.dev
+2025-06-29 19:59:58,185 - __main__ - ERROR - Fatal error: Could not connect to RPC URL: https://testnet.era.zksync.dev

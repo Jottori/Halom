@@ -85,6 +85,7 @@ jobs:
           - test/test-dao-participation.cjs
           - test/test-reward-treasury-sync.cjs
           - test/test-secure-roles.cjs
+          - test/test-staking-edge-cases.cjs
 
     steps:
       - name: Checkout code

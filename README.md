@@ -216,3 +216,9 @@ MIT License - see the [LICENSE](LICENSE) file.
 ---
 
 **Halom Protocol** - Democratic DeFi with the power of fourth root 🚀
+
+## 📊 Economic Simulation
+
+The Halom Protocol economic simulation is available in [notebooks/economic_simulation.ipynb](notebooks/economic_simulation.ipynb).
+
+This notebook models the HOM token's inflation, reward system, and rebase mechanism using real IMF, World Bank, OECD, and Eurostat data. The required data files are located in the `offchain/data/` directory.

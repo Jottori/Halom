@@ -10,50 +10,68 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
   beforeEach(async function () {
     [owner, user1, user2, user3, user4, user5] = await ethers.getSigners();
 
-    // Deploy contracts with correct constructor arguments
+    // Deploy contracts
     const HalomToken = await ethers.getContractFactory("HalomToken");
-    const HalomTreasury = await ethers.getContractFactory("HalomTreasury");
     const HalomStaking = await ethers.getContractFactory("HalomStaking");
-    const HalomOracleV3 = await ethers.getContractFactory("HalomOracleV3");
-    const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
-    const HalomTimelock = await ethers.getContractFactory("HalomTimelock");
+    const HalomTreasury = await ethers.getContractFactory("HalomTreasury");
     const HalomRoleManager = await ethers.getContractFactory("HalomRoleManager");
-    const MockERC20 = await ethers.getContractFactory("MockERC20");
-
-    // HalomToken expects (admin, rebaseCaller)
-    halomToken = await HalomToken.deploy(owner.address, owner.address);
-    await halomToken.waitForDeployment();
-
-    // HalomOracleV3 takes no constructor arguments
-    oracle = await HalomOracleV3.deploy();
-    await oracle.waitForDeployment();
 
     // Deploy role manager first
     roleManager = await HalomRoleManager.deploy();
-    await roleManager.waitForDeployment();
 
-    // Deploy HalomTreasury with correct parameters
-    treasury = await HalomTreasury.deploy(await halomToken.getAddress(), await roleManager.getAddress(), 3600);
-    await treasury.waitForDeployment();
+    // Deploy token with correct parameters
+    halomToken = await HalomToken.deploy(
+      owner.address, // _initialAdmin
+      owner.address  // _rebaseCaller
+    );
 
-    // HalomStaking expects (stakingToken, roleManager, rewardRate)
-    const rewardRate = ethers.parseEther('0.1'); // 0.1 tokens per second reward rate
-    staking = await HalomStaking.deploy(await halomToken.getAddress(), await roleManager.getAddress(), rewardRate);
-    await staking.waitForDeployment();
+    // Deploy staking
+    staking = await HalomStaking.deploy(
+      await halomToken.getAddress(), // _stakingToken
+      await roleManager.getAddress(), // _roleManager
+      ethers.parseEther("0.1") // _rewardRate
+    );
+
+    // Deploy treasury with correct parameters
+    treasury = await HalomTreasury.deploy(
+      await halomToken.getAddress(), // _rewardToken
+      await roleManager.getAddress(), // _roleManager
+      3600 // _interval (1 hour)
+    );
+
+    // Setup roles
+    await roleManager.grantRole(await roleManager.DEFAULT_ADMIN_ROLE(), owner.address);
+    await roleManager.grantRole(await roleManager.STAKING_ROLE(), await staking.getAddress());
+    await roleManager.grantRole(await roleManager.TREASURY_ROLE(), await treasury.getAddress());
+
+    // Mint tokens to users
+    await halomToken.connect(owner).mint(user1.address, ethers.parseEther("1000000"));
+    await halomToken.connect(owner).mint(user2.address, ethers.parseEther("1000000"));
+    await halomToken.connect(owner).mint(user3.address, ethers.parseEther("1000000"));
+
+    // Stake tokens
+    await halomToken.connect(user1).approve(staking.address, ethers.parseEther("1000000"));
+    await halomToken.connect(user2).approve(staking.address, ethers.parseEther("1000000"));
+    await halomToken.connect(user3).approve(staking.address, ethers.parseEther("1000000"));
+
+    await staking.connect(user1).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
+    await staking.connect(user2).stake(ethers.parseEther("200000"), 30 * 24 * 3600);
+    await staking.connect(user3).stake(ethers.parseEther("300000"), 30 * 24 * 3600);
 
     // Deploy reward token with proper constructor arguments
-    rewardToken = await MockERC20.deploy("Reward Token", "RWD", ethers.parseEther("1000000"));
+    rewardToken = await ethers.getContractFactory("MockERC20");
+    rewardToken = await rewardToken.deploy("Reward Token", "RWD", ethers.parseEther("1000000"));
     await rewardToken.waitForDeployment();
 
     // Deploy Timelock with proper parameters
     const minDelay = 86400; // 24 hours (minimum required)
     const proposers = [owner.address];
     const executors = [owner.address];
-    timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);
+    timelock = await ethers.getContractFactory("HalomTimelock").deploy(minDelay, proposers, executors, owner.address);
     await timelock.waitForDeployment();
 
     // Deploy Governor with correct parameters
-    governor = await HalomGovernor.deploy(
+    governor = await ethers.getContractFactory("HalomGovernor").deploy(
       await halomToken.getAddress(),
       await timelock.getAddress(),
       1, // votingDelay
@@ -63,49 +81,26 @@ describe('Reward Pool and Treasury Synchronization Tests', function () {
     );
     await governor.waitForDeployment();
 
-    // Setup roles
-    await halomToken.grantRole(await halomToken.MINTER_ROLE(), owner.address);
-    await treasury.grantRole(await treasury.DEFAULT_ADMIN_ROLE(), owner.address);
-    await staking.grantRole(await staking.STAKING_ADMIN_ROLE(), owner.address);
-    await staking.grantRole(await staking.DEFAULT_ADMIN_ROLE(), owner.address);
-    await staking.grantRole(await staking.REWARD_MANAGER_ROLE(), await halomToken.getAddress());
-
     // Grant oracle roles
     const ORACLE_UPDATER_ROLE = await oracle.UPDATER_ROLE();
     const AGGREGATOR_ROLE = await oracle.AGGREGATOR_ROLE();
     await oracle.grantRole(ORACLE_UPDATER_ROLE, owner.address);
     await oracle.grantRole(AGGREGATOR_ROLE, owner.address);
 
-    // Mint tokens for testing
-    await halomToken.mint(await treasury.getAddress(), ethers.parseEther('100000'));
-    await halomToken.mint(user1.address, ethers.parseEther('10000'));
-    await halomToken.mint(user2.address, ethers.parseEther('10000'));
-
     // Grant timelock roles to governor
     await timelock.grantRole(await timelock.EXECUTOR_ROLE(), await governor.getAddress());
     await timelock.grantRole(await timelock.PROPOSER_ROLE(), await governor.getAddress());
 
-    // Mint tokens to users
-    await halomToken.mint(user3.address, ethers.parseEther("1000000"));
-    await halomToken.mint(user4.address, ethers.parseEther("1000000"));
-    await halomToken.mint(user5.address, ethers.parseEther("1000000"));
-
     // Mint reward tokens to treasury
     await rewardToken.mint(await treasury.getAddress(), ethers.parseEther("1000000"));
 
-    // Users stake tokens - ensure they have enough balance first
-    await halomToken.connect(user1).approve(await staking.getAddress(), ethers.parseEther("100000"));
-    await halomToken.connect(user2).approve(await staking.getAddress(), ethers.parseEther("100000"));
-    await halomToken.connect(user3).approve(await staking.getAddress(), ethers.parseEther("100000"));
-    await halomToken.connect(user4).approve(await staking.getAddress(), ethers.parseEther("100000"));
-    await halomToken.connect(user5).approve(await staking.getAddress(), ethers.parseEther("100000"));
-
-    await staking.connect(user1).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
-    await staking.connect(user2).stake(ethers.parseEther("50000"), 30 * 24 * 3600);
-    await staking.connect(user3).stake(ethers.parseEther("75000"), 30 * 24 * 3600);
-
     // Enable test mode for timelock
     await timelock.enableTestMode();
+
+    // Grant roles
+    await staking.grantRole(await staking.REWARD_MANAGER_ROLE(), owner.address);
+    await roleManager.grantRole(await roleManager.DEFAULT_ADMIN_ROLE(), owner.address);
+    await treasury.grantRole(await treasury.TREASURY_CONTROLLER(), owner.address);
   });
 
   describe('Reward Distribution Synchronization', function () {

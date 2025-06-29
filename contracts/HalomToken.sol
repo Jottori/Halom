@@ -178,6 +178,10 @@ contract HalomToken is ERC20, ERC20Burnable, ERC20Permit, ERC20Votes, AccessCont
         emit ExcludedFromLimitsSet(account, excluded);
     }
     
+    function getAntiWhaleLimits() public view returns (uint256 maxTx, uint256 maxWallet) {
+        return (maxTransferAmount, maxWalletAmount);
+    }
+    
     function getRebaseBalance(address account) public view returns (uint256) {
         uint256 balance = balanceOf(account);
         uint256 accountIndex = lastRebaseIndex[account];

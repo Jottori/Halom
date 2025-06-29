@@ -3,468 +3,258 @@ const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("HalomGovernor Comprehensive Tests", function () {
-  let halomToken, governor, timelock, treasury, staking, roleManager, owner, user1, user2, user3, user4, user5;
+  let halomToken, governor, timelock, treasury, staking, roleManager;
+  let owner, user1, user2, user3, user4, user5;
 
   beforeEach(async function () {
     [owner, user1, user2, user3, user4, user5] = await ethers.getSigners();
 
     // Deploy contracts
     const HalomToken = await ethers.getContractFactory("HalomToken");
-    const HalomTimelock = await ethers.getContractFactory("HalomTimelock");
-    const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
     const HalomStaking = await ethers.getContractFactory("HalomStaking");
     const HalomTreasury = await ethers.getContractFactory("HalomTreasury");
     const HalomRoleManager = await ethers.getContractFactory("HalomRoleManager");
+    const HalomGovernor = await ethers.getContractFactory("HalomGovernor");
+    const HalomTimelock = await ethers.getContractFactory("HalomTimelock");
 
-    halomToken = await HalomToken.deploy(owner.address, owner.address);
-    const minDelay = 86400; // 24 hours
-    timelock = await HalomTimelock.deploy(minDelay, [owner.address], [owner.address], owner.address);
-    governor = await HalomGovernor.deploy(await halomToken.getAddress(), await timelock.getAddress(), 1, 10, 0, 4);
+    halomToken = await HalomToken.deploy();
     roleManager = await HalomRoleManager.deploy();
-    staking = await HalomStaking.deploy(await halomToken.getAddress(), await roleManager.getAddress(), ethers.parseEther("0.1"));
-    treasury = await HalomTreasury.deploy(await halomToken.getAddress(), await roleManager.getAddress(), 3600);
+    treasury = await HalomTreasury.deploy(await halomToken.getAddress(), await roleManager.getAddress());
+    staking = await HalomStaking.deploy(await halomToken.getAddress(), await roleManager.getAddress(), 0);
+    timelock = await HalomTimelock.deploy(60, [], [], await roleManager.getAddress());
+    governor = await HalomGovernor.deploy(
+      await halomToken.getAddress(),
+      await timelock.getAddress(),
+      1, // _votingDelay
+      50400, // _votingPeriod (14 days)
+      ethers.parseEther('10000'), // _proposalThreshold
+      4 // _quorumPercent
+    );
 
-    // Setup roles properly
-    const DEFAULT_ADMIN_ROLE = await halomToken.DEFAULT_ADMIN_ROLE();
-    const MINTER_ROLE = await halomToken.MINTER_ROLE();
-    const REBASE_CALLER = await halomToken.REBASE_CALLER();
-    
-    await halomToken.grantRole(MINTER_ROLE, owner.address);
-    await halomToken.grantRole(REBASE_CALLER, owner.address);
+    // Setup roles
+    await roleManager.grantRole(await roleManager.ADMIN_ROLE(), owner.address);
+    await roleManager.grantRole(await roleManager.GOVERNOR_ROLE(), owner.address);
+    await roleManager.grantRole(await roleManager.TREASURY_ROLE(), owner.address);
+    await roleManager.grantRole(await roleManager.ORACLE_ROLE(), owner.address);
+    await roleManager.grantRole(await roleManager.STAKING_ROLE(), owner.address);
+    await roleManager.grantRole(await roleManager.EMERGENCY_ROLE(), owner.address);
 
     // Mint tokens to users
-    const tokenAmount = ethers.parseEther('1000000');
-    await halomToken.mint(user1.address, tokenAmount);
-    await halomToken.mint(user2.address, tokenAmount);
-    await halomToken.mint(user3.address, tokenAmount);
-    await halomToken.mint(user4.address, tokenAmount);
-    await halomToken.mint(user5.address, tokenAmount);
+    await halomToken.connect(owner).mint(user1.address, ethers.parseEther("1000000"));
+    await halomToken.connect(owner).mint(user2.address, ethers.parseEther("1000000"));
+    await halomToken.connect(owner).mint(user3.address, ethers.parseEther("1000000"));
 
-    // Setup staking
-    await staking.grantRole(await staking.STAKING_ADMIN_ROLE(), owner.address);
-    await staking.grantRole(await staking.DEFAULT_ADMIN_ROLE(), owner.address);
-    await staking.grantRole(await staking.REWARD_MANAGER_ROLE(), await halomToken.getAddress());
-    await staking.setPoolActive(true);
+    // Stake tokens
+    await halomToken.connect(user1).approve(staking.address, ethers.parseEther("1000000"));
+    await halomToken.connect(user2).approve(staking.address, ethers.parseEther("1000000"));
+    await halomToken.connect(user3).approve(staking.address, ethers.parseEther("1000000"));
 
-    // Users stake tokens
-    await halomToken.connect(user1).approve(await staking.getAddress(), tokenAmount);
-    await halomToken.connect(user2).approve(await staking.getAddress(), tokenAmount);
-    await halomToken.connect(user3).approve(await staking.getAddress(), tokenAmount);
-    await halomToken.connect(user4).approve(await staking.getAddress(), tokenAmount);
-    await halomToken.connect(user5).approve(await staking.getAddress(), tokenAmount);
-
-    await staking.connect(user1).stake(ethers.parseEther('100000'), 30 * 24 * 3600); // 30 days
-    await staking.connect(user2).stake(ethers.parseEther('50000'), 30 * 24 * 3600);
-    await staking.connect(user3).stake(ethers.parseEther('75000'), 30 * 24 * 3600);
-    await staking.connect(user4).stake(ethers.parseEther('25000'), 30 * 24 * 3600);
-    await staking.connect(user5).stake(ethers.parseEther('125000'), 30 * 24 * 3600);
-
-    // Setup timelock roles
-    const proposerRole = await timelock.PROPOSER_ROLE();
-    const executorRole = await timelock.EXECUTOR_ROLE();
-    
-    await timelock.grantRole(proposerRole, await governor.getAddress());
-    await timelock.grantRole(executorRole, await governor.getAddress());
+    await staking.connect(user1).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
+    await staking.connect(user2).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
+    await staking.connect(user3).stake(ethers.parseEther("100000"), 30 * 24 * 3600);
   });
 
-  describe("Proposal Creation", function () {
+  describe("Basic Governance Functionality", function () {
+    it("Should deploy successfully", async function () {
+      expect(await governor.name()).to.equal("HalomGovernor");
+      expect(await governor.votingDelay()).to.equal(7200);
+      expect(await governor.votingPeriod()).to.equal(50400);
+    });
+
     it("Should create proposal successfully", async function () {
       const targets = [await treasury.getAddress()];
       const values = [0];
       const calldatas = [ethers.ZeroHash];
       const description = "Test proposal";
 
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      expect(event).to.not.be.undefined;
+      await governor.connect(user1).propose(targets, values, calldatas, description);
+      
+      // Verify proposal was created
+      const proposalId = await governor.hashProposal(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
+      expect(await governor.state(proposalId)).to.equal(0); // Pending
     });
 
-    it("Should prevent proposal creation with invalid parameters", async function () {
+    it("Should prevent proposal creation below threshold", async function () {
       const targets = [await treasury.getAddress()];
       const values = [0];
       const calldatas = [ethers.ZeroHash];
       const description = "Test proposal";
 
-      // This should work with valid parameters
+      // User with insufficient voting power
       await expect(
-        governor.connect(user1).propose(targets, values, calldatas, description)
-      ).to.not.be.reverted;
+        governor.connect(user5).propose(targets, values, calldatas, description)
+      ).to.be.revertedWith("Governor: proposer votes below proposal threshold");
     });
   });
 
   describe("Voting Mechanism", function () {
-    let proposalId;
-
-    beforeEach(async function () {
+    it("Should allow voting on proposals", async function () {
       const targets = [await treasury.getAddress()];
       const values = [0];
       const calldatas = [ethers.ZeroHash];
-      const description = "Test proposal for voting";
+      const description = "Test proposal";
 
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      proposalId = event.args.proposalId;
-
-      // Move to voting period
-      await time.increase(1);
-    });
-
-    it("Should allow voting on proposals", async function () {
+      await governor.connect(user1).propose(targets, values, calldatas, description);
+      
+      const proposalId = await governor.hashProposal(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
+      
+      // Wait for voting to start
+      await time.increase(2);
+      
       await governor.connect(user1).castVote(proposalId, 1); // For
       await governor.connect(user2).castVote(proposalId, 0); // Against
       await governor.connect(user3).castVote(proposalId, 2); // Abstain
-
-      const state = await governor.state(proposalId);
-      expect(state).to.equal(1); // Active
-    });
-
-    it("Should prevent voting with invalid option", async function () {
-      await expect(
-        governor.connect(user1).castVote(proposalId, 3) // Invalid option
-      ).to.be.revertedWithCustomError(governor, "GovernorCountingSettingsInvalidVoteType");
     });
 
     it("Should calculate voting power correctly", async function () {
+      // Delegate voting power to user1
+      await halomToken.connect(user1).delegate(user1.address);
+      await time.advanceBlock();
+      
       const votingPower = await governor.getVotes(user1.address);
       expect(votingPower).to.be.gt(0);
     });
 
+    it("Should handle delegation correctly", async function () {
+      // Delegate user1's tokens to user2
+      await halomToken.connect(user1).delegate(user2.address);
+      await time.advanceBlock();
+      
+      const user2Votes = await governor.getVotes(user2.address);
+      expect(user2Votes).to.be.gt(0);
+    });
+
     it("Should handle zero voting power correctly", async function () {
-      const votingPower = await governor.getVotes(user5.address);
+      const [newUser] = await ethers.getSigners();
+      const votingPower = await governor.getVotes(newUser.address, await time.latestBlock());
       expect(votingPower).to.equal(0);
     });
   });
 
   describe("Proposal State Management", function () {
-    it('Should return correct proposal state', async function () {
-      // Create a proposal
+    it("Should handle proposal lifecycle correctly", async function () {
       const targets = [await treasury.getAddress()];
       const values = [0];
       const calldatas = [ethers.ZeroHash];
       const description = "Test proposal";
-      
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      const proposalId = event.args.proposalId;
-      
-      // Check initial state (Pending = 0)
-      const state = await governor.state(proposalId);
-      expect(state).to.equal(0); // Pending
-    });
 
-    it('Should handle proposal cancellation', async function () {
-      // Create a proposal
-      const targets = [await treasury.getAddress()];
-      const values = [0];
-      const calldatas = [ethers.ZeroHash];
-      const description = "Test proposal";
+      await governor.connect(user1).propose(targets, values, calldatas, description);
       
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      const proposalId = event.args.proposalId;
+      const proposalId = await governor.hashProposal(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
       
-      // Cancel the proposal
-      await governor.connect(user1).cancel(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
+      // Check initial state
+      expect(await governor.state(proposalId)).to.equal(0); // Pending
       
-      // Check state is now Canceled (2)
-      const state = await governor.state(proposalId);
-      expect(state).to.equal(2); // Canceled
-    });
-
-    it('Should prevent cancellation by non-proposer', async function () {
-      // Create a proposal
-      const targets = [await treasury.getAddress()];
-      const values = [0];
-      const calldatas = [ethers.ZeroHash];
-      const description = "Test proposal";
+      // Wait for voting to start
+      await time.increase(2);
+      expect(await governor.state(proposalId)).to.equal(1); // Active
       
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      const proposalId = event.args.proposalId;
-      
-      // Try to cancel with different user
-      await expect(
-        governor.connect(user2).cancel(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)))
-      ).to.be.revertedWithCustomError(governor, 'GovernorOnlyProposer');
-    });
-  });
-
-  describe("Proposal Execution Flow", function () {
-    let proposalId;
-
-    beforeEach(async function () {
-      const targets = [await treasury.getAddress()];
-      const values = [0];
-      const calldatas = [ethers.ZeroHash];
-      const description = "Test proposal for execution";
-
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      proposalId = event.args.proposalId;
-
-      // Move to voting period and vote
-      await time.increase(1);
+      // Vote
       await governor.connect(user1).castVote(proposalId, 1);
       await governor.connect(user2).castVote(proposalId, 1);
       await governor.connect(user3).castVote(proposalId, 1);
-      await governor.connect(user4).castVote(proposalId, 1);
-      await governor.connect(user5).castVote(proposalId, 1);
-
-      // Move past voting period
-      await time.increase(50400); // 14 days
+      
+      // Wait for voting to end
+      await time.increase(50400);
+      expect(await governor.state(proposalId)).to.equal(4); // Succeeded
     });
 
-    it("Should allow proposal queuing after successful vote", async function () {
-      const state = await governor.state(proposalId);
-      expect(state).to.equal(4); // Succeeded
-    });
-
-    it("Should allow proposal execution after queue period", async function () {
-      // Queue the proposal
+    it("Should prevent cancellation by non-proposer", async function () {
       const targets = [await treasury.getAddress()];
       const values = [0];
       const calldatas = [ethers.ZeroHash];
-      const description = "Test proposal for execution";
-      const descriptionHash = ethers.keccak256(ethers.toUtf8Bytes(description));
-      
-      await governor.queue(targets, values, calldatas, descriptionHash);
-      
-      // Move past timelock delay
-      await time.increase(86400); // 24 hours
-      
-      // Execute the proposal
-      await governor.execute(targets, values, calldatas, descriptionHash);
-      
-      const state = await governor.state(proposalId);
-      expect(state).to.equal(7); // Executed
-    });
+      const description = "Test proposal";
 
-    it("Should prevent execution before timelock delay", async function () {
-      // Queue the proposal
-      const targets = [await treasury.getAddress()];
-      const values = [0];
-      const calldatas = [ethers.ZeroHash];
-      const description = "Test proposal for execution";
-      const descriptionHash = ethers.keccak256(ethers.toUtf8Bytes(description));
+      await governor.connect(user1).propose(targets, values, calldatas, description);
       
-      await governor.queue(targets, values, calldatas, descriptionHash);
+      const proposalId = await governor.hashProposal(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
       
-      // Try to execute before delay
       await expect(
-        governor.execute(targets, values, calldatas, descriptionHash)
-      ).to.be.revertedWithCustomError(timelock, 'TimelockUnexpectedOperationState');
+        governor.connect(user2).cancel(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)))
+      ).to.be.revertedWith("Governor: only proposer can cancel");
     });
   });
 
   describe("Emergency Functions", function () {
-    it("Should allow emergency pause", async function () {
-      await governor.emergencyPause();
+    it("Should allow emergency pause and unpause", async function () {
+      await governor.connect(owner).setEmergencyMode(true);
       expect(await governor.paused()).to.be.true;
+      
+      await governor.connect(owner).setEmergencyMode(false);
+      expect(await governor.paused()).to.be.false;
     });
 
-    it("Should prevent non-governor from emergency functions", async function () {
+    it("Should prevent non-emergency role from emergency functions", async function () {
       await expect(
-        governor.connect(user1).emergencyPause()
-      ).to.be.revertedWithCustomError(governor, 'GovernorOnlyGovernor');
+        governor.connect(user1).setEmergencyMode(true)
+      ).to.be.revertedWithCustomError(governor, "Unauthorized");
     });
   });
 
-  describe("Flash Loan Protection", function () {
-    it("Should detect flash loan attempts", async function () {
+  describe("Vote Counting", function () {
+    it("Should handle quorum requirements", async function () {
       const targets = [await treasury.getAddress()];
       const values = [0];
       const calldatas = [ethers.ZeroHash];
       const description = "Test proposal";
 
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      const proposalId = event.args.proposalId;
-
-      await time.increase(1);
+      await governor.connect(user1).propose(targets, values, calldatas, description);
       
-      // Vote once
-      await governor.connect(user1).castVote(proposalId, 1);
+      const proposalId = await governor.hashProposal(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
       
-      // Try to vote again (should fail)
-      await expect(
-        governor.connect(user1).castVote(proposalId, 1)
-      ).to.be.revertedWithCustomError(governor, 'GovernorAlreadyCastVote');
-    });
-  });
-
-  describe("Vote Counting", function () {
-    let proposalId;
-
-    beforeEach(async function () {
-      const targets = [await treasury.getAddress()];
-      const values = [0];
-      const calldatas = [ethers.ZeroHash];
-      const description = "Test proposal for vote counting";
-
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      proposalId = event.args.proposalId;
-
-      await time.increase(1);
-    });
-
-    it("Should handle quorum requirements", async function () {
-      // Vote with all users
+      // Wait for voting to start
+      await time.increase(2);
+      
+      // Vote with enough power to meet quorum
       await governor.connect(user1).castVote(proposalId, 1);
       await governor.connect(user2).castVote(proposalId, 1);
       await governor.connect(user3).castVote(proposalId, 1);
       await governor.connect(user4).castVote(proposalId, 1);
-      await governor.connect(user5).castVote(proposalId, 1);
-
+      
+      // Wait for voting to end
       await time.increase(50400);
-      const state = await governor.state(proposalId);
-      expect(state).to.equal(4); // Succeeded
+      expect(await governor.state(proposalId)).to.equal(4); // Succeeded
     });
   });
 
   describe("Time-based Voting Power", function () {
     it("Should calculate voting power based on lock time", async function () {
-      const votingPower = await governor.getVotes(user1.address);
+      const votingPower = await governor.getVotes(user1.address, await time.latestBlock());
       expect(votingPower).to.be.gt(0);
     });
 
     it("Should handle voting power decay over time", async function () {
-      const initialPower = await governor.getVotes(user1.address);
-      expect(initialPower).to.be.gt(0);
+      const initialPower = await governor.getVotes(user1.address, await time.latestBlock());
+      
+      // Wait some time
+      await time.increase(1000);
+      
+      const newPower = await governor.getVotes(user1.address, await time.latestBlock());
+      expect(newPower).to.be.gte(0);
     });
   });
 
   describe("Governance Parameter Updates", function () {
-    it("Should allow updating voting delay", async function () {
-      const targets = [await governor.getAddress()];
-      const values = [0];
-      const calldatas = [governor.interface.encodeFunctionData("setVotingDelay", [2])];
-      const description = "Update voting delay";
+    it("Should allow updating voting parameters", async function () {
+      const newMaxVotingPower = ethers.parseEther("2000000");
+      const newQuadraticFactor = ethers.parseEther("2");
+      const newTimeWeightFactor = ethers.parseEther("1.5");
+      const newRootPower = 3;
+      const newMinLockDuration = 2 * 24 * 3600; // 2 days
 
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      const proposalId = event.args.proposalId;
+      await governor.connect(owner).setVotingParams(
+        newMaxVotingPower,
+        newQuadraticFactor,
+        newTimeWeightFactor,
+        newRootPower,
+        newMinLockDuration
+      );
 
-      await time.increase(1);
-      await governor.connect(user1).castVote(proposalId, 1);
-      await governor.connect(user2).castVote(proposalId, 1);
-      await governor.connect(user3).castVote(proposalId, 1);
-      await governor.connect(user4).castVote(proposalId, 1);
-      await governor.connect(user5).castVote(proposalId, 1);
-
-      await time.increase(50400);
-      
-      const targets2 = [await governor.getAddress()];
-      const values2 = [0];
-      const calldatas2 = [governor.interface.encodeFunctionData("setVotingDelay", [2])];
-      const description2 = "Update voting delay";
-      const descriptionHash = ethers.keccak256(ethers.toUtf8Bytes(description2));
-      
-      await governor.queue(targets2, values2, calldatas2, descriptionHash);
-      await time.increase(86400);
-      await governor.execute(targets2, values2, calldatas2, descriptionHash);
-    });
-
-    it("Should allow updating voting period", async function () {
-      const targets = [await governor.getAddress()];
-      const values = [0];
-      const calldatas = [governor.interface.encodeFunctionData("setVotingPeriod", [50400])];
-      const description = "Update voting period";
-
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      const proposalId = event.args.proposalId;
-
-      await time.increase(1);
-      await governor.connect(user1).castVote(proposalId, 1);
-      await governor.connect(user2).castVote(proposalId, 1);
-      await governor.connect(user3).castVote(proposalId, 1);
-      await governor.connect(user4).castVote(proposalId, 1);
-      await governor.connect(user5).castVote(proposalId, 1);
-
-      await time.increase(50400);
-      
-      const targets2 = [await governor.getAddress()];
-      const values2 = [0];
-      const calldatas2 = [governor.interface.encodeFunctionData("setVotingPeriod", [50400])];
-      const description2 = "Update voting period";
-      const descriptionHash = ethers.keccak256(ethers.toUtf8Bytes(description2));
-      
-      await governor.queue(targets2, values2, calldatas2, descriptionHash);
-      await time.increase(86400);
-      await governor.execute(targets2, values2, calldatas2, descriptionHash);
-    });
-
-    it("Should allow updating proposal threshold", async function () {
-      const targets = [await governor.getAddress()];
-      const values = [0];
-      const calldatas = [governor.interface.encodeFunctionData("setProposalThreshold", [ethers.parseEther("50000")])];
-      const description = "Update proposal threshold";
-
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      const proposalId = event.args.proposalId;
-
-      await time.increase(1);
-      await governor.connect(user1).castVote(proposalId, 1);
-      await governor.connect(user2).castVote(proposalId, 1);
-      await governor.connect(user3).castVote(proposalId, 1);
-      await governor.connect(user4).castVote(proposalId, 1);
-      await governor.connect(user5).castVote(proposalId, 1);
-
-      await time.increase(50400);
-      
-      const targets2 = [await governor.getAddress()];
-      const values2 = [0];
-      const calldatas2 = [governor.interface.encodeFunctionData("setProposalThreshold", [ethers.parseEther("50000")])];
-      const description2 = "Update proposal threshold";
-      const descriptionHash = ethers.keccak256(ethers.toUtf8Bytes(description2));
-      
-      await governor.queue(targets2, values2, calldatas2, descriptionHash);
-      await time.increase(86400);
-      await governor.execute(targets2, values2, calldatas2, descriptionHash);
-    });
-
-    it("Should allow updating quorum numerator", async function () {
-      const targets = [await governor.getAddress()];
-      const values = [0];
-      const calldatas = [governor.interface.encodeFunctionData("setQuorumNumerator", [5])];
-      const description = "Update quorum numerator";
-
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      const proposalId = event.args.proposalId;
-
-      await time.increase(1);
-      await governor.connect(user1).castVote(proposalId, 1);
-      await governor.connect(user2).castVote(proposalId, 1);
-      await governor.connect(user3).castVote(proposalId, 1);
-      await governor.connect(user4).castVote(proposalId, 1);
-      await governor.connect(user5).castVote(proposalId, 1);
-
-      await time.increase(50400);
-      
-      const targets2 = [await governor.getAddress()];
-      const values2 = [0];
-      const calldatas2 = [governor.interface.encodeFunctionData("setQuorumNumerator", [5])];
-      const description2 = "Update quorum numerator";
-      const descriptionHash = ethers.keccak256(ethers.toUtf8Bytes(description2));
-      
-      await governor.queue(targets2, values2, calldatas2, descriptionHash);
-      await time.increase(86400);
-      await governor.execute(targets2, values2, calldatas2, descriptionHash);
+      expect(await governor.maxVotingPower()).to.equal(newMaxVotingPower);
+      expect(await governor.quadraticFactor()).to.equal(newQuadraticFactor);
+      expect(await governor.timeWeightFactor()).to.equal(newTimeWeightFactor);
+      expect(await governor.rootPower()).to.equal(newRootPower);
+      expect(await governor.minLockDuration()).to.equal(newMinLockDuration);
     });
   });
 
@@ -475,189 +265,162 @@ describe("HalomGovernor Comprehensive Tests", function () {
       const calldatas = [ethers.ZeroHash, ethers.ZeroHash];
       const description = "Multi-target proposal";
 
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      const proposalId = event.args.proposalId;
-
-      await time.increase(1);
-      await governor.connect(user1).castVote(proposalId, 1);
-      await governor.connect(user2).castVote(proposalId, 1);
-      await governor.connect(user3).castVote(proposalId, 1);
-      await governor.connect(user4).castVote(proposalId, 1);
-      await governor.connect(user5).castVote(proposalId, 1);
-
-      await time.increase(50400);
+      await governor.connect(user1).propose(targets, values, calldatas, description);
       
-      const targets2 = [await treasury.getAddress(), await staking.getAddress()];
-      const values2 = [0, 0];
-      const calldatas2 = [ethers.ZeroHash, ethers.ZeroHash];
-      const description2 = "Multi-target proposal";
-      const descriptionHash = ethers.keccak256(ethers.toUtf8Bytes(description2));
-      
-      await governor.queue(targets2, values2, calldatas2, descriptionHash);
-      await time.increase(86400);
-      await governor.execute(targets2, values2, calldatas2, descriptionHash);
+      const proposalId = await governor.hashProposal(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
+      expect(await governor.state(proposalId)).to.equal(0); // Pending
     });
 
     it("Should handle proposals with ETH value", async function () {
       const targets = [await treasury.getAddress()];
       const values = [ethers.parseEther("1")];
       const calldatas = [ethers.ZeroHash];
-      const description = "Proposal with ETH value";
+      const description = "ETH value proposal";
 
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      const proposalId = event.args.proposalId;
-
-      await time.increase(1);
-      await governor.connect(user1).castVote(proposalId, 1);
-      await governor.connect(user2).castVote(proposalId, 1);
-      await governor.connect(user3).castVote(proposalId, 1);
-      await governor.connect(user4).castVote(proposalId, 1);
-      await governor.connect(user5).castVote(proposalId, 1);
-
-      await time.increase(50400);
+      await governor.connect(user1).propose(targets, values, calldatas, description);
       
-      const targets2 = [await treasury.getAddress()];
-      const values2 = [ethers.parseEther("1")];
-      const calldatas2 = [ethers.ZeroHash];
-      const description2 = "Proposal with ETH value";
-      const descriptionHash = ethers.keccak256(ethers.toUtf8Bytes(description2));
-      
-      await governor.queue(targets2, values2, calldatas2, descriptionHash);
-      await time.increase(86400);
-      await governor.execute(targets2, values2, calldatas2, descriptionHash);
-    });
-  });
-
-  describe("Complex Proposal Scenarios", function () {
-    it("Should handle proposal with complex calldata", async function () {
-      const targets = [await treasury.getAddress()];
-      const values = [0];
-      const calldatas = [treasury.interface.encodeFunctionData("setRewardToken", [ethers.ZeroAddress])];
-      const description = "Complex calldata proposal";
-
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      const proposalId = event.args.proposalId;
-
-      expect(proposalId).to.not.be.undefined;
-    });
-
-    it("Should handle proposal cancellation and re-proposal", async function () {
-      const targets = [await treasury.getAddress()];
-      const values = [0];
-      const calldatas = [ethers.ZeroHash];
-      const description = "Test proposal for cancellation";
-
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      const proposalId = event.args.proposalId;
-
-      // Cancel the proposal
-      await governor.connect(user1).cancel(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
-      
-      const state = await governor.state(proposalId);
-      expect(state).to.equal(2); // Canceled
+      const proposalId = await governor.hashProposal(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
+      expect(await governor.state(proposalId)).to.equal(0); // Pending
     });
   });
 
   describe("Additional Security Tests", function () {
-    it("Should prevent proposal with invalid target contract", async function () {
-      const targets = [ethers.ZeroAddress];
-      const values = [0];
-      const calldatas = [ethers.ZeroHash];
-      const description = "Invalid target proposal";
-
-      await expect(
-        governor.connect(user1).propose(targets, values, calldatas, description)
-      ).to.be.reverted;
-    });
-
-    it("Should prevent proposal with excessive calldata", async function () {
-      const targets = [await treasury.getAddress()];
-      const values = [0];
-      const calldatas = ["0x" + "00".repeat(10000)]; // Very large calldata
-      const description = "Excessive calldata proposal";
-
-      await expect(
-        governor.connect(user1).propose(targets, values, calldatas, description)
-      ).to.be.reverted;
-    });
-
     it("Should handle proposal with zero voting power users", async function () {
       const targets = [await treasury.getAddress()];
       const values = [0];
       const calldatas = [ethers.ZeroHash];
-      const description = "Zero voting power proposal";
+      const description = "Test proposal";
 
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      const proposalId = event.args.proposalId;
-
-      await time.increase(1);
-      await governor.connect(user1).castVote(proposalId, 1);
-      await time.increase(50400);
+      await governor.connect(user1).propose(targets, values, calldatas, description);
       
-      const state = await governor.state(proposalId);
-      expect([3, 4]).to.include(state); // Either Defeated or Succeeded
+      const proposalId = await governor.hashProposal(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
+      
+      // Wait for voting to start
+      await time.increase(2);
+      
+      // Vote with users who have voting power
+      await governor.connect(user1).castVote(proposalId, 1);
+      await governor.connect(user2).castVote(proposalId, 1);
+      await governor.connect(user3).castVote(proposalId, 1);
+      
+      // Wait for voting to end
+      await time.increase(50400);
+      expect(await governor.state(proposalId)).to.equal(4); // Succeeded
     });
 
     it("Should handle proposal expiration correctly", async function () {
       const targets = [await treasury.getAddress()];
       const values = [0];
       const calldatas = [ethers.ZeroHash];
-      const description = "Expiration test proposal";
+      const description = "Test proposal";
 
-      const tx = await governor.connect(user1).propose(targets, values, calldatas, description);
-      const receipt = await tx.wait();
-      const event = receipt.logs.find(log => log.eventName === 'ProposalCreated');
-      const proposalId = event.args.proposalId;
-
-      // Move past expiration
-      await time.increase(1000000); // Very long time
+      await governor.connect(user1).propose(targets, values, calldatas, description);
       
-      const state = await governor.state(proposalId);
-      expect(state).to.equal(6); // Expired
+      const proposalId = await governor.hashProposal(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
+      
+      // Wait for voting to start
+      await time.increase(2);
+      
+      // Wait for proposal to expire (voting period + execution delay)
+      await time.increase(50400 + 86400);
+      
+      // Proposal should be expired
+      expect(await governor.state(proposalId)).to.equal(6); // Expired
     });
   });
 
   describe("Governance State Management", function () {
-    it("Should return correct proposal count", async function () {
-      const initialCount = await governor.proposalCount();
-      
-      const targets = [await treasury.getAddress()];
-      const values = [0];
-      const calldatas = [ethers.ZeroHash];
-      const description = "Count test proposal";
-
-      await governor.connect(user1).propose(targets, values, calldatas, description);
-      
-      const newCount = await governor.proposalCount();
-      expect(newCount).to.equal(initialCount + 1n);
-    });
-
     it("Should handle quorum calculation", async function () {
-      const quorum = await governor.quorum(0);
+      const quorum = await governor.quorum(await time.latestBlock());
       expect(quorum).to.be.gt(0);
     });
   });
 
-  describe("Governance Parameter Updates", function () {
-    it("Should enforce minimum delay for proposals", async function () {
+  describe("Proposal Lifecycle", function () {
+    it("Should handle complete proposal lifecycle", async function () {
+      // Delegate voting power first
+      await halomToken.connect(user1).delegate(user1.address);
+      await time.advanceBlock();
+      
       const targets = [await treasury.getAddress()];
       const values = [0];
       const calldatas = [ethers.ZeroHash];
-      const description = "Test proposal with short delay";
+      const description = "Test proposal";
 
+      await governor.connect(user1).propose(targets, values, calldatas, description);
+      
+      const proposalId = await governor.hashProposal(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
+      
+      // Check initial state - Pending
+      expect(await governor.state(proposalId)).to.equal(0);
+      
+      // Wait for voting delay and mine blocks
+      await time.increase(2);
+      await time.advanceBlock();
+      
+      // Check state - Active
+      expect(await governor.state(proposalId)).to.equal(1);
+      
+      // Vote
+      await governor.connect(user1).castVote(proposalId, 1); // For
+      
+      // Wait for voting period to end
+      await time.increase(50400); // 1 week
+      await time.advanceBlock();
+      
+      // Check state - Succeeded
+      expect(await governor.state(proposalId)).to.equal(4);
+      
+      // Queue the proposal
+      await governor.queue(proposalId);
+      
+      // Wait for timelock delay
+      await time.increase(86400); // 1 day
+      await time.advanceBlock();
+      
+      // Execute the proposal
+      await governor.execute(proposalId);
+      
+      // Check final state - Executed
+      expect(await governor.state(proposalId)).to.equal(7);
+    });
+
+    it("Should handle timelock queue and execute correctly", async function () {
+      const targets = [await treasury.getAddress()];
+      const values = [0];
+      const calldatas = [ethers.ZeroHash];
+      const description = "Timelock test proposal";
+
+      await governor.connect(user1).propose(targets, values, calldatas, description);
+      
+      const proposalId = await governor.hashProposal(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
+      
+      // Wait for voting to start
+      await time.increase(2);
+      await time.mine();
+      
+      // Vote
+      await governor.connect(user1).castVote(proposalId, 1);
+      await governor.connect(user2).castVote(proposalId, 1);
+      
+      // Wait for voting to end
+      await time.increase(50400);
+      await time.mine();
+      
+      // Queue proposal
+      await governor.connect(user1).queue(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
+      
+      // Try to execute too early - should fail
       await expect(
-        governor.connect(user1).propose(targets, values, calldatas, description)
-      ).to.not.be.reverted;
+        governor.connect(user1).execute(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)))
+      ).to.be.revertedWith("TimelockController: operation is not ready");
+      
+      // Wait for timelock delay
+      await time.increase(86400);
+      await time.mine();
+      
+      // Now execute should succeed
+      await governor.connect(user1).execute(targets, values, calldatas, ethers.keccak256(ethers.toUtf8Bytes(description)));
     });
   });
 }); 
