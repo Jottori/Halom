@@ -25,7 +25,7 @@ describe("Simple Test", function () {
     const constructorFragment = HalomTimelock.interface.fragments.find(f => f.type === 'constructor');
     console.log("HalomTimelock constructor inputs:", constructorFragment?.inputs);
     
-    const timelock = await HalomTimelock.deploy(3600, [owner.address], [owner.address], owner.address);
+    const timelock = await HalomTimelock.deploy(86400, [owner.address], [owner.address], owner.address);
     console.log("HalomTimelock deployed at:", await timelock.getAddress());
     
     expect(await timelock.getAddress()).to.not.equal(ethers.ZeroAddress);

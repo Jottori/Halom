@@ -16,7 +16,7 @@ describe('HalomGovernor', function () {
     // Deploy timelock
     const HalomTimelock = await ethers.getContractFactory('HalomTimelock');
     timelock = await HalomTimelock.deploy(
-      3600, // minDelay
+      86400, // minDelay - 24 hours (minimum required)
       [], // proposers
       [], // executors
       owner.address // admin

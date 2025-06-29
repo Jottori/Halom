@@ -10,7 +10,7 @@ describe('HalomTimelock', function () {
 
     // Deploy HalomTimelock
     const HalomTimelock = await ethers.getContractFactory("HalomTimelock");
-    const minDelay = 3600;
+    const minDelay = 86400; // 24 hours (minimum required)
     const proposers = [owner.address];
     const executors = [owner.address];
     timelock = await HalomTimelock.deploy(minDelay, proposers, executors, owner.address);
@@ -25,7 +25,7 @@ describe('HalomTimelock', function () {
   describe('Deployment and Initial Setup', function () {
     it('Should deploy with correct parameters', async function () {
       expect(await timelock.hasRole(ADMIN_ROLE, owner.address)).to.be.true;
-      expect(await timelock.getMinDelay()).to.equal(3600);
+      expect(await timelock.getMinDelay()).to.equal(86400);
     });
 
     it('Should have correct initial state', async function () {
@@ -63,7 +63,7 @@ describe('HalomTimelock', function () {
       const data = '0x';
       const predecessor = ethers.ZeroHash;
       const salt = ethers.keccak256(ethers.toUtf8Bytes('test-salt'));
-      const delay = 3600;
+      const delay = 86400; // 24 hours
 
       await timelock.connect(user1).queueTransaction(target, value, data, predecessor, salt, delay);
 
@@ -77,7 +77,7 @@ describe('HalomTimelock', function () {
       const data = '0x';
       const predecessor = ethers.ZeroHash;
       const salt = ethers.keccak256(ethers.toUtf8Bytes('test-salt'));
-      const delay = 3600;
+      const delay = 86400; // 24 hours
 
       await expect(
         timelock.connect(user2).queueTransaction(target, value, data, predecessor, salt, delay)
@@ -97,7 +97,7 @@ describe('HalomTimelock', function () {
       const data = '0x';
       const predecessor = ethers.ZeroHash;
       const salt = ethers.keccak256(ethers.toUtf8Bytes('test-salt'));
-      const delay = 3600;
+      const delay = 86400; // 24 hours
 
       await timelock.connect(user1).queueTransaction(target, value, data, predecessor, salt, delay);
       operationHash = await timelock.hashOperation(target, value, data, predecessor, salt);
@@ -117,7 +117,7 @@ describe('HalomTimelock', function () {
 
     it('Should allow execution after delay period', async function () {
       // Wait for delay period
-      await ethers.provider.send('evm_increaseTime', [3601]);
+      await ethers.provider.send('evm_increaseTime', [86401]);
       await ethers.provider.send('evm_mine');
 
       const target = user2.address;
@@ -133,13 +133,13 @@ describe('HalomTimelock', function () {
 
   describe('Emergency Controls', function () {
     it('Should allow admin to update delay', async function () {
-      const newDelay = 7200; // 2 hours
+      const newDelay = 172800; // 48 hours (within 24h-30d range)
       await timelock.connect(owner).setMinDelay(newDelay);
       expect(await timelock.getMinDelay()).to.equal(newDelay);
     });
 
     it('Should prevent non-admin from updating delay', async function () {
-      const newDelay = 7200;
+      const newDelay = 172800; // 48 hours
       await expect(
         timelock.connect(user1).setMinDelay(newDelay)
       ).to.be.revertedWithCustomError(timelock, 'AccessControlUnauthorizedAccount');

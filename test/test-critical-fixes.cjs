@@ -70,9 +70,9 @@ describe('Critical Fixes Validation', function () {
       const feedId2 = ethers.keccak256(ethers.toUtf8Bytes("HOI_FEED_2"));
       const feedId3 = ethers.keccak256(ethers.toUtf8Bytes("HOI_FEED_3"));
 
-      await oracleV3.addFeed(feedId1, 3600, 10e16, 30); // 10% deviation, 30% weight
-      await oracleV3.addFeed(feedId2, 3600, 10e16, 40); // 10% deviation, 40% weight
-      await oracleV3.addFeed(feedId3, 3600, 10e16, 30); // 10% deviation, 30% weight
+      await oracleV3.addFeed(feedId1, 3600, ethers.parseEther('0.1'), 30); // 10% deviation, 30% weight
+      await oracleV3.addFeed(feedId2, 3600, ethers.parseEther('0.1'), 40); // 10% deviation, 40% weight
+      await oracleV3.addFeed(feedId3, 3600, ethers.parseEther('0.1'), 30); // 10% deviation, 30% weight
     });
 
     it('Should implement median-based consensus with 3 valid feeds', async function () {
@@ -109,8 +109,11 @@ describe('Critical Fixes Validation', function () {
       await oracleV3.updateOracleData(feedId2, ethers.parseEther('1100'), currentTime, 95);
       await oracleV3.updateOracleData(feedId3, ethers.parseEther('1200'), currentTime, 85);
 
+      // Wait for rate limiting period
+      await time.increase(3601); // 1 hour + 1 second
+
       // Try to manipulate with extreme value (should be filtered out)
-      await oracleV3.updateOracleData(feedId1, ethers.parseEther('2000'), currentTime, 90); // 100% deviation
+      await oracleV3.updateOracleData(feedId1, ethers.parseEther('2000'), currentTime + 3601, 90); // 100% deviation
 
       // Aggregate feeds
       await oracleV3.aggregateFeeds([feedId1, feedId2, feedId3]);
@@ -268,12 +271,12 @@ describe('Critical Fixes Validation', function () {
       
       await timelock.queueTransaction(target, value, data, predecessor, salt, delay);
       
-      // Try to execute before delay period
+      // Try to execute before delay period (should fail)
       await time.increase(24 * 60 * 60); // 24 hours (but critical operation adds 7 days)
       
       await expect(
         timelock.executeTransaction(target, value, data, predecessor, salt)
-      ).to.be.reverted;
+      ).to.be.revertedWithCustomError(timelock, 'TimelockUnexpectedOperationState');
       
       // Wait for full delay period
       await time.increase(7 * 24 * 60 * 60); // Additional 7 days
@@ -289,10 +292,19 @@ describe('Critical Fixes Validation', function () {
     it('Should handle complete workflow with all protections', async function () {
       // 1. Oracle aggregation with median consensus
       const feedId = ethers.keccak256(ethers.toUtf8Bytes("INTEGRATION_FEED"));
-      await oracleV3.addFeed(feedId, 3600, 10e16, 50);
+      await oracleV3.addFeed(feedId, 3600, ethers.parseEther('0.1'), 50);
       const currentTime = Math.floor(Date.now() / 1000);
       await oracleV3.updateOracleData(feedId, ethers.parseEther('1000'), currentTime, 90);
-      await oracleV3.aggregateFeeds([feedId]);
+      
+      // Need at least 3 feeds for aggregation, so add more feeds
+      const feedId2 = ethers.keccak256(ethers.toUtf8Bytes("INTEGRATION_FEED_2"));
+      const feedId3 = ethers.keccak256(ethers.toUtf8Bytes("INTEGRATION_FEED_3"));
+      await oracleV3.addFeed(feedId2, 3600, ethers.parseEther('0.1'), 25);
+      await oracleV3.addFeed(feedId3, 3600, ethers.parseEther('0.1'), 25);
+      await oracleV3.updateOracleData(feedId2, ethers.parseEther('1000'), currentTime, 90);
+      await oracleV3.updateOracleData(feedId3, ethers.parseEther('1000'), currentTime, 90);
+      
+      await oracleV3.aggregateFeeds([feedId, feedId2, feedId3]);
       
       // 2. Treasury operations with exhaustion protection
       await treasury.checkRewardExhaustion();

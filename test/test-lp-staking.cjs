@@ -76,7 +76,7 @@ describe('HalomLPStaking', function () {
   }
 
   it("Should allow a user to stake and receive rewards", async function () {
-    const { lpToken, lpStaking, user1 } = await deployLPStakingFixture();
+    const { halomToken, lpToken, lpStaking, user1, owner } = await deployLPStakingFixture();
     
     // User stakes LP tokens
     await lpToken.connect(user1).approve(await lpStaking.getAddress(), ethers.parseEther("1000"));
@@ -86,7 +86,8 @@ describe('HalomLPStaking', function () {
     const stakedAmount = await lpStaking.stakedBalance(user1.address);
     expect(stakedAmount).to.be.gt(ethers.parseEther("1000")); // Should be greater due to lock boost
     
-    // Add rewards
+    // Add rewards - owner needs to have tokens and approve the LP staking contract
+    await halomToken.connect(owner).approve(await lpStaking.getAddress(), ethers.parseEther("100"));
     await lpStaking.connect(owner).addRewards(ethers.parseEther("100"));
     
     // Wait some time
