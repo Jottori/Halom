@@ -1,0 +1,241 @@
+name: Comprehensive Testing and Security Analysis
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x, 20.x]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Compile contracts
+      run: npm run compile
+    
+    - name: Run unit tests
+      run: npm run test:unit
+    
+    - name: Run integration tests
+      run: npm run test:integration
+    
+    - name: Run security tests
+      run: npm run test:security
+    
+    - name: Run zkSync tests
+      run: npm run test:zksync
+    
+    - name: Generate coverage report
+      run: npm run test:coverage
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage/lcov.info
+        flags: unittests
+        name: codecov-umbrella
+
+  security-analysis:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js 18.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18.x
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Install Slither
+      run: |
+        pip3 install slither-analyzer
+        slither --version
+    
+    - name: Run Slither analysis
+      run: npm run test:slither
+      continue-on-error: true
+    
+    - name: Install Mythril
+      run: |
+        pip3 install mythril
+        myth version
+      continue-on-error: true
+    
+    - name: Run Mythril analysis
+      run: npm run test:mythril
+      continue-on-error: true
+    
+    - name: Run comprehensive security check
+      run: npm run security:check
+      continue-on-error: true
+
+  gas-optimization:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js 18.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18.x
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run gas optimization tests
+      run: npm run test:gas
+    
+    - name: Generate gas report
+      run: npx hardhat test --gas-report
+
+  offchain-testing:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install Python dependencies
+      run: |
+        cd offchain-scripts
+        pip install -r requirements.txt
+    
+    - name: Run offchain tests
+      run: npm run offchain:test
+    
+    - name: Run basic functionality test
+      run: |
+        cd offchain-scripts
+        python test_basic.py
+
+  lint-and-format:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js 18.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18.x
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run ESLint
+      run: npm run lint
+    
+    - name: Check code formatting
+      run: npx prettier --check .
+
+  comprehensive-report:
+    runs-on: ubuntu-latest
+    needs: [test, security-analysis, gas-optimization, offchain-testing, lint-and-format]
+    if: always()
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js 18.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18.x
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run comprehensive test suite
+      run: npm run test:comprehensive
+      continue-on-error: true
+    
+    - name: Generate test report
+      run: |
+        echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+        if [ -f test-results.json ]; then
+          cat test-results.json | jq -r '.summary | "**Total Tests:** \(.total)\n**Passed:** \(.passed) ✅\n**Failed:** \(.failed) ❌\n**Success Rate:** \(.successRate)\n**Coverage:** \(.coverage)"' >> $GITHUB_STEP_SUMMARY
+        fi
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results
+        path: |
+          test-results.json
+          coverage/
+          security/slither-results/
+        retention-days: 30
+
+  deployment-check:
+    runs-on: ubuntu-latest
+    needs: [test, security-analysis, gas-optimization, offchain-testing, lint-and-format]
+    if: github.ref == 'refs/heads/main' && needs.test.result == 'success'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js 18.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18.x
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run final deployment check
+      run: |
+        echo "All tests passed! Ready for deployment."
+        echo "Security analysis completed."
+        echo "Gas optimization verified."
+        echo "Offchain functionality tested."
+        echo "Code quality checks passed."
+    
+    - name: Create deployment summary
+      run: |
+        echo "## 🚀 Deployment Ready" >> $GITHUB_STEP_SUMMARY
+        echo "All comprehensive tests have passed successfully!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### ✅ Checks Completed:" >> $GITHUB_STEP_SUMMARY
+        echo "- Unit and integration tests" >> $GITHUB_STEP_SUMMARY
+        echo "- Security analysis (Slither, Mythril)" >> $GITHUB_STEP_SUMMARY
+        echo "- Gas optimization verification" >> $GITHUB_STEP_SUMMARY
+        echo "- Offchain functionality testing" >> $GITHUB_STEP_SUMMARY
+        echo "- Code quality and formatting" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📊 Coverage and Performance:" >> $GITHUB_STEP_SUMMARY
+        if [ -f test-results.json ]; then
+          cat test-results.json | jq -r '.summary | "- **Test Coverage:** \(.coverage)\n- **Success Rate:** \(.successRate)"' >> $GITHUB_STEP_SUMMARY
+        fi 

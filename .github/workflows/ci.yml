@@ -1,63 +1,80 @@
-name: Halom Protocol CI
+name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
     branches: [ main ]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
-
+    
     steps:
     - uses: actions/checkout@v3
-
-    - name: Use Node.js
+    
+    - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
-        node-version: '18.x'
-
-    - name: Install Dependencies
-      run: npm install
-
-    - name: Compile Contracts
-      run: npx hardhat compile
-
-    - name: Run Linter
-      run: npx hardhat check
-
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
     - name: Run tests
-      run: npx hardhat test
+      run: npm test
+    
+    - name: Run coverage
+      run: npm run coverage
+    
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
 
-    - name: Run solhint (Solidity linter)
+  security:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run Slither
+      run: npx slither . --json security/slither-results/slither-report.json
+    
+    - name: Run Solhint
       run: npx solhint 'contracts/**/*.sol'
-
-    - name: Run ESLint (JS/TS linter)
-      run: npx eslint '**/*.{js,ts}' --max-warnings=0 || true
-
-    - name: Run Solidity Coverage
-      run: npx hardhat coverage --temp ./coverage
-
-    - name: Upload Solidity Coverage Report
-      uses: actions/upload-artifact@v4
+    
+    - name: Upload security results
+      uses: actions/upload-artifact@v3
       with:
-        name: solidity-coverage-report
-        path: coverage/lcov.info
+        name: security-results
+        path: security/slither-results/
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
       with:
-        python-version: '3.10'
-
-    - name: Install Python dependencies
-      run: pip install -r requirements.txt
-
-    - name: Run Python Coverage
-      run: pytest --cov=offchain --cov-report=xml
-
-    - name: Upload Python Coverage Report
-      uses: actions/upload-artifact@v4
-      with:
-        name: python-coverage-report
-        path: coverage.xml 
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run ESLint
+      run: npm run lint
+    
+    - name: Run Prettier check
+      run: npm run format:check 

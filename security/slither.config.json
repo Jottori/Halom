@@ -1,0 +1,18 @@
+{
+  "filter_paths": [
+    "node_modules",
+    "test",
+    "mocks"
+  ],
+  "exclude_informational": false,
+  "exclude_low": false,
+  "exclude_medium": false,
+  "exclude_high": false,
+  "json": "security/slither-results/slither-report.json",
+  "disable_color": false,
+  "printers": [
+    "human-summary",
+    "human-summary-2",
+    "json"
+  ]
+} 
