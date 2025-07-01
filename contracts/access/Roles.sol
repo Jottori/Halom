@@ -19,7 +19,6 @@ contract Roles is
     // ============ ROLE DEFINITIONS ============
     
     // Core administrative roles
-    bytes32 public constant DEFAULT_ADMIN_ROLE = keccak256("DEFAULT_ADMIN_ROLE");
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
     
     // Governance roles
@@ -47,8 +46,6 @@ contract Roles is
     
     event RoleDescriptionSet(bytes32 indexed role, string description);
     event RoleHierarchyUpdated(bytes32 indexed role, bytes32[] parentRoles);
-    event RoleGranted(bytes32 indexed role, address indexed account, address indexed operator);
-    event RoleRevoked(bytes32 indexed role, address indexed account, address indexed operator);
     event Upgraded(address indexed implementation);
     event EmergencyRoleActivated(address indexed account, string reason);
 
@@ -94,7 +91,6 @@ contract Roles is
         if (!_isValidRole(role)) revert InvalidRole();
         
         super.grantRole(role, account);
-        emit RoleGranted(role, account, msg.sender);
     }
 
     /**
@@ -109,7 +105,6 @@ contract Roles is
         if (!_isValidRole(role)) revert InvalidRole();
         
         super.revokeRole(role, account);
-        emit RoleRevoked(role, account, msg.sender);
     }
 
     /**
@@ -123,7 +118,6 @@ contract Roles is
         if (!_isValidRole(role)) revert InvalidRole();
         
         super.renounceRole(role, account);
-        emit RoleRevoked(role, account, msg.sender);
     }
 
     /**
@@ -167,17 +161,6 @@ contract Roles is
         onlyRole(EMERGENCY_ROLE) 
     {
         emit EmergencyRoleActivated(msg.sender, reason);
-    }
-
-    /**
-     * @dev Upgrade contract - only UPGRADER_ROLE
-     */
-    function upgradeTo(address newImplementation) 
-        external 
-        onlyRole(UPGRADER_ROLE) 
-    {
-        _upgradeToAndCall(newImplementation, "", false);
-        emit Upgraded(newImplementation);
     }
 
     // ============ INTERNAL FUNCTIONS ============
@@ -303,59 +286,9 @@ contract Roles is
     }
 
     /**
-     * @dev Get all roles for an account
-     */
-    function getAccountRoles(address account) external view returns (bytes32[] memory) {
-        bytes32[] memory allRoles = new bytes32[](9);
-        uint256 roleCount = 0;
-        
-        bytes32[] memory roles = [
-            DEFAULT_ADMIN_ROLE,
-            UPGRADER_ROLE,
-            GOVERNOR_ROLE,
-            EMERGENCY_ROLE,
-            MINTER_ROLE,
-            PAUSER_ROLE,
-            BLACKLIST_ROLE,
-            BRIDGE_ROLE,
-            ORACLE_ROLE
-        ];
-        
-        for (uint256 i = 0; i < roles.length; i++) {
-            if (hasRole(roles[i], account)) {
-                allRoles[roleCount] = roles[i];
-                roleCount++;
-            }
-        }
-        
-        // Resize array to actual count
-        bytes32[] memory result = new bytes32[](roleCount);
-        for (uint256 i = 0; i < roleCount; i++) {
-            result[i] = allRoles[i];
-        }
-        
-        return result;
-    }
-
-    /**
-     * @dev Get role count for an account
-     */
-    function getAccountRoleCount(address account) external view returns (uint256) {
-        bytes32[] memory roles = getAccountRoles(account);
-        return roles.length;
-    }
-
-    /**
-     * @dev Check if account has any role
-     */
-    function hasAnyRole(address account) external view returns (bool) {
-        return getAccountRoleCount(account) > 0;
-    }
-
-    /**
      * @dev Get all accounts with a specific role (simplified implementation)
      */
-    function getRoleMembers(bytes32 role) external view returns (address[] memory) {
+    function getRoleMembers(bytes32 /*role*/) external pure returns (address[] memory) {
         // This is a simplified implementation
         // In a real implementation, you might want to track role members
         return new address[](0);
@@ -367,7 +300,6 @@ contract Roles is
      * @dev Get all role constants for external contracts
      */
     function getRoleConstants() external pure returns (
-        bytes32 defaultAdminRole,
         bytes32 upgraderRole,
         bytes32 governorRole,
         bytes32 emergencyRole,
@@ -378,7 +310,6 @@ contract Roles is
         bytes32 oracleRole
     ) {
         return (
-            DEFAULT_ADMIN_ROLE,
             UPGRADER_ROLE,
             GOVERNOR_ROLE,
             EMERGENCY_ROLE,

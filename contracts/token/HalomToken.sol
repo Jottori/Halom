@@ -2,12 +2,12 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/cryptography/ECDSAUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import "../utils/AntiWhale.sol";
 import "../utils/FeeOnTransfer.sol";
@@ -30,7 +30,7 @@ contract HalomToken is
     using AntiWhale for AntiWhale.AntiWhaleData;
     using FeeOnTransfer for FeeOnTransfer.FeeData;
     using Blacklist for Blacklist.BlacklistData;
-    using ECDSAUpgradeable for bytes32;
+    using ECDSA for bytes32;
 
     // Role definitions
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
@@ -80,6 +80,7 @@ contract HalomToken is
     // Errors
     error TransferPaused();
     error InsufficientBalance();
+    error ZeroAmount();
     error TransferAmountExceedsLimit();
     error WalletBalanceExceedsLimit();
     error CooldownNotExpired();
@@ -124,8 +125,13 @@ contract HalomToken is
             10000 * 10**decimals(), // 10000 tokens max wallet
             300 // 5 minutes cooldown
         );
+        antiWhaleData.setAntiWhaleEnabled(true);
 
         feeData.setFeeParams(100, 500, admin); // 1% fee, 5% max, admin collector
+        feeData.setFeeEnabled(true); // Enable fee collection
+        
+        // Enable blacklist functionality
+        blacklistData.setBlacklistEnabled(true);
     }
 
     // ============ PUBLIC FUNCTIONS ============
@@ -202,15 +208,6 @@ contract HalomToken is
         if (signer != owner) revert InvalidSignature();
 
         _approve(owner, spender, value);
-    }
-
-    /**
-     * @dev Get current nonce for an address
-     * @param owner Address to get nonce for
-     * @return Current nonce
-     */
-    function nonces(address owner) public view returns (uint256) {
-        return nonces[owner];
     }
 
     /**
@@ -450,12 +447,12 @@ contract HalomToken is
     /**
      * @dev Set fee parameters - only GOVERNOR_ROLE
      */
-    function setFeeParams(uint256 bps, uint256 maxFee) 
+    function setFeeParams(uint256 bps, uint256 maxFee, address collector) 
         external 
         onlyRole(GOVERNOR_ROLE) 
     {
-        (,, address collector) = feeData.getFeeParams();
         feeData.setFeeParams(bps, maxFee, collector);
+        emit FeeParamsChanged(bps, maxFee);
     }
 
     /**
@@ -466,6 +463,7 @@ contract HalomToken is
         onlyRole(GOVERNOR_ROLE) 
     {
         antiWhaleData.setAntiWhaleParams(maxTx, maxWallet, cooldown);
+        emit AntiWhaleParamsChanged(maxTx, maxWallet, cooldown);
     }
 
     /**
@@ -476,6 +474,7 @@ contract HalomToken is
         onlyRole(BLACKLIST_ROLE) 
     {
         blacklistData.blacklist(account, "Blacklisted by admin");
+        emit Blacklisted(account);
     }
 
     /**
@@ -486,17 +485,7 @@ contract HalomToken is
         onlyRole(BLACKLIST_ROLE) 
     {
         blacklistData.unBlacklist(account);
-    }
-
-    /**
-     * @dev Upgrade contract - only DEFAULT_ADMIN_ROLE
-     */
-    function upgradeTo(address newImplementation) 
-        external 
-        onlyRole(DEFAULT_ADMIN_ROLE) 
-    {
-        _upgradeToAndCall(newImplementation, "", false);
-        emit Upgraded(newImplementation);
+        emit UnBlacklisted(account);
     }
 
     // ============ ZKSYNC PAYMASTER INTERFACE ============
@@ -504,21 +493,18 @@ contract HalomToken is
     /**
      * @dev zkSync Era paymaster interface: validate and pay for paymaster transaction
      * @param from Sender address
-     * @param to Recipient address
-     * @param value ETH value sent
      * @param gas Gas limit
      * @param gasPrice Gas price
-     * @param data Calldata
      * @return context Context for postTransaction
      * @return validationResult Validation result (0 = success)
      */
     function validateAndPayForPaymasterTransaction(
         address from,
-        address to,
-        uint256 value,
+        address /*to*/,
+        uint256 /*value*/,
         uint256 gas,
         uint256 gasPrice,
-        bytes calldata data
+        bytes calldata /*data*/
     ) external payable returns (bytes memory context, uint256 validationResult) {
         // Only allow zkSync system or paymaster role to call
         require(hasRole(BRIDGE_ROLE, msg.sender) || hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Unauthorized");
@@ -538,13 +524,11 @@ contract HalomToken is
     /**
      * @dev zkSync Era paymaster interface: post-transaction hook
      * @param context Context from validateAndPayForPaymasterTransaction
-     * @param success Transaction success
-     * @param actualGas Actual gas used
      */
     function postTransaction(
         bytes calldata context,
-        bool success,
-        uint256 actualGas
+        bool /*success*/,
+        uint256 /*actualGas*/
     ) external payable {
         // Only allow zkSync system or paymaster role to call
         require(hasRole(BRIDGE_ROLE, msg.sender) || hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Unauthorized");
@@ -558,43 +542,56 @@ contract HalomToken is
     // ============ INTERNAL FUNCTIONS ============
 
     /**
-     * @dev Validate transfer with anti-whale and blacklist checks
+     * @dev Validate transfer with blacklist and anti-whale checks
+     * Following COP principles: separate conditions from state transitions
      */
-    function _validateTransfer(address from, address to, uint256 amount) internal view {
+    function _validateTransfer(address from, address to, uint256 amount) internal {
+        // Check for zero amount first (most basic validation)
+        if (amount == 0) revert ZeroAmount();
+        
+        // Blacklist check (security critical - check first)
         if (blacklistData.isBlacklisted(from) || blacklistData.isBlacklisted(to)) {
             revert BlacklistedAddress();
         }
 
-        antiWhaleData.antiWhale(from, to, amount, balanceOf(to));
+        // Anti-whale check (business logic - check after security)
+        antiWhaleData.antiWhale(from, amount, balanceOf(to));
     }
 
     /**
-     * @dev Apply fee and transfer
+     * @dev Apply fee and transfer - pure state transition
+     * Following COP: no conditions in state transition logic
      */
     function _applyFeeAndTransfer(address from, address to, uint256 amount) internal {
         uint256 fee = feeData.calculateFee(amount);
         uint256 transferAmount = amount - fee;
 
+        // State transitions only - no conditions
         _transfer(from, to, transferAmount);
         
         if (fee > 0) {
-            (,, address collector) = feeData.getFeeParams();
-            _transfer(from, collector, fee);
+            (,, address collector_ret) = feeData.getFeeParams();
+            _transfer(from, collector_ret, fee);
         }
     }
 
     /**
-     * @dev Apply fee and transferFrom
+     * @dev Apply fee and transferFrom - pure state transition
+     * Following COP: no conditions in state transition logic
      */
     function _applyFeeAndTransferFrom(address from, address to, uint256 amount) internal {
         uint256 fee = feeData.calculateFee(amount);
         uint256 transferAmount = amount - fee;
 
+        // First deduct allowance and transfer the full amount
+        _spendAllowance(from, msg.sender, amount);
+        
+        // State transitions only - no conditions
         _transfer(from, to, transferAmount);
         
         if (fee > 0) {
-            (,, address collector) = feeData.getFeeParams();
-            _transfer(from, collector, fee);
+            (,, address collector_ret) = feeData.getFeeParams();
+            _transfer(from, collector_ret, fee);
         }
     }
 
@@ -607,13 +604,39 @@ contract HalomToken is
         onlyRole(DEFAULT_ADMIN_ROLE) 
     {}
 
+    /**
+     * @dev Upgrade implementation - only DEFAULT_ADMIN_ROLE
+     */
+    function upgradeTo(address newImplementation)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        upgradeToAndCall(newImplementation, "");
+    }
+
     // ============ VIEW FUNCTIONS ============
 
     /**
      * @dev Get fee parameters
+     * @return bps Fee in basis points
+     * @return maxFee Maximum fee in basis points
+     * @return collector Fee collector address
      */
-    function getFeeParams() external view returns (uint256 bps, uint256 maxFee, address collector) {
+    function getFeeParams() public view returns (uint256 bps, uint256 maxFee, address collector) {
         return feeData.getFeeParams();
+    }
+
+    /**
+     * @dev Get comprehensive fee information including enabled status
+     * @return bps Fee in basis points
+     * @return maxFee Maximum fee in basis points
+     * @return collector Fee collector address
+     * @return enabled Whether fee collection is enabled
+     */
+    function getFeeInfo() public view returns (uint256 bps, uint256 maxFee, address collector, bool enabled) {
+        (bps, maxFee, collector) = feeData.getFeeParams();
+        enabled = feeData.isFeeEnabled();
+        return (bps, maxFee, collector, enabled);
     }
 
     /**
@@ -634,7 +657,16 @@ contract HalomToken is
      * @dev Get blacklist reason
      */
     function getBlacklistReason(address account) external view returns (string memory) {
-        (,, string memory reason,,) = blacklistData.getBlacklistInfo(account);
-        return reason;
+        (/*bool blacklisted_ret*/, string memory reason_ret, /*uint256 timestamp_ret*/, /*address blacklistedBy_ret*/) = blacklistData.getBlacklistInfo(account);
+        return reason_ret;
+    }
+
+    /**
+     * @dev Get current nonce for an address
+     * @param owner Address to get nonce for
+     * @return Current nonce
+     */
+    function getNonce(address owner) public view returns (uint256) {
+        return nonces[owner];
     }
 } 

@@ -4,8 +4,8 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "../libraries/GovernanceMath.sol";
 import "../libraries/GovernanceErrors.sol";
 
@@ -82,6 +82,11 @@ contract Oracle is
         __UUPSUpgradeable_init();
         __ReentrancyGuard_init();
         __Pausable_init();
+
+        if (admin == address(0)) revert InvalidOracleAddress();
+        if (_minOracleCount == 0) revert InvalidPrice();
+        if (_priceValidityPeriod == 0) revert InvalidPrice();
+        if (_priceSubmissionCooldown == 0) revert InvalidPrice();
 
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(ORACLE_ROLE, admin);
@@ -214,17 +219,6 @@ contract Oracle is
      */
     function unpause() external onlyRole(GOVERNOR_ROLE) {
         _unpause();
-    }
-
-    /**
-     * @dev Upgrade contract - only DEFAULT_ADMIN_ROLE
-     */
-    function upgradeTo(address newImplementation) 
-        external 
-        onlyRole(DEFAULT_ADMIN_ROLE) 
-    {
-        _upgradeToAndCall(newImplementation, "", false);
-        emit Upgraded(newImplementation);
     }
 
     // ============ INTERNAL FUNCTIONS ============

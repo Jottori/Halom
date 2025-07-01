@@ -4,8 +4,8 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "./libraries/GovernanceMath.sol";
-import "./libraries/GovernanceErrors.sol";
+import "../libraries/GovernanceMath.sol";
+import "../libraries/GovernanceErrors.sol";
 
 /**
  * @title HalomTreasury
@@ -21,7 +21,7 @@ contract HalomTreasury is AccessControl {
 
     IERC20 public rewardToken;
     uint256 public lastDistribution;
-    uint256 public distributionInterval;
+    uint256 public immutable distributionInterval;
     
     // Reward exhaustion handling
     uint256 public constant MIN_REWARD_THRESHOLD = 1000e18; // 1000 HOM minimum

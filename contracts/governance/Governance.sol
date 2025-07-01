@@ -4,8 +4,8 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "./QuadraticVotingUtils.sol";
 
 /**
@@ -109,6 +109,12 @@ contract Governance is
         __ReentrancyGuard_init();
         __Pausable_init();
 
+        if (admin == address(0)) revert InvalidProposal();
+        if (_quorum == 0) revert InvalidVotingParams();
+        if (_votingDelay == 0) revert InvalidVotingParams();
+        if (_votingPeriod == 0) revert InvalidVotingParams();
+        if (_proposalThreshold == 0) revert InvalidVotingParams();
+
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(GOVERNOR_ROLE, admin);
         _grantRole(BRIDGE_ROLE, admin);
@@ -180,7 +186,7 @@ contract Governance is
         if (proposal.hasVoted[msg.sender]) revert AlreadyVoted();
 
         // Calculate quadratic voting weight
-        uint256 votingWeight = votingData.calculateQuadraticWeight(votes);
+        uint256 votingWeight = QuadraticVotingUtils.calculateQuadraticWeight(votes);
         
         proposal.hasVoted[msg.sender] = true;
         proposal.votesCast[msg.sender] = votes;
@@ -208,7 +214,7 @@ contract Governance is
         if (proposal.hasVoted[msg.sender]) revert AlreadyVoted();
 
         // Calculate quadratic voting weight
-        uint256 votingWeight = votingData.calculateQuadraticWeight(votes);
+        uint256 votingWeight = QuadraticVotingUtils.calculateQuadraticWeight(votes);
         
         proposal.hasVoted[msg.sender] = true;
         proposal.votesCast[msg.sender] = votes;
@@ -346,17 +352,6 @@ contract Governance is
         _unpause();
     }
 
-    /**
-     * @dev Upgrade contract - only DEFAULT_ADMIN_ROLE
-     */
-    function upgradeTo(address newImplementation) 
-        external 
-        onlyRole(DEFAULT_ADMIN_ROLE) 
-    {
-        _upgradeToAndCall(newImplementation, "", false);
-        emit Upgraded(newImplementation);
-    }
-
     // ============ INTERNAL FUNCTIONS ============
 
     /**
@@ -460,4 +455,9 @@ contract Governance is
     {
         return (quorum, votingDelay, votingPeriod, proposalThreshold);
     }
+
+    /**
+     * @dev Dummy function teszteléshez, nem csinál semmit
+     */
+    function dummy() public {}
 } 

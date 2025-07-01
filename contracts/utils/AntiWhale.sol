@@ -22,7 +22,7 @@ library AntiWhale {
     event TransactionBlocked(address indexed from, address indexed to, uint256 amount, string reason);
 
     // Errors
-    error TransactionAmountExceedsLimit();
+    error TransferAmountExceedsLimit();
     error WalletBalanceExceedsLimit();
     error CooldownNotExpired();
     error AntiWhaleNotEnabled();
@@ -60,43 +60,85 @@ library AntiWhale {
         emit AntiWhaleEnabled(enabled);
     }
 
+    // Constants for "no limit" - following best practices from Consensys
+    uint256 private constant NO_LIMIT = type(uint256).max;
+
+    /**
+     * @dev Validate transaction amount limit - pure condition check
+     * Following COP: separate condition from state transition
+     */
+    function _validateTransactionAmount(
+        AntiWhaleData storage data,
+        uint256 amount
+    ) internal view {
+        if (data.maxTransactionAmount != NO_LIMIT && amount > data.maxTransactionAmount) {
+            revert TransferAmountExceedsLimit();
+        }
+    }
+
+    /**
+     * @dev Validate wallet balance limit - pure condition check
+     * Following COP: separate condition from state transition
+     */
+    function _validateWalletBalance(
+        AntiWhaleData storage data,
+        address from,
+        uint256 amount,
+        uint256 recipientBalance
+    ) internal view {
+        // Skip check for minting (from == address(0))
+        if (from != address(0) && data.maxWalletAmount != NO_LIMIT && recipientBalance + amount > data.maxWalletAmount) {
+            revert WalletBalanceExceedsLimit();
+        }
+    }
+
+    /**
+     * @dev Validate cooldown period - pure condition check
+     * Following COP: separate condition from state transition
+     */
+    function _validateCooldown(
+        AntiWhaleData storage data,
+        address from
+    ) internal view {
+        if (data.cooldownPeriod > 0 && data.lastTransactionTime[from] + data.cooldownPeriod > block.timestamp) {
+            revert CooldownNotExpired();
+        }
+    }
+
+    /**
+     * @dev Update last transaction time - pure state transition
+     * Following COP: no conditions in state transition
+     */
+    function _updateLastTransactionTime(
+        AntiWhaleData storage data,
+        address from
+    ) internal {
+        data.lastTransactionTime[from] = block.timestamp;
+    }
+
     /**
      * @dev Apply anti-whale checks to transfer
+     * Following COP: separate validation from state updates
      * @param data AntiWhale data storage
      * @param from Sender address
-     * @param to Recipient address
      * @param amount Transfer amount
      * @param recipientBalance Current balance of recipient
      */
     function antiWhale(
         AntiWhaleData storage data,
         address from,
-        address to,
         uint256 amount,
         uint256 recipientBalance
     ) internal {
         if (!data.antiWhaleEnabled) return;
 
-        // Check transaction amount limit
-        if (amount > data.maxTransactionAmount) {
-            emit TransactionBlocked(from, to, amount, "Transaction amount exceeds limit");
-            revert TransactionAmountExceedsLimit();
-        }
+        // Validate all conditions first (COP principle)
+        _validateTransactionAmount(data, amount);
+        _validateWalletBalance(data, from, amount, recipientBalance);
+        _validateCooldown(data, from);
 
-        // Check wallet balance limit (only for regular transfers, not minting)
-        if (from != address(0) && recipientBalance + amount > data.maxWalletAmount) {
-            emit TransactionBlocked(from, to, amount, "Wallet balance would exceed limit");
-            revert WalletBalanceExceedsLimit();
-        }
-
-        // Check cooldown period
-        if (data.lastTransactionTime[from] + data.cooldownPeriod > block.timestamp) {
-            emit TransactionBlocked(from, to, amount, "Cooldown period not expired");
-            revert CooldownNotExpired();
-        }
-
-        // Update last transaction time
-        data.lastTransactionTime[from] = block.timestamp;
+        // Update state after all validations pass (COP principle)
+        _updateLastTransactionTime(data, from);
     }
 
     /**
@@ -142,7 +184,6 @@ library AntiWhale {
      * @dev Check if transaction would be blocked by anti-whale rules
      * @param data AntiWhale data storage
      * @param from Sender address
-     * @param to Recipient address
      * @param amount Transfer amount
      * @param recipientBalance Current balance of recipient
      * @return blocked Whether transaction would be blocked
@@ -151,7 +192,6 @@ library AntiWhale {
     function wouldBlockTransaction(
         AntiWhaleData storage data,
         address from,
-        address to,
         uint256 amount,
         uint256 recipientBalance
     ) internal view returns (bool blocked, string memory reason) {
@@ -226,7 +266,6 @@ library AntiWhale {
      * @dev Calculate maximum allowed transfer amount
      * @param data AntiWhale data storage
      * @param from Sender address
-     * @param to Recipient address
      * @param currentBalance Current balance of sender
      * @param recipientBalance Current balance of recipient
      * @return maxAmount Maximum allowed transfer amount
@@ -234,7 +273,6 @@ library AntiWhale {
     function calculateMaxTransferAmount(
         AntiWhaleData storage data,
         address from,
-        address to,
         uint256 currentBalance,
         uint256 recipientBalance
     ) internal view returns (uint256 maxAmount) {

@@ -4,10 +4,10 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
  * @title Bridge
@@ -20,14 +20,14 @@ contract Bridge is
     ReentrancyGuardUpgradeable,
     PausableUpgradeable 
 {
-    using SafeERC20Upgradeable for IERC20Upgradeable;
+    using SafeERC20 for ERC20Upgradeable;
 
     // Role definitions
     bytes32 public constant BRIDGE_ROLE = keccak256("BRIDGE_ROLE");
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
 
     // Bridge configuration
-    IERC20Upgradeable public token;
+    ERC20Upgradeable public token;
     mapping(uint256 => bool) public supportedChains;
     mapping(bytes32 => bool) public processedTransactions;
     mapping(uint256 => uint256) public chainNonces;
@@ -89,6 +89,7 @@ contract Bridge is
     error TransactionNotFound();
     error InvalidTransaction();
     error InsufficientBalance();
+    error InsufficientAllowance();
     error BridgeNotAuthorized();
     error InvalidChainId();
     error TransferFailed();
@@ -114,7 +115,12 @@ contract Bridge is
         _grantRole(BRIDGE_ROLE, admin);
         _grantRole(GOVERNOR_ROLE, admin);
 
-        token = IERC20Upgradeable(_token);
+        if (_token == address(0)) revert InvalidTransaction();
+        if (_minLockAmount == 0) revert InvalidAmount();
+        if (_maxLockAmount == 0) revert InvalidAmount();
+        if (_maxLockAmount <= _minLockAmount) revert InvalidAmount();
+        
+        token = ERC20Upgradeable(_token);
         minLockAmount = _minLockAmount;
         maxLockAmount = _maxLockAmount;
         bridgeFee = _bridgeFee;
@@ -138,25 +144,38 @@ contract Bridge is
     {
         if (!supportedChains[targetChainId]) revert UnsupportedChain();
         if (amount < minLockAmount || amount > maxLockAmount) revert InvalidAmount();
+        if (from == address(0)) revert InvalidTransaction();
         if (token.balanceOf(from) < amount) revert InsufficientBalance();
+        
+        // Only allow the token owner or approved spender to lock tokens
+        if (from != msg.sender && token.allowance(from, msg.sender) < amount) {
+            revert InsufficientAllowance();
+        }
 
         chainNonces[targetChainId]++;
         transactionId = keccak256(
             abi.encodePacked(from, amount, targetChainId, chainNonces[targetChainId])
         );
 
-        BridgeTransaction storage tx = transactions[transactionId];
-        tx.from = from;
-        tx.to = from; // Default to sender, can be updated by bridge
-        tx.amount = amount;
-        tx.sourceChainId = block.chainid;
-        tx.targetChainId = targetChainId;
-        tx.nonce = chainNonces[targetChainId];
-        tx.processed = false;
-        tx.claimed = false;
+        BridgeTransaction storage bridgeTx = transactions[transactionId];
+        bridgeTx.from = from;
+        bridgeTx.to = from; // Default to sender, can be updated by bridge
+        bridgeTx.amount = amount;
+        bridgeTx.sourceChainId = block.chainid;
+        bridgeTx.targetChainId = targetChainId;
+        bridgeTx.nonce = chainNonces[targetChainId];
+        bridgeTx.processed = false;
+        bridgeTx.claimed = false;
 
-        // Transfer tokens to bridge
-        token.safeTransferFrom(from, address(this), amount);
+        // Transfer tokens to bridge - only if sender is the owner or has sufficient allowance
+        if (from == msg.sender) {
+            token.safeTransferFrom(from, address(this), amount);
+        } else {
+            // Check allowance and transfer
+            uint256 allowance = token.allowance(from, msg.sender);
+            if (allowance < amount) revert InsufficientAllowance();
+            token.safeTransferFrom(from, address(this), amount);
+        }
 
         emit TokensLocked(transactionId, from, amount, targetChainId, chainNonces[targetChainId]);
     }
@@ -182,18 +201,22 @@ contract Bridge is
             abi.encodePacked(msg.sender, amount, targetChainId, chainNonces[targetChainId])
         );
 
-        BridgeTransaction storage tx = transactions[transactionId];
-        tx.from = msg.sender;
-        tx.to = msg.sender;
-        tx.amount = amount;
-        tx.sourceChainId = block.chainid;
-        tx.targetChainId = targetChainId;
-        tx.nonce = chainNonces[targetChainId];
-        tx.processed = false;
-        tx.claimed = false;
+        BridgeTransaction storage bridgeTx = transactions[transactionId];
+        bridgeTx.from = msg.sender;
+        bridgeTx.to = msg.sender;
+        bridgeTx.amount = amount;
+        bridgeTx.sourceChainId = block.chainid;
+        bridgeTx.targetChainId = targetChainId;
+        bridgeTx.nonce = chainNonces[targetChainId];
+        bridgeTx.processed = false;
+        bridgeTx.claimed = false;
 
-        // Burn tokens
-        token.safeTransferFrom(msg.sender, address(0), amount);
+        // Burn tokens: revert if not supported
+        if (address(token) == address(0)) revert InvalidTransaction();
+        // Option 1: If token has burnFrom, use it (pseudo):
+        // try token.burnFrom(msg.sender, amount) { } catch { revert InvalidTransaction(); }
+        // Option 2: If not, transfer to bridge and hold (not ideal, but avoids null address)
+        token.safeTransferFrom(msg.sender, address(this), amount);
 
         emit TokensBurned(transactionId, msg.sender, amount, targetChainId);
     }
@@ -224,15 +247,15 @@ contract Bridge is
 
         if (processedTransactions[transactionId]) revert TransactionAlreadyProcessed();
 
-        BridgeTransaction storage tx = transactions[transactionId];
-        tx.from = address(0); // Bridge mint
-        tx.to = to;
-        tx.amount = amount;
-        tx.sourceChainId = sourceChainId;
-        tx.targetChainId = block.chainid;
-        tx.nonce = chainNonces[sourceChainId];
-        tx.processed = true;
-        tx.claimed = true;
+        BridgeTransaction storage bridgeTx = transactions[transactionId];
+        bridgeTx.from = address(0); // Bridge mint
+        bridgeTx.to = to;
+        bridgeTx.amount = amount;
+        bridgeTx.sourceChainId = sourceChainId;
+        bridgeTx.targetChainId = block.chainid;
+        bridgeTx.nonce = chainNonces[sourceChainId];
+        bridgeTx.processed = true;
+        bridgeTx.claimed = true;
 
         processedTransactions[transactionId] = true;
 
@@ -266,15 +289,15 @@ contract Bridge is
 
         if (processedTransactions[transactionId]) revert TransactionAlreadyProcessed();
 
-        BridgeTransaction storage tx = transactions[transactionId];
-        tx.from = address(0); // Bridge unlock
-        tx.to = to;
-        tx.amount = amount;
-        tx.sourceChainId = 0; // Unknown source
-        tx.targetChainId = block.chainid;
-        tx.nonce = 0;
-        tx.processed = true;
-        tx.claimed = true;
+        BridgeTransaction storage bridgeTx = transactions[transactionId];
+        bridgeTx.from = address(0); // Bridge unlock
+        bridgeTx.to = to;
+        bridgeTx.amount = amount;
+        bridgeTx.sourceChainId = 0; // Unknown source
+        bridgeTx.targetChainId = block.chainid;
+        bridgeTx.nonce = 0;
+        bridgeTx.processed = true;
+        bridgeTx.claimed = true;
 
         processedTransactions[transactionId] = true;
 
@@ -348,17 +371,6 @@ contract Bridge is
      */
     function unpause() external onlyRole(GOVERNOR_ROLE) {
         _unpause();
-    }
-
-    /**
-     * @dev Upgrade contract - only DEFAULT_ADMIN_ROLE
-     */
-    function upgradeTo(address newImplementation) 
-        external 
-        onlyRole(DEFAULT_ADMIN_ROLE) 
-    {
-        _upgradeToAndCall(newImplementation, "", false);
-        emit Upgraded(newImplementation);
     }
 
     // ============ INTERNAL FUNCTIONS ============

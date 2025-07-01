@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/governance/TimelockController.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./libraries/GovernanceErrors.sol";
+import "../libraries/GovernanceErrors.sol";
 
 /**
  * @title HalomTimelock

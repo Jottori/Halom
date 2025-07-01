@@ -1,0 +1,737 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>Code coverage report for interfaces\IHalomInterfaces.sol</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../prettify.css" />
+    <link rel="stylesheet" href="../base.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+<body>
+<div class='wrapper'>
+  <div class='pad1'>
+    <h1>
+      <a href="../index.html">all files</a> / <a href="index.html">interfaces/</a> IHalomInterfaces.sol
+    </h1>
+    <div class='clearfix'>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">100% </span>
+        <span class="quiet">Statements</span>
+        <span class='fraction'>0/0</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">100% </span>
+        <span class="quiet">Branches</span>
+        <span class='fraction'>0/0</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">100% </span>
+        <span class="quiet">Functions</span>
+        <span class='fraction'>0/0</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">100% </span>
+        <span class="quiet">Lines</span>
+        <span class='fraction'>0/0</span>
+      </div>
+    </div>
+  </div>
+  <div class='status-line high'></div>
+<pre><table class="coverage">
+<tr><td class="line-count quiet">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+77
+78
+79
+80
+81
+82
+83
+84
+85
+86
+87
+88
+89
+90
+91
+92
+93
+94
+95
+96
+97
+98
+99
+100
+101
+102
+103
+104
+105
+106
+107
+108
+109
+110
+111
+112
+113
+114
+115
+116
+117
+118
+119
+120
+121
+122
+123
+124
+125
+126
+127
+128
+129
+130
+131
+132
+133
+134
+135
+136
+137
+138
+139
+140
+141
+142
+143
+144
+145
+146
+147
+148
+149
+150
+151
+152
+153
+154
+155
+156
+157
+158
+159
+160
+161
+162
+163
+164
+165
+166
+167
+168
+169
+170
+171
+172
+173
+174
+175
+176
+177
+178
+179
+180
+181
+182
+183
+184
+185
+186
+187
+188
+189
+190
+191
+192
+193
+194
+195
+196
+197
+198
+199
+200
+201
+202
+203
+204
+205
+206
+207
+208
+209
+210
+211
+212
+213
+214
+215
+216
+217
+218
+219
+220
+221
+222
+223
+224
+225</td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+&nbsp;
+/**
+ * @title IHalomInterfaces
+ * @dev Centralized interface definitions for the Halom ecosystem
+ * Provides standardized function signatures for all contract interactions
+ */
+&nbsp;
+// Core token interface with rebase functionality
+interface IHalomToken {
+    function totalSupply() external view returns (uint256);
+    function balanceOf(address account) external view returns (uint256);
+    function transfer(address to, uint256 amount) external returns (bool);
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function approve(address spender, uint256 amount) external returns (bool);
+    function allowance(address owner, address spender) external view returns (uint256);
+    function rebase(int256 supplyDelta) external;
+    function mint(address to, uint256 amount) external;
+    function burnFrom(address account, uint256 amount) external;
+    function setStakingContract(address _stakingAddress) external;
+    function setRewardRate(uint256 _newRate) external;
+    function setMaxRebaseDelta(uint256 _newDelta) external;
+    function MINTER_ROLE() external view returns (bytes32);
+    
+    // Governance functions
+    function delegates(address account) external view returns (address);
+    function delegate(address delegatee) external;
+    function getVotes(address account) external view returns (uint256);
+    function getPastVotes(address account, uint256 blockNumber) external view returns (uint256);
+    function getPastTotalSupply(uint256 blockNumber) external view returns (uint256);
+    function grantRole(bytes32 role, address account) external;
+}
+&nbsp;
+// Staking contract interface
+interface IHalomStaking {
+    function addRewards(uint256 amount) external;
+    function stake(uint256 amount) external;
+    function stakeWithLock(uint256 amount, uint256 lockPeriod) external;
+    function unstake(uint256 amount) external;
+    function claimRewards() external;
+    function slash(address user, string memory reason) external;
+    function getStakingInfo(address user) external view returns (
+        uint256 stakedBalance,
+        uint256 fourthRootStake,
+        uint256 governancePower,
+        uint256 stakeTime,
+        uint256 pendingRewards
+    );
+    function getPendingRewardsForUser(address user) external view returns (uint256);
+    function totalStaked() external view returns (uint256);
+    function stakedBalance(address user) external view returns (uint256);
+    
+    // Delegation functions
+    function delegate(address validator, uint256 amount) external;
+    function undelegate() external;
+    function claimDelegatorRewards() external;
+    function getDelegationInfo(address user) external view returns (
+        address validator,
+        uint256 userDelegatedAmount,
+        uint256 userPendingRewards,
+        uint256 commissionRate
+    );
+}
+&nbsp;
+// LP Staking interface
+interface IHalomLPStaking {
+    function addRewards(uint256 amount) external;
+    function stake(uint256 amount) external;
+    function unstake(uint256 amount) external;
+    function claimRewards() external;
+    function getPendingRewardsForUser(address user) external view returns (uint256);
+    function totalStaked() external view returns (uint256);
+    function stakedBalance(address user) external view returns (uint256);
+}
+&nbsp;
+// Oracle interface
+interface IHalomOracle {
+    function setHOI(uint256 hoi, uint256 nonce) external;
+    function submitHOI(uint256 hoi) external;
+    function latestHOI() external view returns (uint256);
+    function lastUpdateTime() external view returns (uint256);
+    function nonce() external view returns (uint256);
+    function setHalomToken(address halomToken) external;
+    function pause() external;
+    function unpause() external;
+}
+&nbsp;
+// Treasury interface
+interface IHalomTreasury {
+    function collectFees(address user, uint256 amount) external;
+    function distributeFees(uint256 amount) external;
+    function claimFeeRewards() external;
+    function withdrawTreasuryFunds(address to, uint256 amount, bool isEmergency) external;
+    function updateFeeRate(uint256 newRate) external;
+    function getPendingFeeRewards(address user) external view returns (uint256);
+    function totalFeesCollected() external view returns (uint256);
+}
+&nbsp;
+// Role manager interface
+interface IHalomRoleManager {
+    function grantRoleToContract(bytes32 role, address contractAddress) external;
+    function revokeRoleFromHuman(bytes32 role, address account) external;
+    function freezeRole(bytes32 role) external;
+    function unfreezeRole(bytes32 role) external;
+    function hasRole(bytes32 role, address account) external view returns (bool);
+    function getRoleMembers(bytes32 role) external view returns (address[] memory);
+    function isRoleFrozen(bytes32 role) external view returns (bool);
+    function pause() external;
+    function unpause() external;
+}
+&nbsp;
+// Governance interface
+interface IHalomGovernor {
+    function propose(
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        string memory description
+    ) external returns (uint256);
+    function execute(
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        bytes32 descriptionHash
+    ) external payable returns (uint256);
+    function castVote(uint256 proposalId, uint8 support) external returns (uint256);
+    function castVoteWithReason(uint256 proposalId, uint8 support, string memory reason) external returns (uint256);
+    function lockTokens(uint256 amount) external;
+    function unlockTokens() external;
+    function getVotePower(address user) external view returns (uint256);
+    function setRootPower(uint256 newRootPower) external;
+}
+&nbsp;
+// Timelock interface
+interface IHalomTimelock {
+    function schedule(
+        address target,
+        uint256 value,
+        bytes calldata data,
+        bytes32 predecessor,
+        bytes32 salt,
+        uint256 delay
+    ) external;
+    function execute(
+        address target,
+        uint256 value,
+        bytes calldata data,
+        bytes32 predecessor,
+        bytes32 salt
+    ) external payable;
+    function cancel(bytes32 id) external;
+    function minDelay() external view returns (uint256);
+    function hasRole(bytes32 role, address account) external view returns (bool);
+}
+&nbsp;
+// Events interface for consistent event definitions
+interface IHalomEvents {
+    // Token events
+    event Rebase(uint256 newTotalSupply, int256 supplyDelta);
+    event AntiWhaleLimitsUpdated(uint256 maxTransfer, uint256 maxWallet);
+    event ExcludedFromLimits(address indexed account, bool excluded);
+    event StakingContractUpdated(address indexed oldContract, address indexed newContract);
+    
+    // Staking events
+    event Staked(address indexed user, uint256 amount, uint256 lockTime);
+    event Unstaked(address indexed user, uint256 amount);
+    event RewardAdded(address indexed rewarder, uint256 amount);
+    event RewardClaimed(address indexed user, uint256 amount);
+    event Slashed(address indexed user, uint256 amount, string reason);
+    event StakeWithLock(address indexed user, uint256 amount, uint256 lockPeriod, uint256 lockUntil);
+    
+    // Delegation events
+    event Delegated(address indexed delegator, address indexed validator, uint256 amount);
+    event Undelegated(address indexed delegator, address indexed validator, uint256 amount);
+    event CommissionRateSet(address indexed validator, uint256 commissionRate);
+    event CommissionClaimed(address indexed validator, uint256 amount);
+    event DelegatorRewardClaimed(address indexed delegator, uint256 amount);
+    
+    // Oracle events
+    event HOISet(uint256 newHOI, int256 supplyDelta, uint256 indexed nonce);
+    event OracleSubmissionReceived(uint256 indexed nonce, address indexed oracle, uint256 hoi, uint256 timestamp);
+    event ConsensusReached(uint256 indexed nonce, uint256 finalHOI, int256 supplyDelta, address[] participants);
+    
+    // Treasury events
+    event FeeCollected(address indexed user, uint256 amount, uint256 fourthRoot);
+    event FeeDistributed(address indexed user, uint256 amount);
+    event FeeRateUpdated(uint256 oldRate, uint256 newRate);
+    event TreasuryWithdrawal(address indexed to, uint256 amount, address indexed controller);
+    
+    // Role management events
+    event RoleFrozen(bytes32 indexed role, address indexed frozenBy);
+    event RoleUnfrozen(bytes32 indexed role, address indexed unfrozenBy);
+    event ContractRoleAssigned(bytes32 indexed role, address indexed contractAddress, address indexed assignedBy);
+    event HumanRoleRevoked(bytes32 indexed role, address indexed account, address indexed revokedBy);
+    
+    // Governance events
+    event TokensLocked(address indexed user, uint256 amount, uint256 lockTime);
+    event TokensUnlocked(address indexed user, uint256 amount);
+    event RootPowerUpdated(uint256 oldPower, uint256 newPower);
+}
+&nbsp;
+// Error definitions for consistent error handling
+interface IHalomErrors {
+    error ZeroAddress();
+    error InvalidAmount();
+    error InsufficientBalance();
+    error Unauthorized();
+    error InvalidNonce();
+    error Paused();
+    error LockPeriodNotMet();
+    error AmountBelowMinimum();
+    error AmountAboveMaximum();
+    error InvalidLockPeriod();
+    error NoDelegationFound();
+    error CommissionRateTooHigh();
+    error InvalidHOIValue();
+    error ConsensusNotReached();
+    error RoleFrozen();
+    error InvalidRootPower();
+    error TransferFailed();
+    error InvalidFeeRate();
+    error WithdrawalCooldownNotMet();
+    error EmergencyOnly();
+} </pre></td></tr>
+</table></pre>
+<div class='push'></div><!-- for sticky footer -->
+</div><!-- /wrapper -->
+<div class='footer quiet pad2 space-top1 center small'>
+  Code coverage
+  generated by <a href="http://istanbul-js.org/" target="_blank">istanbul</a> at Tue Jul 01 2025 17:55:23 GMT+0200 (közép-európai nyári idő)
+</div>
+</div>
+<script src="../prettify.js"></script>
+<script>
+window.onload = function () {
+        if (typeof prettyPrint === 'function') {
+            prettyPrint();
+        }
+};
+</script>
+<script src="../sorter.js"></script>
+</body>
+</html>

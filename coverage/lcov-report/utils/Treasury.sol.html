@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>Code coverage report for utils\Treasury.sol</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../prettify.css" />
+    <link rel="stylesheet" href="../base.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+<body>
+<div class='wrapper'>
+  <div class='pad1'>
+    <h1>
+      <a href="../index.html">all files</a> / <a href="index.html">utils/</a> Treasury.sol
+    </h1>
+    <div class='clearfix'>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">0% </span>
+        <span class="quiet">Statements</span>
+        <span class='fraction'>0/43</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">0% </span>
+        <span class="quiet">Branches</span>
+        <span class='fraction'>0/52</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">0% </span>
+        <span class="quiet">Functions</span>
+        <span class='fraction'>0/11</span>
+      </div>
+      <div class='fl pad1y space-right2'>
+        <span class="strong">0% </span>
+        <span class="quiet">Lines</span>
+        <span class='fraction'>0/56</span>
+      </div>
+    </div>
+  </div>
+  <div class='status-line low'></div>
+<pre><table class="coverage">
+<tr><td class="line-count quiet">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+77
+78
+79
+80
+81
+82
+83
+84
+85
+86
+87
+88
+89
+90
+91
+92
+93
+94
+95
+96
+97
+98
+99
+100
+101
+102
+103
+104
+105
+106
+107
+108
+109
+110
+111
+112
+113
+114
+115
+116
+117
+118
+119
+120
+121
+122
+123
+124
+125
+126
+127
+128
+129
+130
+131
+132
+133
+134
+135
+136
+137
+138
+139
+140
+141
+142
+143
+144
+145
+146
+147
+148
+149
+150
+151
+152
+153
+154
+155
+156
+157
+158</td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+&nbsp;
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "../libraries/GovernanceMath.sol";
+import "../libraries/GovernanceErrors.sol";
+&nbsp;
+/**
+ * @title HalomTreasury
+ * @dev Minimal, modular, branchless, EVM-limit-safe treasury contract for DAO rewards and allocations.
+ */
+contract HalomTreasury is AccessControl {
+    using SafeERC20 for IERC20;
+    using GovernanceMath for uint256;
+    using GovernanceErrors for *;
+&nbsp;
+    bytes32 public constant TREASURY_CONTROLLER = keccak256("TREASURY_CONTROLLER");
+    bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
+&nbsp;
+    IERC20 public rewardToken;
+    uint256 public lastDistribution;
+    uint256 public immutable distributionInterval;
+    
+    // Reward exhaustion handling
+    uint256 public constant MIN_REWARD_THRESHOLD = 1000e18; // 1000 HOM minimum
+    uint256 public constant REWARD_EXHAUSTION_WARNING_THRESHOLD = 5000e18; // 5000 HOM warning
+    bool public rewardExhaustionWarning;
+    uint256 public lastExhaustionCheck;
+    uint256 public constant EXHAUSTION_CHECK_INTERVAL = 1 hours;
+&nbsp;
+    event Allocated(address indexed to, uint256 amount);
+    event RewardTokenSet(address indexed token);
+    event TreasuryDrained(address indexed to, uint256 amount);
+    event EmergencyDrained(address indexed to, uint256 amount);
+    event RewardExhaustionWarning(uint256 currentBalance, uint256 threshold);
+    event FallbackFundingRequested(uint256 requestedAmount, address indexed requester);
+    event FallbackFundingReceived(uint256 amount, address indexed funder);
+&nbsp;
+    error Unauthorized();
+    error InvalidToken();
+    error InvalidAmount();
+    error DistributionTooSoon();
+    error RewardExhausted();
+    error InsufficientBalance();
+    error ExhaustionCheckTooFrequent();
+&nbsp;
+<span class="fstat-no" title="function not covered" >    constructor(address _rewardToken, address _roleManager, uint256 _interval) {</span>
+<span class="cstat-no" title="statement not covered" >        if (_rewardToken == address(0) || _roleManager == address(0)) revert InvalidToken();</span>
+        rewardToken = IERC20(_rewardToken);
+        distributionInterval = _interval;
+<span class="cstat-no" title="statement not covered" >        _grantRole(DEFAULT_ADMIN_ROLE, _roleManager)</span>;
+<span class="cstat-no" title="statement not covered" >        _grantRole(TREASURY_CONTROLLER, _roleManager)</span>;
+<span class="cstat-no" title="statement not covered" >        _grantRole(EMERGENCY_ROLE, _roleManager)</span>;
+        
+        // Also grant CONTROLLER_ROLE to msg.sender for testing
+<span class="cstat-no" title="statement not covered" >        _grantRole(TREASURY_CONTROLLER, msg.sender)</span>;
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    modifier onlyController() {</span>
+<span class="cstat-no" title="statement not covered" >        if (!hasRole(TREASURY_CONTROLLER, msg.sender)) revert Unauthorized();</span>
+        _;
+    }
+<span class="fstat-no" title="function not covered" >    modifier onlyEmergency() {</span>
+<span class="cstat-no" title="statement not covered" >        if (!hasRole(EMERGENCY_ROLE, msg.sender)) revert Unauthorized();</span>
+        _;
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function setRewardToken(address _token) external onlyController {</span>
+<span class="cstat-no" title="statement not covered" >        if (_token == address(0)) revert InvalidToken();</span>
+        rewardToken = IERC20(_token);
+<span class="cstat-no" title="statement not covered" >        emit RewardTokenSet(_token);</span>
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function allocateTo(address to, uint256 amount) external onlyController {</span>
+<span class="cstat-no" title="statement not covered" >        if (amount == 0) revert InvalidAmount();</span>
+<span class="cstat-no" title="statement not covered" >        if (block.timestamp &lt; lastDistribution + distributionInterval) revert DistributionTooSoon();</span>
+        
+<span class="cstat-no" title="statement not covered" >        uint256 currentBalance = rewardToken.balanceOf(address(this));</span>
+<span class="cstat-no" title="statement not covered" >        if (currentBalance &lt; amount) revert InsufficientBalance();</span>
+        
+        // Check for exhaustion before allocation
+<span class="cstat-no" title="statement not covered" >        if (currentBalance - amount &lt;= MIN_REWARD_THRESHOLD) {</span>
+            rewardExhaustionWarning = true;
+<span class="cstat-no" title="statement not covered" >            emit RewardExhaustionWarning(currentBalance - amount, MIN_REWARD_THRESHOLD);</span>
+        }
+        
+<span class="cstat-no" title="statement not covered" >        rewardToken.safeTransfer(to, amount)</span>;
+        lastDistribution = block.timestamp;
+<span class="cstat-no" title="statement not covered" >        emit Allocated(to, amount);</span>
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function drainTreasury(address to, uint256 amount) external onlyController {</span>
+<span class="cstat-no" title="statement not covered" >        if (amount == 0) revert InvalidAmount();</span>
+        
+<span class="cstat-no" title="statement not covered" >        uint256 currentBalance = rewardToken.balanceOf(address(this));</span>
+<span class="cstat-no" title="statement not covered" >        if (currentBalance &lt; amount) revert InsufficientBalance();</span>
+        
+        // Check for exhaustion before draining
+<span class="cstat-no" title="statement not covered" >        if (currentBalance - amount &lt;= MIN_REWARD_THRESHOLD) {</span>
+            rewardExhaustionWarning = true;
+<span class="cstat-no" title="statement not covered" >            emit RewardExhaustionWarning(currentBalance - amount, MIN_REWARD_THRESHOLD);</span>
+        }
+        
+<span class="cstat-no" title="statement not covered" >        rewardToken.safeTransfer(to, amount)</span>;
+<span class="cstat-no" title="statement not covered" >        emit TreasuryDrained(to, amount);</span>
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function emergencyDrain(address to, uint256 amount) external onlyEmergency {</span>
+<span class="cstat-no" title="statement not covered" >        if (amount == 0) revert InvalidAmount();</span>
+<span class="cstat-no" title="statement not covered" >        rewardToken.safeTransfer(to, amount)</span>;
+<span class="cstat-no" title="statement not covered" >        emit EmergencyDrained(to, amount);</span>
+    }
+&nbsp;
+<span class="fstat-no" title="function not covered" >    function emergencyDrain(address token, address to, uint256 amount) external onlyEmergency {</span>
+<span class="cstat-no" title="statement not covered" >        if (amount == 0) revert InvalidAmount();</span>
+<span class="cstat-no" title="statement not covered" >        IERC20(token).safeTransfer(to, amount)</span>;
+<span class="cstat-no" title="statement not covered" >        emit EmergencyDrained(to, amount);</span>
+    }
+&nbsp;
+    // --- Reward exhaustion handling ---
+<span class="fstat-no" title="function not covered" >    function checkRewardExhaustion() external {</span>
+<span class="cstat-no" title="statement not covered" >        if (block.timestamp &lt; lastExhaustionCheck + EXHAUSTION_CHECK_INTERVAL) {</span>
+            revert ExhaustionCheckTooFrequent();
+        }
+        
+<span class="cstat-no" title="statement not covered" >        uint256 currentBalance = rewardToken.balanceOf(address(this));</span>
+        lastExhaustionCheck = block.timestamp;
+        
+<span class="cstat-no" title="statement not covered" >        if (currentBalance &lt;= MIN_REWARD_THRESHOLD) {</span>
+            rewardExhaustionWarning = true;
+<span class="cstat-no" title="statement not covered" >            emit RewardExhaustionWarning(currentBalance, MIN_REWARD_THRESHOLD);</span>
+        } else <span class="cstat-no" title="statement not covered" >if (currentBalance &lt;= REWARD_EXHAUSTION_WARNING_THRESHOLD) {</span>
+            rewardExhaustionWarning = true;
+<span class="cstat-no" title="statement not covered" >            emit RewardExhaustionWarning(currentBalance, REWARD_EXHAUSTION_WARNING_THRESHOLD);</span>
+        } else {
+            rewardExhaustionWarning = false;
+        }
+    }
+    
+<span class="fstat-no" title="function not covered" >    function requestFallbackFunding(uint256 amount) external onlyController {</span>
+<span class="cstat-no" title="statement not covered" >        if (amount == 0) revert InvalidAmount();</span>
+<span class="cstat-no" title="statement not covered" >        emit FallbackFundingRequested(amount, msg.sender);</span>
+    }
+    
+<span class="fstat-no" title="function not covered" >    function provideFallbackFunding(uint256 amount) external {</span>
+<span class="cstat-no" title="statement not covered" >        if (amount == 0) revert InvalidAmount();</span>
+<span class="cstat-no" title="statement not covered" >        rewardToken.safeTransferFrom(msg.sender, address(this), amount)</span>;
+<span class="cstat-no" title="statement not covered" >        emit FallbackFundingReceived(amount, msg.sender);</span>
+        
+        // Reset warning if balance is sufficient
+<span class="cstat-no" title="statement not covered" >        uint256 currentBalance = rewardToken.balanceOf(address(this));</span>
+<span class="cstat-no" title="statement not covered" >        if (currentBalance &gt; REWARD_EXHAUSTION_WARNING_THRESHOLD) {</span>
+            rewardExhaustionWarning = false;
+        }
+    }
+} </pre></td></tr>
+</table></pre>
+<div class='push'></div><!-- for sticky footer -->
+</div><!-- /wrapper -->
+<div class='footer quiet pad2 space-top1 center small'>
+  Code coverage
+  generated by <a href="http://istanbul-js.org/" target="_blank">istanbul</a> at Tue Jul 01 2025 17:55:23 GMT+0200 (közép-európai nyári idő)
+</div>
+</div>
+<script src="../prettify.js"></script>
+<script>
+window.onload = function () {
+        if (typeof prettyPrint === 'function') {
+            prettyPrint();
+        }
+};
+</script>
+<script src="../sorter.js"></script>
+</body>
+</html>

@@ -35,6 +35,7 @@ library FeeOnTransfer {
 
     /**
      * @dev Set fee parameters
+     * Following COP: separate validation from state transition
      * @param data Fee data storage
      * @param bps Fee in basis points
      * @param maxFee Maximum fee in basis points
@@ -46,10 +47,12 @@ library FeeOnTransfer {
         uint256 maxFee,
         address collector
     ) internal {
+        // Validate parameters first (COP principle)
         if (bps > maxFee) revert InvalidFeeParams();
         if (maxFee > 1000) revert InvalidFeeParams(); // Max 10%
         if (collector == address(0)) revert InvalidCollector();
 
+        // Update state after validation (COP principle)
         data.feeBps = bps;
         data.maxFee = maxFee;
         data.feeCollector = collector;
@@ -71,7 +74,8 @@ library FeeOnTransfer {
     }
 
     /**
-     * @dev Calculate fee for transfer amount
+     * @dev Calculate fee for transfer amount - pure calculation
+     * Following COP: no conditions in calculation logic
      * @param data Fee data storage
      * @param amount Transfer amount
      * @return feeAmount Calculated fee amount
@@ -163,12 +167,12 @@ library FeeOnTransfer {
     /**
      * @dev Get total fees collected by address
      * @param data Fee data storage
-     * @param collector Fee collector address
+     * @param _collector Fee collector address
      * @return totalFees Total fees collected
      */
     function getTotalFeesCollected(
         FeeData storage data,
-        address collector
+        address _collector
     ) internal view returns (uint256 totalFees) {
         return data.totalFeesCollected;
     }
@@ -176,27 +180,27 @@ library FeeOnTransfer {
     /**
      * @dev Get fees collected by specific address
      * @param data Fee data storage
-     * @param collector Fee collector address
+     * @param _collector Fee collector address
      * @return feesCollected Fees collected by the address
      */
     function getFeesCollectedByAddress(
         FeeData storage data,
-        address collector
+        address _collector
     ) internal view returns (uint256 feesCollected) {
-        return data.feesCollectedByAddress[collector];
+        return data.feesCollectedByAddress[_collector];
     }
 
     /**
      * @dev Get last fee collection time for address
      * @param data Fee data storage
-     * @param collector Fee collector address
+     * @param _collector Fee collector address
      * @return lastCollection Last collection timestamp
      */
     function getLastFeeCollectionTime(
         FeeData storage data,
-        address collector
+        address _collector
     ) internal view returns (uint256 lastCollection) {
-        return data.lastFeeCollectionTime[collector];
+        return data.lastFeeCollectionTime[_collector];
     }
 
     /**
@@ -308,14 +312,13 @@ library FeeOnTransfer {
     /**
      * @dev Reset fee collection statistics for address
      * @param data Fee data storage
-     * @param collector Fee collector address
      */
     function resetFeeStats(
         FeeData storage data,
-        address collector
+        address /*collector*/
     ) internal {
         data.totalFeesCollected = 0;
-        data.lastFeeCollectionTime[collector] = 0;
+        data.lastFeeCollectionTime[data.feeCollector] = 0;
     }
 
     /**
@@ -394,13 +397,13 @@ library FeeOnTransfer {
      * @param data Fee data storage
      * @param from Sender address
      * @param to Recipient address
-     * @return shouldApplyFees Whether fees should be applied
+     * @return shouldApply Whether fees should be applied
      */
     function shouldApplyFees(
         FeeData storage data,
         address from,
         address to
-    ) internal view returns (bool shouldApplyFees) {
+    ) internal view returns (bool shouldApply) {
         // Don't apply fees if either address is excluded
         if (data.excludedFromFees[from] || data.excludedFromFees[to]) {
             return false;

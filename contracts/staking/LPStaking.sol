@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "../libraries/GovernanceMath.sol";
 import "../libraries/GovernanceErrors.sol";
 
@@ -22,16 +22,16 @@ contract LPStaking is
     UUPSUpgradeable,
     ReentrancyGuardUpgradeable 
 {
-    using SafeERC20Upgradeable for IERC20Upgradeable;
+    using SafeERC20 for ERC20Upgradeable;
     using GovernanceMath for uint256;
-
+    
     // Role definitions
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
     // Token contracts
-    IERC20Upgradeable public lpToken;
-    IERC20Upgradeable public rewardToken;
+    ERC20Upgradeable public lpToken;
+    ERC20Upgradeable public rewardToken;
     
     // LP Staking data
     mapping(address => uint256) public lpStakedAmount;
@@ -58,11 +58,8 @@ contract LPStaking is
     event LPRewardClaimed(address indexed user, uint256 amount);
     event LPRewardCompounded(address indexed user, uint256 amount);
     event EmergencyLPWithdrawn(address indexed user, uint256 amount);
-    event Paused(address indexed account);
-    event Unpaused(address indexed account);
-    event Upgraded(address indexed implementation);
     event LPRewardRateSet(uint256 newRate);
-
+    
     // Errors
     error InsufficientBalance();
     error ZeroAmount();
@@ -86,16 +83,16 @@ contract LPStaking is
         __AccessControl_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuard_init();
-
+        
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(GOVERNOR_ROLE, admin);
         _grantRole(PAUSER_ROLE, admin);
 
-        lpToken = IERC20Upgradeable(_lpToken);
-        rewardToken = IERC20Upgradeable(_rewardToken);
+        lpToken = ERC20Upgradeable(_lpToken);
+        rewardToken = ERC20Upgradeable(_rewardToken);
         lpLastUpdateTime = block.timestamp;
     }
-
+    
     // ============ PUBLIC FUNCTIONS ============
 
     /**
@@ -127,11 +124,13 @@ contract LPStaking is
         lpLockBoost[msg.sender] = lockBoost;
         totalLPStaked += effectiveAmount;
         
+        lpRewardDebt[msg.sender] = lpRewardPerTokenStored;
+        
         lpToken.safeTransferFrom(msg.sender, address(this), amount);
         
         emit LPStaked(msg.sender, amount, lockDuration);
     }
-
+    
     /**
      * @dev Unstake LP tokens
      */
@@ -143,7 +142,7 @@ contract LPStaking is
         if (amount == 0) revert ZeroAmount();
         if (lpStakedAmount[msg.sender] < amount) revert InsufficientBalance();
         if (block.timestamp < lpLockEndTime[msg.sender]) revert LPLockNotExpired();
-
+        
         _updateLPRewards(msg.sender);
         
         uint256 actualAmount = amount * LP_BOOST_PRECISION / lpLockBoost[msg.sender];
@@ -158,7 +157,7 @@ contract LPStaking is
         
         emit LPUnstaked(msg.sender, actualAmount);
     }
-
+    
     /**
      * @dev Claim accumulated LP rewards
      */
@@ -167,19 +166,19 @@ contract LPStaking is
         whenNotPaused 
         nonReentrant 
     {
-        _updateLPRewards(msg.sender);
+        _updateLPRewardPerToken();
         
-        uint256 rewards = lpRewardDebt[msg.sender];
-        if (rewards == 0) revert NoLPRewardsToClaim();
+        uint256 pendingRewards = _earnedLP(msg.sender);
+        if (pendingRewards == 0) revert NoLPRewardsToClaim();
         
-        lpRewardDebt[msg.sender] = 0;
+        lpRewardDebt[msg.sender] = lpRewardPerTokenStored;
         lpLastClaimTime[msg.sender] = block.timestamp;
         
-        rewardToken.safeTransfer(msg.sender, rewards);
+        rewardToken.safeTransfer(msg.sender, pendingRewards);
         
-        emit LPRewardClaimed(msg.sender, rewards);
+        emit LPRewardClaimed(msg.sender, pendingRewards);
     }
-
+    
     /**
      * @dev Compound LP rewards back into staking
      */
@@ -188,21 +187,21 @@ contract LPStaking is
         whenNotPaused 
         nonReentrant 
     {
-        _updateLPRewards(msg.sender);
+        _updateLPRewardPerToken();
         
-        uint256 rewards = lpRewardDebt[msg.sender];
-        if (rewards == 0) revert NoLPRewardsToClaim();
+        uint256 pendingRewards = _earnedLP(msg.sender);
+        if (pendingRewards == 0) revert NoLPRewardsToClaim();
         
-        lpRewardDebt[msg.sender] = 0;
+        lpRewardDebt[msg.sender] = lpRewardPerTokenStored;
         lpLastClaimTime[msg.sender] = block.timestamp;
         
-        // Add rewards to staked amount
-        lpStakedAmount[msg.sender] += rewards;
-        totalLPStaked += rewards;
+        // Add rewards to staked amount (no rounding error)
+        lpStakedAmount[msg.sender] += pendingRewards;
+        totalLPStaked += pendingRewards;
         
-        emit LPRewardCompounded(msg.sender, rewards);
+        emit LPRewardCompounded(msg.sender, pendingRewards);
     }
-
+    
     // ============ ROLE-BASED FUNCTIONS ============
 
     /**
@@ -212,58 +211,54 @@ contract LPStaking is
         external 
         onlyRole(GOVERNOR_ROLE) 
     {
+        if (totalLPStaked > 0) {
         _updateLPRewardPerToken();
+        }
         lpRewardRate = rate;
         emit LPRewardRateSet(rate);
     }
 
     /**
-     * @dev Emergency withdraw all LP staked tokens - only GOVERNOR_ROLE
+     * @dev Update LP reward per token - public function for testing
      */
-    function emergencyLPWithdraw() 
+    function updateLPRewardPerToken() external {
+        _updateLPRewardPerToken();
+    }
+
+    /**
+     * @dev Emergency withdraw all LP staked tokens for a user - only GOVERNOR_ROLE
+     */
+    function emergencyLPWithdraw(address user) 
         external 
         onlyRole(GOVERNOR_ROLE) 
         nonReentrant 
     {
-        uint256 amount = lpStakedAmount[msg.sender];
+        uint256 amount = lpStakedAmount[user];
         if (amount == 0) revert ZeroAmount();
         
-        uint256 actualAmount = amount * LP_BOOST_PRECISION / lpLockBoost[msg.sender];
-        lpStakedAmount[msg.sender] = 0;
+        uint256 actualAmount = amount * LP_BOOST_PRECISION / lpLockBoost[user];
+        lpStakedAmount[user] = 0;
         totalLPStaked -= amount;
-        lpRewardDebt[msg.sender] = 0;
-        lpLockBoost[msg.sender] = 0;
+        lpRewardDebt[user] = 0;
+        lpLockBoost[user] = 0;
         
-        lpToken.safeTransfer(msg.sender, actualAmount);
+        lpToken.safeTransfer(user, actualAmount);
         
-        emit EmergencyLPWithdrawn(msg.sender, actualAmount);
+        emit EmergencyLPWithdrawn(user, actualAmount);
     }
-
+    
     /**
      * @dev Pause LP staking - only PAUSER_ROLE
      */
     function pause() external onlyRole(PAUSER_ROLE) {
         _pause();
-        emit Paused(msg.sender);
     }
-
+    
     /**
      * @dev Unpause LP staking - only PAUSER_ROLE
      */
     function unpause() external onlyRole(PAUSER_ROLE) {
         _unpause();
-        emit Unpaused(msg.sender);
-    }
-
-    /**
-     * @dev Upgrade contract - only DEFAULT_ADMIN_ROLE
-     */
-    function upgradeTo(address newImplementation) 
-        external 
-        onlyRole(DEFAULT_ADMIN_ROLE) 
-    {
-        _upgradeToAndCall(newImplementation, "", false);
-        emit Upgraded(newImplementation);
     }
 
     // ============ INTERNAL FUNCTIONS ============
@@ -275,8 +270,7 @@ contract LPStaking is
         _updateLPRewardPerToken();
         
         if (lpStakedAmount[user] > 0) {
-            uint256 earned = lpStakedAmount[user] * (lpRewardPerTokenStored - lpRewardDebt[user]) / 1e18;
-            lpRewardDebt[user] = earned;
+            lpRewardDebt[user] = lpRewardPerTokenStored;
         }
     }
 
@@ -297,13 +291,21 @@ contract LPStaking is
     }
 
     /**
-     * @dev Required by UUPSUpgradeable
+     * @dev Calculate earned LP rewards for user
      */
-    function _authorizeUpgrade(address newImplementation) 
-        internal 
-        override 
-        onlyRole(DEFAULT_ADMIN_ROLE) 
-    {}
+    function _earnedLP(address user) internal view returns (uint256) {
+        uint256 rewardPerToken = lpRewardPerTokenStored;
+        if (totalLPStaked > 0) {
+            uint256 timeElapsed = block.timestamp - lpLastUpdateTime;
+            rewardPerToken += (lpRewardRate * timeElapsed * 1e18) / totalLPStaked;
+        }
+        
+        if (rewardPerToken <= lpRewardDebt[user]) {
+            return 0;
+        }
+        
+        return (lpStakedAmount[user] * (rewardPerToken - lpRewardDebt[user])) / 1e18;
+    }
 
     // ============ VIEW FUNCTIONS ============
 
@@ -333,7 +335,7 @@ contract LPStaking is
             if (totalLPStaked > 0) {
                 uint256 timeElapsed = block.timestamp - lpLastUpdateTime;
                 rewardPerToken += (lpRewardRate * timeElapsed * 1e18) / totalLPStaked;
-            }
+    }
             pendingRewards = stakedAmount * (rewardPerToken - rewardDebt) / 1e18;
         }
     }
@@ -360,7 +362,7 @@ contract LPStaking is
     function canUnstakeLP(address user) external view returns (bool) {
         return block.timestamp >= lpLockEndTime[user] && lpStakedAmount[user] > 0;
     }
-
+    
     /**
      * @dev Get remaining lock time for user
      */
@@ -370,4 +372,6 @@ contract LPStaking is
         }
         return lpLockEndTime[user] - block.timestamp;
     }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 } 

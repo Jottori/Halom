@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "../libraries/GovernanceMath.sol";
 import "../libraries/GovernanceErrors.sol";
 
@@ -22,7 +22,7 @@ contract Staking is
     UUPSUpgradeable,
     ReentrancyGuardUpgradeable 
 {
-    using SafeERC20Upgradeable for IERC20Upgradeable;
+    using SafeERC20 for ERC20Upgradeable;
     using GovernanceMath for uint256;
 
     // Role definitions
@@ -30,13 +30,12 @@ contract Staking is
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
     // Token contract
-    IERC20Upgradeable public stakingToken;
+    ERC20Upgradeable public stakingToken;
     
     // Staking data
     mapping(address => uint256) public stakedAmount;
-    mapping(address => uint256) public rewardDebt;
-    mapping(address => uint256) public lastClaimTime;
-    
+    mapping(address => uint256) public userRewardPerTokenPaid;
+    mapping(address => uint256) public rewards;
     uint256 public totalStaked;
     uint256 public rewardRate; // rewards per second per token
     uint256 public lastUpdateTime;
@@ -47,17 +46,13 @@ contract Staking is
     event Unstaked(address indexed user, uint256 amount);
     event RewardClaimed(address indexed user, uint256 amount);
     event EmergencyWithdrawn(address indexed user, uint256 amount);
-    event Paused(address indexed account);
-    event Unpaused(address indexed account);
     event Upgraded(address indexed implementation);
     event RewardRateSet(uint256 newRate);
-
-    // Errors
-    error InsufficientBalance();
+    
+    // ============ CUSTOM ERRORS ============
     error ZeroAmount();
-    error TransferFailed();
+    error InsufficientBalance();
     error NoRewardsToClaim();
-    error StakingPaused();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -65,7 +60,7 @@ contract Staking is
     }
 
     function initialize(
-        address _stakingToken,
+        address _stakingToken, 
         address admin
     ) public initializer {
         __Pausable_init();
@@ -73,18 +68,22 @@ contract Staking is
         __UUPSUpgradeable_init();
         __ReentrancyGuard_init();
 
+        if (_stakingToken == address(0)) revert ZeroAmount();
+        if (admin == address(0)) revert ZeroAmount();
+
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(GOVERNOR_ROLE, admin);
         _grantRole(PAUSER_ROLE, admin);
 
-        stakingToken = IERC20Upgradeable(_stakingToken);
+        stakingToken = ERC20Upgradeable(_stakingToken);
         lastUpdateTime = block.timestamp;
     }
-
+    
     // ============ PUBLIC FUNCTIONS ============
 
     /**
-     * @dev Stake tokens to earn rewards
+     * @notice Stake tokens to earn rewards
+     * @param amount The amount of tokens to stake
      */
     function stake(uint256 amount) 
         external 
@@ -93,19 +92,16 @@ contract Staking is
     {
         if (amount == 0) revert ZeroAmount();
         if (stakingToken.balanceOf(msg.sender) < amount) revert InsufficientBalance();
-
-        _updateRewards(msg.sender);
-        
+        _updateReward(msg.sender);
         stakedAmount[msg.sender] += amount;
         totalStaked += amount;
-        
         stakingToken.safeTransferFrom(msg.sender, address(this), amount);
-        
         emit Staked(msg.sender, amount);
     }
 
     /**
-     * @dev Unstake tokens
+     * @notice Unstake tokens
+     * @param amount The amount of tokens to unstake
      */
     function unstake(uint256 amount) 
         external 
@@ -114,42 +110,34 @@ contract Staking is
     {
         if (amount == 0) revert ZeroAmount();
         if (stakedAmount[msg.sender] < amount) revert InsufficientBalance();
-
-        _updateRewards(msg.sender);
-        
+        _updateReward(msg.sender);
         stakedAmount[msg.sender] -= amount;
         totalStaked -= amount;
-        
         stakingToken.safeTransfer(msg.sender, amount);
-        
         emit Unstaked(msg.sender, amount);
     }
-
+    
     /**
-     * @dev Claim accumulated rewards
+     * @notice Claim accumulated rewards
      */
     function claimRewards() 
         external 
         whenNotPaused 
         nonReentrant 
     {
-        _updateRewards(msg.sender);
-        
-        uint256 rewards = rewardDebt[msg.sender];
-        if (rewards == 0) revert NoRewardsToClaim();
-        
-        rewardDebt[msg.sender] = 0;
-        lastClaimTime[msg.sender] = block.timestamp;
-        
-        stakingToken.safeTransfer(msg.sender, rewards);
-        
-        emit RewardClaimed(msg.sender, rewards);
+        _updateReward(msg.sender);
+        uint256 reward = rewards[msg.sender];
+        if (reward == 0) revert NoRewardsToClaim();
+        rewards[msg.sender] = 0;
+        stakingToken.safeTransfer(msg.sender, reward);
+        emit RewardClaimed(msg.sender, reward);
     }
-
+    
     // ============ ROLE-BASED FUNCTIONS ============
 
     /**
-     * @dev Set reward rate - only GOVERNOR_ROLE
+     * @notice Set reward rate - only GOVERNOR_ROLE
+     * @param rate The new reward rate
      */
     function setRewardRate(uint256 rate) 
         external 
@@ -161,63 +149,50 @@ contract Staking is
     }
 
     /**
-     * @dev Emergency withdraw all staked tokens - only GOVERNOR_ROLE
+     * @notice Emergency withdraw all staked tokens for a user - only GOVERNOR_ROLE
+     * @param user The address to withdraw for
      */
-    function emergencyWithdraw() 
+    function emergencyWithdraw(address user)
         external 
         onlyRole(GOVERNOR_ROLE) 
         nonReentrant 
     {
-        uint256 amount = stakedAmount[msg.sender];
+        uint256 amount = stakedAmount[user];
         if (amount == 0) revert ZeroAmount();
-        
-        stakedAmount[msg.sender] = 0;
+        _updateReward(user);
+        stakedAmount[user] = 0;
         totalStaked -= amount;
-        rewardDebt[msg.sender] = 0;
-        
-        stakingToken.safeTransfer(msg.sender, amount);
-        
-        emit EmergencyWithdrawn(msg.sender, amount);
+        rewards[user] = 0;
+        stakingToken.safeTransfer(user, amount);
+        emit EmergencyWithdrawn(user, amount);
     }
-
+    
     /**
-     * @dev Pause staking - only PAUSER_ROLE
+     * @notice Pause staking - only PAUSER_ROLE
      */
     function pause() external onlyRole(PAUSER_ROLE) {
         _pause();
-        emit Paused(msg.sender);
     }
-
+    
     /**
-     * @dev Unpause staking - only PAUSER_ROLE
+     * @notice Unpause staking - only PAUSER_ROLE
      */
     function unpause() external onlyRole(PAUSER_ROLE) {
         _unpause();
-        emit Unpaused(msg.sender);
-    }
-
-    /**
-     * @dev Upgrade contract - only DEFAULT_ADMIN_ROLE
-     */
-    function upgradeTo(address newImplementation) 
-        external 
-        onlyRole(DEFAULT_ADMIN_ROLE) 
-    {
-        _upgradeToAndCall(newImplementation, "", false);
-        emit Upgraded(newImplementation);
     }
 
     // ============ INTERNAL FUNCTIONS ============
 
     /**
-     * @dev Update rewards for user
+     * @dev Update reward for user and global rewardPerTokenStored
+     * @param user The address to update rewards for
      */
-    function _updateRewards(address user) internal {
+    function _updateReward(address user) internal {
         rewardPerTokenStored = _rewardPerToken();
         lastUpdateTime = block.timestamp;
-        
-        if (stakedAmount[user] > 0) {
-            rewardDebt[user] = _earned(user);
+        if (user != address(0)) {
+            rewards[user] = _earned(user);
+            userRewardPerTokenPaid[user] = rewardPerTokenStored;
         }
     }
 
@@ -228,21 +203,19 @@ contract Staking is
         if (totalStaked == 0) {
             return rewardPerTokenStored;
         }
-        
-        return rewardPerTokenStored + (
-            (block.timestamp - lastUpdateTime) * rewardRate * 1e18
-        ) / totalStaked;
+        return rewardPerTokenStored + (((block.timestamp - lastUpdateTime) * rewardRate * 1e18) / totalStaked);
     }
-
+        
     /**
      * @dev Calculate earned rewards for user
+     * @param user The address to calculate rewards for
      */
     function _earned(address user) internal view returns (uint256) {
-        return (stakedAmount[user] * (_rewardPerToken() - rewardDebt[user])) / 1e18;
+        return (stakedAmount[user] * (_rewardPerToken() - userRewardPerTokenPaid[user])) / 1e18 + rewards[user];
     }
 
     /**
-     * @dev Update reward per token
+     * @dev Update reward per token (for admin functions)
      */
     function _updateRewardPerToken() internal {
         rewardPerTokenStored = _rewardPerToken();
@@ -261,25 +234,28 @@ contract Staking is
     // ============ VIEW FUNCTIONS ============
 
     /**
-     * @dev Get staking info for user
+     * @notice Get staking info for user
+     * @param user The address to query
+     * @return staked The amount staked
+     * @return rewards_ The pending rewards
      */
     function getStakeInfo(address user) 
         external 
         view 
-        returns (uint256 staked, uint256 pendingRewards, uint256 lastClaim) 
+        returns (uint256 staked, uint256 rewards_, uint256)
     {
-        return (stakedAmount[user], _earned(user), lastClaimTime[user]);
+        return (stakedAmount[user], _earned(user), 0);
     }
 
     /**
-     * @dev Get total staked amount
+     * @notice Get total staked amount
      */
     function getTotalStaked() external view returns (uint256) {
         return totalStaked;
     }
-
+    
     /**
-     * @dev Calculate pending rewards for user
+     * @notice Calculate pending rewards for user
      */
     function pendingRewards(address user) external view returns (uint256) {
         return _earned(user);

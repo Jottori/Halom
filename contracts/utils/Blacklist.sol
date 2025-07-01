@@ -18,8 +18,8 @@ library Blacklist {
     }
 
     // Events
-    event AddressBlacklisted(address indexed account, string reason, address indexed by);
-    event AddressUnBlacklisted(address indexed account, address indexed by);
+    event Blacklisted(address indexed account);
+    event UnBlacklisted(address indexed account);
     event BlacklistEnabled(bool enabled);
     event BlacklistReasonUpdated(address indexed account, string reason);
 
@@ -51,7 +51,7 @@ library Blacklist {
         data.blacklistedBy[account] = msg.sender;
         data.totalBlacklisted++;
 
-        emit AddressBlacklisted(account, reason, msg.sender);
+        emit Blacklisted(account);
     }
 
     /**
@@ -73,7 +73,7 @@ library Blacklist {
         data.blacklistedBy[account] = address(0);
         data.totalBlacklisted--;
 
-        emit AddressUnBlacklisted(account, msg.sender);
+        emit UnBlacklisted(account);
     }
 
     /**
@@ -240,7 +240,6 @@ library Blacklist {
      * @param data Blacklist data storage
      * @return enabled Whether blacklist is enabled
      * @return totalBlacklisted Total blacklisted addresses
-     * @return totalAddresses Total addresses (if tracked)
      */
     function getBlacklistStats(
         BlacklistData storage data
@@ -355,7 +354,7 @@ library Blacklist {
                 data.blacklistedBy[accounts[i]] = address(0);
                 data.totalBlacklisted--;
 
-                emit AddressUnBlacklisted(accounts[i], msg.sender);
+                emit UnBlacklisted(accounts[i]);
             }
         }
     }
