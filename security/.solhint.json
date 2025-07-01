@@ -1,0 +1,18 @@
+{
+  "extends": "solhint:recommended",
+  "rules": {
+    "compiler-version": ["error", "^0.8.0"],
+    "func-visibility": ["warn", {"ignoreConstructors": true}],
+    "max-line-length": ["warn", 120],
+    "not-rely-on-time": "warn",
+    "not-rely-on-block-hash": "warn",
+    "avoid-low-level-calls": "warn",
+    "avoid-sha3": "warn",
+    "avoid-suicide": "error",
+    "avoid-throw": "error",
+    "no-inline-assembly": "warn",
+    "no-empty-blocks": "warn",
+    "no-unused-vars": "error",
+    "no-unused-imports": "error"
+  }
+} 
