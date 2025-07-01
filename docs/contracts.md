@@ -142,6 +142,24 @@ This document provides detailed information about each contract in the Halom eco
 - `setDataProvider(address provider, bool enabled)`: Configure data providers
 - `emergencyUpdate(bytes32 dataId, uint256 value)`: Emergency data update
 
+## Bridge Contracts
+
+### Bridge.sol
+**Location**: `contracts/bridge/Bridge.sol`
+
+**Description**: Cross-chain bridge for secure asset transfers between different blockchain networks.
+
+**Key Features**:
+- Multi-chain support
+- Secure asset locking
+- Cross-chain verification
+- Emergency controls
+
+**Main Functions**:
+- `lockTokens(address token, uint256 amount, address recipient, uint256 destinationChainId)`: Lock tokens for cross-chain transfer
+- `unlockTokens(address token, uint256 amount, address recipient, bytes32 lockId)`: Unlock tokens on destination chain
+- `relayCrossChainProposal(bytes calldata proposalData)`: Relay governance proposals across chains
+
 ## Utility Contracts
 
 ### AntiWhale.sol
@@ -184,46 +202,47 @@ This document provides detailed information about each contract in the Halom eco
 - `withdrawFunds(address token, uint256 amount)`: Withdraw funds
 - `setAllocationLimit(uint256 _limit)`: Set allocation limits
 
-## Access Control
+## Library Contracts
 
-### Roles.sol
-**Location**: `contracts/access/Roles.sol`
+### GovernanceErrors.sol
+**Location**: `contracts/libraries/GovernanceErrors.sol`
 
-**Description**: Role-based access control system.
+**Description**: Error definitions for governance contracts.
 
-**Key Roles**:
-- `DEFAULT_ADMIN_ROLE`: Super admin role
-- `MINTER_ROLE`: Token minting permission
-- `BURNER_ROLE`: Token burning permission
-- `REBASER_ROLE`: Rebase execution permission
-- `EMERGENCY_ROLE`: Emergency controls permission
-- `GOVERNANCE_ROLE`: Governance execution permission
+**Key Errors**:
+- `InvalidProposal()`: Invalid proposal parameters
+- `ProposalNotActive()`: Proposal is not in active state
+- `AlreadyVoted()`: User has already voted
+- `InvalidVote()`: Invalid vote value
 
-## Integration Patterns
+### GovernanceMath.sol
+**Location**: `contracts/libraries/GovernanceMath.sol`
 
-### Contract Interactions
-1. **Token ↔ Governance**: Token holders participate in governance
-2. **Token ↔ Staking**: Staking contracts receive rebase rewards
-3. **Governance ↔ Timelock**: All governance actions go through timelock
-4. **Oracle ↔ Governance**: Oracle data influences governance decisions
-5. **Treasury ↔ All**: Treasury funds various ecosystem components
+**Description**: Mathematical utilities for governance calculations.
 
-### Security Considerations
-- All critical functions use role-based access control
-- Emergency functions available for crisis situations
-- Timelock delays prevent immediate execution of governance actions
-- Anti-whale protection prevents market manipulation
-- Blacklist functionality for compliance requirements
+**Key Functions**:
+- `calculateQuorum(uint256 totalSupply, uint256 quorumPercentage)`: Calculate quorum requirement
+- `calculateVotePower(uint256 balance, uint256 lockTime)`: Calculate voting power
+- `validateThreshold(uint256 votes, uint256 threshold)`: Validate vote threshold
 
-## Deployment Configuration
+## Test Contracts
 
-### Network-Specific Settings
-- **Mainnet**: Full feature set with conservative parameters
-- **Testnet**: Reduced limits for testing purposes
-- **Local**: Minimal configuration for development
+### MockERC20.sol
+**Location**: `contracts/test/MockERC20.sol`
 
-### Upgrade Strategy
-- Proxy pattern for upgradeable contracts
-- Timelock-controlled upgrades
-- Emergency upgrade mechanisms
-- Backward compatibility considerations 
+**Description**: Mock ERC20 token for testing purposes.
+
+**Key Features**:
+- Standard ERC20 functionality
+- Mint function for testing
+- Configurable initial supply
+
+### TestProxy.sol
+**Location**: `contracts/test/TestProxy.sol`
+
+**Description**: Test proxy contract for upgradeable contracts.
+
+**Key Features**:
+- ERC1967 proxy implementation
+- Upgradeable contract testing
+- Deterministic address calculation 

@@ -76,10 +76,7 @@ npm run verify:testnet
 ```
 contracts/
 ├── token/
-│   ├── HalomToken.sol          # Main token with zkSync integration
-│   ├── AntiWhale.sol           # Anti-whale protection
-│   ├── FeeOnTransfer.sol       # Transfer fee mechanism
-│   └── Blacklist.sol           # Blacklist functionality
+│   └── HalomToken.sol          # Main token with zkSync integration
 ├── governance/
 │   ├── Governance.sol          # Main governance contract
 │   ├── QuadraticVotingUtils.sol # Quadratic voting utilities
@@ -91,9 +88,16 @@ contracts/
 │   └── Oracle.sol              # Decentralized oracle
 ├── bridge/
 │   └── Bridge.sol              # Cross-chain bridge
-├── access/
-│   └── Roles.sol               # Role-based access control
+├── test/
+│   ├── MockERC20.sol           # Test ERC20 token
+│   └── TestProxy.sol           # Test proxy contract
+├── libraries/
+│   ├── GovernanceErrors.sol    # Governance error definitions
+│   └── GovernanceMath.sol      # Governance math utilities
 └── utils/
+    ├── AntiWhale.sol           # Anti-whale protection
+    ├── FeeOnTransfer.sol       # Transfer fee mechanism
+    ├── Blacklist.sol           # Blacklist functionality
     └── Treasury.sol            # Treasury management
 ```
 

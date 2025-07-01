@@ -27,15 +27,19 @@ Halom is a comprehensive DeFi ecosystem built on Ethereum that includes governan
 - Cross-chain bridge functionality for multi-chain interoperability
 - Secure asset transfer between different blockchain networks
 
-### 6. Access Control (`contracts/access/`)
-- **Roles.sol**: Role-based access control system
-- Manages permissions for different contract functions
-
-### 7. Utilities (`contracts/utils/`)
+### 6. Utility System (`contracts/utils/`)
 - **AntiWhale.sol**: Anti-whale protection mechanisms
 - **FeeOnTransfer.sol**: Transfer fee management
 - **Blacklist.sol**: Address blacklisting functionality
 - **Treasury.sol**: Treasury management and fund allocation
+
+### 7. Library System (`contracts/libraries/`)
+- **GovernanceErrors.sol**: Error definitions for governance contracts
+- **GovernanceMath.sol**: Mathematical utilities for governance calculations
+
+### 8. Test System (`contracts/test/`)
+- **MockERC20.sol**: Mock ERC20 token for testing
+- **TestProxy.sol**: Test proxy contract for upgradeable contracts
 
 ## Security Features
 

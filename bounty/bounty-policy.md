@@ -11,8 +11,10 @@ The Halom Bug Bounty Program encourages security researchers to identify and rep
 - **Governance Contracts**: `contracts/governance/Governance.sol`, `contracts/governance/Timelock.sol`
 - **Staking Contracts**: `contracts/staking/Staking.sol`, `contracts/staking/LPStaking.sol`
 - **Oracle Contracts**: `contracts/oracle/Oracle.sol`
-- **Utility Contracts**: `contracts/utils/AntiWhale.sol`, `contracts/utils/FeeOnTransfer.sol`, `contracts/utils/Blacklist.sol`
-- **Access Control**: `contracts/access/Roles.sol`
+- **Utility Contracts**: `contracts/utils/AntiWhale.sol`, `contracts/utils/FeeOnTransfer.sol`, `contracts/utils/Blacklist.sol`, `contracts/utils/Treasury.sol`
+- **Bridge Contracts**: `contracts/bridge/Bridge.sol`
+- **Library Contracts**: `contracts/libraries/GovernanceErrors.sol`, `contracts/libraries/GovernanceMath.sol`
+- **Test Contracts**: `contracts/test/MockERC20.sol`, `contracts/test/TestProxy.sol`
 
 ### Out-of-Scope
 - Frontend applications

@@ -9,6 +9,7 @@
 - `contracts/staking/Staking.sol`
 - `contracts/staking/LPStaking.sol`
 - `contracts/oracle/Oracle.sol`
+- `contracts/bridge/Bridge.sol`
 
 ### Utility Contracts
 - `contracts/utils/AntiWhale.sol`
@@ -16,8 +17,13 @@
 - `contracts/utils/Blacklist.sol`
 - `contracts/utils/Treasury.sol`
 
-### Access Control
-- `contracts/access/Roles.sol`
+### Library Contracts
+- `contracts/libraries/GovernanceErrors.sol`
+- `contracts/libraries/GovernanceMath.sol`
+
+### Test Contracts
+- `contracts/test/MockERC20.sol`
+- `contracts/test/TestProxy.sol`
 
 ## Out-of-Scope
 - Frontend applications
