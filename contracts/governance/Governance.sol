@@ -457,7 +457,7 @@ contract Governance is
     }
 
     /**
-     * @dev Dummy function teszteléshez, nem csinál semmit
+     * @dev Dummy function for testing purposes, does nothing
      */
     function dummy() public {}
 } 

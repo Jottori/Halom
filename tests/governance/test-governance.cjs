@@ -212,5 +212,5 @@ describe('Governance', function () {
     ).to.be.reverted;
   });
 
-  // További edge case, getter, cross-chain relay, paraméter setter tesztek ide jöhetnek...
+      // Additional edge cases, getters, cross-chain relay, parameter setter tests can be added here...
 });
