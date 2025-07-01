@@ -37,6 +37,7 @@ contract HalomToken is
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
     bytes32 public constant BLACKLIST_ROLE = keccak256("BLACKLIST_ROLE");
+    bytes32 public constant BRIDGE_ROLE = keccak256("BRIDGE_ROLE");
 
     // Anti-whale and fee data
     AntiWhale.AntiWhaleData public antiWhaleData;
@@ -115,6 +116,7 @@ contract HalomToken is
         _grantRole(PAUSER_ROLE, admin);
         _grantRole(GOVERNOR_ROLE, admin);
         _grantRole(BLACKLIST_ROLE, admin);
+        _grantRole(BRIDGE_ROLE, admin);
 
         // Initialize with default values
         antiWhaleData.setAntiWhaleParams(
@@ -495,6 +497,62 @@ contract HalomToken is
     {
         _upgradeToAndCall(newImplementation, "", false);
         emit Upgraded(newImplementation);
+    }
+
+    // ============ ZKSYNC PAYMASTER INTERFACE ============
+
+    /**
+     * @dev zkSync Era paymaster interface: validate and pay for paymaster transaction
+     * @param from Sender address
+     * @param to Recipient address
+     * @param value ETH value sent
+     * @param gas Gas limit
+     * @param gasPrice Gas price
+     * @param data Calldata
+     * @return context Context for postTransaction
+     * @return validationResult Validation result (0 = success)
+     */
+    function validateAndPayForPaymasterTransaction(
+        address from,
+        address to,
+        uint256 value,
+        uint256 gas,
+        uint256 gasPrice,
+        bytes calldata data
+    ) external payable returns (bytes memory context, uint256 validationResult) {
+        // Only allow zkSync system or paymaster role to call
+        require(hasRole(BRIDGE_ROLE, msg.sender) || hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Unauthorized");
+        // Calculate required fee (gas * gasPrice)
+        uint256 requiredFee = gas * gasPrice;
+        // Check paymaster deposit
+        require(paymasterDeposits[from][address(this)] >= requiredFee, "Insufficient paymaster deposit");
+        // Deduct fee
+        paymasterDeposits[from][address(this)] -= requiredFee;
+        totalPaymasterDeposits[address(this)] -= requiredFee;
+        // Context: encode who paid and how much
+        context = abi.encode(from, requiredFee);
+        validationResult = 0; // 0 = success
+        emit PaymasterWithdrawn(from, address(this), requiredFee);
+    }
+
+    /**
+     * @dev zkSync Era paymaster interface: post-transaction hook
+     * @param context Context from validateAndPayForPaymasterTransaction
+     * @param success Transaction success
+     * @param actualGas Actual gas used
+     */
+    function postTransaction(
+        bytes calldata context,
+        bool success,
+        uint256 actualGas
+    ) external payable {
+        // Only allow zkSync system or paymaster role to call
+        require(hasRole(BRIDGE_ROLE, msg.sender) || hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Unauthorized");
+        // Decode context
+        (address from, uint256 fee) = abi.decode(context, (address, uint256));
+        // Optionally refund if tx failed (not required in minimal implementation)
+        // emit event for audit
+        emit PaymasterWithdrawn(from, address(this), fee);
     }
 
     // ============ INTERNAL FUNCTIONS ============
