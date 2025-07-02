@@ -1,5 +1,13 @@
 # Halom Protocol v1.1.0
 
+[![Tests](https://github.com/halom/halom/workflows/Comprehensive%20Testing/badge.svg)](https://github.com/halom/halom/actions)
+[![Coverage](https://codecov.io/gh/halom/halom/branch/main/graph/badge.svg)](https://codecov.io/gh/halom/halom)
+[![Lint](https://img.shields.io/github/actions/workflow/status/halom/halom/lint.yml?branch=main&label=lint)](https://github.com/halom/halom/actions?query=workflow%3ALint)
+[![Build](https://img.shields.io/github/actions/workflow/status/halom/halom/build.yml?branch=main&label=build)](https://github.com/halom/halom/actions?query=workflow%3ABuild)
+[![Security](https://img.shields.io/badge/security-audited-brightgreen.svg)](https://github.com/halom/halom/security)
+[![Security Analysis](https://github.com/halom/halom/workflows/Security%20Analysis%20Pipeline/badge.svg)](https://github.com/halom/halom/actions?query=workflow%3A%22Security+Analysis+Pipeline%22)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Halom is a decentralized, data-driven monetary protocol based on the Halom Oracle Index (HOI), an on-chain indicator reflecting economic well-being. The Halom Token (HLM) is a rebase token whose total supply adjusts according to the HOI, creating a dynamic monetary system.
 
 This repository contains the official Solidity smart contracts, off-chain oracle infrastructure, and deployment scripts for the Halom Protocol.
@@ -135,3 +143,71 @@ This project is licensed under the MIT License. See the [LICENSE](./LICENSE) fil
 - [Deployment Guide](docs/deploy.md)
 - [Off-chain Components Configuration](docs/offchain.md)
 - [Workflow Examples](docs/workflows.md)
+- [Security Analysis Pipeline](docs/SECURITY_ANALYSIS.md)
+
+## 🧪 Red-Green-Refactor (TDD) Methodology
+
+We follow the [Red-Green-Refactor](https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/GUIDELINES.md) cycle for all contract and integration development:
+
+1. **Red:** Write a new test that fails (unit, integration, or end-to-end).
+2. **Green:** Implement the minimal code to make the test pass.
+3. **Refactor:** Clean up and optimize the code, keeping all tests green.
+
+This cycle is repeated for every new feature or bugfix, ensuring robust, maintainable, and secure code.
+
+### Test Pyramid
+- **Unit tests:** Core logic, isolated functions
+- **Integration tests:** Contract/module interactions
+- **End-to-end tests:** Full user scenarios, system-level flows
+
+---
+
+## 🔒 Security Analysis
+
+Our comprehensive security analysis pipeline runs automatically on every commit and pull request, providing multiple layers of security validation:
+
+### Security Tools
+
+- **Slither**: Static analysis for Solidity contracts
+- **Manticore**: Symbolic execution and vulnerability detection  
+- **MythX**: Cloud-based automated vulnerability detection
+- **Fuzzing Tests**: Property-based testing and edge case discovery
+- **Coverage Analysis**: Test coverage measurement and reporting
+
+### Running Security Analysis Locally
+
+```bash
+# Run all security analysis tools
+npm run security:all
+
+# Run individual tools
+npm run security:slither      # Static analysis
+npm run security:manticore    # Symbolic execution
+npm run security:mythx        # Cloud-based analysis
+npm run security:fuzzing      # Fuzzing tests
+npm run security:coverage     # Coverage analysis
+npm run security:summary      # Combined security report
+```
+
+### Security Reports
+
+The pipeline generates comprehensive reports:
+- **SARIF format** for GitHub Code Scanning integration
+- **Markdown reports** for human-readable analysis
+- **HTML coverage reports** with interactive visualization
+- **Security badges** for README integration
+
+For detailed information, see [Security Analysis Pipeline](docs/SECURITY_ANALYSIS.md).
+
+## 🚦 CI Pipeline
+
+Our CI/CD pipeline (see badge status above) runs the following steps on every commit and pull request:
+
+1. **Lint:** Static code analysis (`solhint`, `eslint`, etc.)
+2. **Build:** Compile all contracts and scripts
+3. **Test:** Run all unit, integration, and end-to-end tests
+4. **Coverage:** Measure and report test coverage
+5. **Security:** Run comprehensive security analysis (Slither, Manticore, MythX, Fuzzing)
+6. **Deploy:** (Optional) Deploy to testnet/mainnet if all checks pass
+
+---

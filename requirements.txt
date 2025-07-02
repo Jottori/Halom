@@ -4,4 +4,17 @@ web3
 requests
 python-dotenv
 pytest
-pytest-cov 
+pytest-cov
+
+# Security Analysis Tools
+manticore[evm]
+mythx-cli
+hypothesis
+fuzzing-toolkit
+coverage
+
+# Data Science and Analysis Tools
+numpy
+pandas
+matplotlib
+seaborn 

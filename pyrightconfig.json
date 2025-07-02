@@ -1,0 +1,26 @@
+{
+  "include": [
+    "offchain-scripts",
+    "offchain",
+    "scripts"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*"
+  ],
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none",
+  "pythonVersion": "3.13",
+  "pythonPlatform": "Windows",
+  "useLibraryCodeForTypes": true,
+  "typeCheckingMode": "basic",
+  "pythonPath": "C:\\Python313\\python.exe",
+  "extraPaths": [
+    "offchain-scripts",
+    "offchain",
+    "scripts",
+    "C:\\Users\\heruf\\AppData\\Roaming\\Python\\Python313\\site-packages"
+  ],
+  "stubPath": "typings"
+} 
