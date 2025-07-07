@@ -12,12 +12,18 @@ import schedule
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 from web3 import Web3
-from web3.middleware.geth_poa import geth_poa_middleware
 import requests
 
-from offchain.hoi_engine import calculate_hoi, assemble_data_for_hoi
+# Try to import geth_poa_middleware, fallback if not available
+try:
+    from web3.middleware.geth_poa import geth_poa_middleware  # type: ignore
+except ImportError:
+    geth_poa_middleware = None
+
+from .hoi_engine import calculate_hoi, assemble_data_for_hoi
 
 # Load environment variables
 load_dotenv()
@@ -54,16 +60,16 @@ class OracleUpdater:
         self.oecd_api = os.getenv("OECD_API_URL", "https://stats.oecd.org/restsdmx/sdmx.ashx/GetData/")
         
         # Oracle configuration
-        self.oracle_address = None
-        self.updater_address = None
-        self.oracle_contract = None
-        self.w3 = None
-        self.updater_account = None
+        self.oracle_address: Optional[str] = None
+        self.updater_address: Optional[str] = None
+        self.oracle_contract: Optional[Any] = None
+        self.w3: Optional[Web3] = None
+        self.updater_account: Optional[Any] = None
         
         # Statistics
         self.successful_updates = 0
         self.failed_updates = 0
-        self.last_update_time = None
+        self.last_update_time: Optional[datetime] = None
         self.consecutive_failures = 0
         
         self._initialize_web3()
@@ -73,7 +79,10 @@ class OracleUpdater:
         """Initialize Web3 connection"""
         try:
             self.w3 = Web3(Web3.HTTPProvider(self.rpc_url))
-            self.w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+            
+            # Only inject geth_poa_middleware if it's available
+            if geth_poa_middleware is not None:
+                self.w3.middleware_onion.inject(geth_poa_middleware, layer=0)
             
             if not self.w3.is_connected():
                 raise Exception(f"Could not connect to RPC URL: {self.rpc_url}")
@@ -99,6 +108,12 @@ class OracleUpdater:
             with open(oracle_abi_path, 'r') as f:
                 oracle_data = json.load(f)
             
+            if self.w3 is None:
+                raise Exception("Web3 not initialized")
+            
+            if self.oracle_address is None:
+                raise Exception("Oracle address not found in deployment info")
+            
             checksum_oracle_address = self.w3.to_checksum_address(self.oracle_address)
             self.oracle_contract = self.w3.eth.contract(
                 address=checksum_oracle_address, 
@@ -109,13 +124,18 @@ class OracleUpdater:
             if not self.private_key:
                 raise Exception("PRIVATE_KEY not found in environment")
             
+            if self.w3 is None:
+                raise Exception("Web3 not initialized")
+            
             self.updater_account = self.w3.eth.account.from_key(self.private_key)
             
-            if self.updater_account.address.lower() != self.updater_address.lower():
+            if (self.updater_account is not None and self.updater_address is not None and 
+                self.updater_account.address.lower() != self.updater_address.lower()):
                 logger.warning(f"Private key address ({self.updater_account.address}) doesn't match updater address ({self.updater_address})")
             
             logger.info(f"Oracle contract loaded at {self.oracle_address}")
-            logger.info(f"Using updater account: {self.updater_account.address}")
+            if self.updater_account is not None:
+                logger.info(f"Using updater account: {self.updater_account.address}")
             
         except Exception as e:
             logger.error(f"Failed to load deployment info: {e}")
@@ -191,6 +211,15 @@ class OracleUpdater:
             
             logger.info(f"Calculated HOI: {hoi_float:.4f} ({hoi_value})")
             
+            if self.oracle_contract is None:
+                raise Exception("Oracle contract not initialized")
+            
+            if self.w3 is None:
+                raise Exception("Web3 not initialized")
+            
+            if self.updater_account is None:
+                raise Exception("Updater account not initialized")
+            
             # Get current nonce
             current_nonce = self.oracle_contract.functions.nonce().call()
             logger.info(f"Current oracle nonce: {current_nonce}")
@@ -198,138 +227,168 @@ class OracleUpdater:
             # Build and send transaction
             tx = self.oracle_contract.functions.submitHOI(hoi_value).build_transaction({
                 'from': self.updater_account.address,
+                'gas': 200000,
+                'gasPrice': self.w3.eth.gas_price,
                 'nonce': self.w3.eth.get_transaction_count(self.updater_account.address),
-                'gas': 300000,
-                'gasPrice': self.w3.eth.gas_price
+                'chainId': self.chain_id
             })
             
+            # Sign and send transaction
             signed_tx = self.w3.eth.account.sign_transaction(tx, self.private_key)
             tx_hash = self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
             
-            logger.info(f"Transaction sent: {tx_hash.hex()}")
-            
-            # Wait for confirmation
-            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
+            # Wait for transaction receipt
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
             
             if receipt['status'] == 1:
-                logger.info(f"Transaction confirmed in block {receipt['blockNumber']}")
+                logger.info(f"HOI submission successful: {tx_hash.hex()}")
                 self.successful_updates += 1
                 self.consecutive_failures = 0
                 self.last_update_time = datetime.now()
                 
-                # Log statistics
-                self._log_statistics()
+                # Send success notification
+                self._send_alert(f"HOI update successful: {hoi_float:.4f}")
                 
             else:
-                raise Exception("Transaction failed")
+                logger.error(f"HOI submission failed: {tx_hash.hex()}")
+                self.failed_updates += 1
+                self.consecutive_failures += 1
+                
+                # Send failure notification
+                self._send_alert(f"HOI update failed: {tx_hash.hex()}")
                 
         except Exception as e:
-            logger.error(f"Failed to submit HOI: {e}")
+            logger.error(f"Failed to calculate and submit HOI: {e}")
             self.failed_updates += 1
             self.consecutive_failures += 1
             
-            # Send alert if too many consecutive failures
-            if self.consecutive_failures >= 3:
-                self._send_alert(f"Oracle updater failed {self.consecutive_failures} times consecutively: {e}")
-            
+            # Send error notification
+            self._send_alert(f"HOI update error: {str(e)}")
             raise
 
     def _log_statistics(self):
-        """Log update statistics"""
-        total_updates = self.successful_updates + self.failed_updates
-        success_rate = (self.successful_updates / total_updates * 100) if total_updates > 0 else 0
-        
-        logger.info(f"Statistics - Total: {total_updates}, Success: {self.successful_updates}, "
-                   f"Failed: {self.failed_updates}, Success Rate: {success_rate:.1f}%")
+        """Log current statistics"""
+        logger.info(f"Statistics - Successful: {self.successful_updates}, Failed: {self.failed_updates}, Consecutive failures: {self.consecutive_failures}")
 
     def _send_alert(self, message):
         """Send alert via email and/or Slack"""
-        logger.error(f"ALERT: {message}")
+        if self.notification_email:
+            self._send_email_alert(message)
         
-        # Email alert
-        if self.smtp_username and self.smtp_password and self.notification_email:
-            try:
-                self._send_email_alert(message)
-            except Exception as e:
-                logger.error(f"Failed to send email alert: {e}")
-        
-        # Slack alert
         if self.slack_webhook:
-            try:
-                self._send_slack_alert(message)
-            except Exception as e:
-                logger.error(f"Failed to send Slack alert: {e}")
+            self._send_slack_alert(message)
 
     def _send_email_alert(self, message):
         """Send email alert"""
-        msg = MIMEMultipart()
-        msg['From'] = self.smtp_username
-        msg['To'] = self.notification_email
-        msg['Subject'] = "Halom Oracle Alert"
-        
-        body = f"""
-        Halom Oracle Updater Alert
-        
-        Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-        Message: {message}
-        
-        Statistics:
-        - Successful Updates: {self.successful_updates}
-        - Failed Updates: {self.failed_updates}
-        - Last Update: {self.last_update_time}
-        """
-        
-        msg.attach(MIMEText(body, 'plain'))
-        
-        server = smtplib.SMTP(self.smtp_server, self.smtp_port)
-        server.starttls()
-        server.login(self.smtp_username, self.smtp_password)
-        server.send_message(msg)
-        server.quit()
+        try:
+            if not all([self.smtp_username, self.smtp_password, self.notification_email]):
+                logger.warning("Email notification not configured")
+                return
+            
+            msg = MIMEMultipart()
+            if self.smtp_username is not None:
+                msg['From'] = self.smtp_username
+            if self.notification_email is not None:
+                msg['To'] = self.notification_email
+            msg['Subject'] = "Halom Oracle Alert"
+            
+            body = f"""
+            Halom Oracle Update Alert
+            
+            Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+            Message: {message}
+            
+            Statistics:
+            - Successful updates: {self.successful_updates}
+            - Failed updates: {self.failed_updates}
+            - Consecutive failures: {self.consecutive_failures}
+            """
+            
+            msg.attach(MIMEText(body, 'plain'))
+            
+            server = smtplib.SMTP(self.smtp_server, self.smtp_port)
+            server.starttls()
+            if self.smtp_username is not None and self.smtp_password is not None:
+                server.login(self.smtp_username, self.smtp_password)
+            server.send_message(msg)
+            server.quit()
+            
+            logger.info("Email alert sent successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to send email alert: {e}")
 
     def _send_slack_alert(self, message):
         """Send Slack alert"""
-        payload = {
-            "text": f"🚨 Halom Oracle Alert: {message}",
-            "attachments": [
-                {
-                    "fields": [
-                        {
-                            "title": "Successful Updates",
-                            "value": str(self.successful_updates),
-                            "short": True
-                        },
-                        {
-                            "title": "Failed Updates", 
-                            "value": str(self.failed_updates),
-                            "short": True
-                        }
-                    ]
-                }
-            ]
-        }
-        
-        response = requests.post(self.slack_webhook, json=payload, timeout=10)
-        response.raise_for_status()
+        try:
+            if not self.slack_webhook:
+                return
+            
+            payload = {
+                "text": f"🚨 Halom Oracle Alert: {message}",
+                "attachments": [
+                    {
+                        "fields": [
+                            {
+                                "title": "Successful Updates",
+                                "value": str(self.successful_updates),
+                                "short": True
+                            },
+                            {
+                                "title": "Failed Updates", 
+                                "value": str(self.failed_updates),
+                                "short": True
+                            },
+                            {
+                                "title": "Consecutive Failures",
+                                "value": str(self.consecutive_failures),
+                                "short": True
+                            }
+                        ]
+                    }
+                ]
+            }
+            
+            response = requests.post(self.slack_webhook, json=payload, timeout=10)
+            response.raise_for_status()
+            
+            logger.info("Slack alert sent successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to send Slack alert: {e}")
 
     def health_check(self):
         """Perform health check on oracle contract"""
         try:
+            if self.oracle_contract is None:
+                logger.error("Oracle contract not initialized")
+                return False
+            
+            if self.w3 is None:
+                logger.error("Web3 not initialized")
+                return False
+            
+            if self.updater_account is None:
+                logger.error("Updater account not initialized")
+                return False
+            
             # Check if oracle is paused
             is_paused = self.oracle_contract.functions.paused().call()
             if is_paused:
-                logger.warning("Oracle contract is paused")
+                logger.warning("Oracle is paused")
+                return False
             
             # Check current round
             round_info = self.oracle_contract.functions.getCurrentRound().call()
             logger.info(f"Current round: {round_info}")
             
-            # Check oracle authorization
+            # Check if updater is authorized
             is_authorized = self.oracle_contract.functions.authorizedOracles(self.updater_account.address).call()
             if not is_authorized:
-                logger.error("This oracle node is not authorized!")
-                self._send_alert("Oracle node not authorized")
+                logger.error("Updater not authorized")
+                return False
             
+            logger.info("Health check passed")
             return True
             
         except Exception as e:
@@ -339,44 +398,39 @@ class OracleUpdater:
     def run_scheduled_update(self):
         """Run scheduled update with error handling"""
         try:
-            logger.info("Starting scheduled update...")
+            logger.info("Running scheduled update...")
             
-            # Health check
             if not self.health_check():
-                raise Exception("Health check failed")
+                logger.error("Health check failed, skipping update")
+                return
             
-            # Calculate and submit HOI
             self.calculate_and_submit_hoi()
-            
-            logger.info("Scheduled update completed successfully")
+            self._log_statistics()
             
         except Exception as e:
             logger.error(f"Scheduled update failed: {e}")
-            self._send_alert(f"Scheduled update failed: {e}")
+            self._send_alert(f"Scheduled update failed: {str(e)}")
 
 def main():
-    """Main function with scheduling"""
+    """Main function to run the oracle updater"""
     try:
         updater = OracleUpdater()
         
         # Schedule updates every hour
         schedule.every().hour.do(updater.run_scheduled_update)
         
-        # Also run immediately on startup
-        logger.info("Running initial update...")
+        # Run initial update
         updater.run_scheduled_update()
         
-        logger.info("Starting scheduled updater (every hour)...")
-        
-        # Keep running and execute scheduled tasks
+        # Keep running scheduled updates
         while True:
             schedule.run_pending()
             time.sleep(60)  # Check every minute
             
     except KeyboardInterrupt:
-        logger.info("Updater stopped by user")
+        logger.info("Oracle updater stopped by user")
     except Exception as e:
-        logger.error(f"Fatal error: {e}")
+        logger.error(f"Oracle updater failed: {e}")
         raise
 
 if __name__ == "__main__":

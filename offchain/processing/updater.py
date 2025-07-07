@@ -3,9 +3,13 @@ import time
 import json
 from dotenv import load_dotenv
 from web3 import Web3
-from web3.middleware.geth_poa import geth_poa_middleware
+# Try to import geth_poa_middleware, fallback if not available
+try:
+    from web3.middleware.geth_poa import geth_poa_middleware  # type: ignore
+except ImportError:
+    geth_poa_middleware = None
 
-from offchain.hoi_engine import calculate_hoi, assemble_data_for_hoi
+from .hoi_engine import calculate_hoi, assemble_data_for_hoi
 
 # Load environment variables from .env file
 load_dotenv()
@@ -39,7 +43,9 @@ def main():
 
     # --- 2. Connect to the network and load contract ---
     w3 = Web3(Web3.HTTPProvider(RPC_URL))
-    w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+    # Only inject geth_poa_middleware if it's available
+    if geth_poa_middleware is not None:
+        w3.middleware_onion.inject(geth_poa_middleware, layer=0)
     
     if not w3.is_connected():
         print(f"Error: Could not connect to the RPC URL at {RPC_URL}.")

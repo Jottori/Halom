@@ -1,7 +1,7 @@
 import pandas as pd
 from datetime import datetime
 from typing import cast
-from offchain.data_collector import (
+from ..collectors.data_collector import (
     fetch_aic_per_capita,
     fetch_housing_cost_overburden,
     fetch_real_minimum_wage,
