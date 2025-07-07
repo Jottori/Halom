@@ -1,0 +1,39 @@
+{
+  "typescript.validate.enable": false,
+  "typescript.suggest.enabled": false,
+  "typescript.preferences.includePackageJsonAutoImports": "off",
+  "typescript.enablePromptUseWorkspaceTsdk": false,
+  "typescript.surveys.enabled": false,
+  "typescript.disableAutomaticTypeAcquisition": true,
+  "typescript.suggest.autoImports": false,
+  "typescript.updateImportsOnFileMove.enabled": "never",
+  "typescript.suggest.includeCompletionsForModuleExports": false,
+  "typescript.suggest.includeCompletionsForImportStatements": false,
+  "typescript.suggest.includeCompletionsWithSnippetText": false,
+  "typescript.suggest.includeCompletionsWithClassMemberSnippets": false,
+  "typescript.suggest.includeCompletionsWithObjectLiteralMethodSnippets": false,
+  "typescript.suggest.includeCompletionsWithInsertText": false,
+  "typescript.suggest.includeCompletionsWithReplaceText": false,
+  "python.defaultInterpreterPath": "./.venv/Scripts/python.exe",
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.autoSearchPaths": true,
+  "python.analysis.extraPaths": [
+    "./offchain",
+    "./scripts",
+    "./test"
+  ],
+  "files.associations": {
+    "*.py": "python",
+    "*.sol": "solidity",
+    "*.js": "javascript"
+  },
+  "python.linting.enabled": true,
+  "python.linting.pylintEnabled": false,
+  "python.linting.flake8Enabled": true,
+  "python.formatting.provider": "black",
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": "explicit"
+  }
+} 
